@@ -1,0 +1,226 @@
+import { useEffect, useRef, useState } from 'react';
+import { TrendingUp, Heart, Film } from 'lucide-react';
+import { Button } from './ui/button';
+import { motion } from 'motion/react';
+import { MouseScrollIcon } from './MouseScrollIcon';
+import { Logo } from './Logo';
+
+interface WelcomeStepProps {
+  onNext: () => void;
+}
+
+export function WelcomeStep({ onNext }: WelcomeStepProps) {
+  const [scrollY, setScrollY] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (containerRef.current) {
+        setScrollY(containerRef.current.scrollTop);
+      }
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, []);
+
+  const parallaxOffset = scrollY * 0.5;
+
+  return (
+    <div
+      ref={containerRef}
+      className="h-screen overflow-y-auto snap-y snap-mandatory scroll-smooth"
+    >
+      {/* Section 1: Hero */}
+      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start relative bg-[#1a1a24]">
+        {/* Cinema spotlight effect */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
+        
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="text-center relative z-10"
+        >
+          <Logo size="xl" className="justify-center mb-12" />
+          
+          <h1 className="text-white mb-8 text-5xl font-bold">
+            당신만을 위한 영화 추천 서비스
+          </h1>
+          
+          <p className="text-gray-300 mb-16 text-xl">
+            1분만 투자하세요.<br />
+            알고리즘이 당신의 취향을 분석하여<br />
+            완벽한 영화를 찾아드립니다.
+          </p>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 1 }}
+          >
+            <MouseScrollIcon />
+          </motion.div>
+        </motion.div>
+      </section>
+
+      {/* Section 2: Why PickMovie */}
+      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start bg-[#1a1a24]">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          viewport={{ once: true, margin: "-100px" }}
+          className="max-w-6xl mx-auto text-center"
+        >
+          <h2 className="text-white mb-8 text-5xl">
+            왜 <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent font-bold">PickMovie</span> 인가요?
+          </h2>
+          <p className="text-gray-400 mb-16 text-xl">
+            수많은 OTT 플랫폼과 영화 속에서 선택 장애를 겪고 계신가요?
+          </p>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-8 hover:bg-white/10 hover:border-white/20 transition-all"
+            >
+              <div className="text-5xl mb-4">🎯</div>
+              <h3 className="text-white mb-3">정확한 추천</h3>
+              <p className="text-gray-400">
+                장르, 분위기, 러닝타임까지 고려한 맞춤형 추천
+              </p>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-8 hover:bg-white/10 hover:border-white/20 transition-all"
+            >
+              <div className="text-5xl mb-4">⚡</div>
+              <h3 className="text-white mb-3">빠른 결과</h3>
+              <p className="text-gray-400">
+                단 1분만에 당신에게 완벽한 영화 리스트를 제공
+              </p>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-3xl p-8 hover:bg-white/10 hover:border-white/20 transition-all"
+            >
+              <div className="text-5xl mb-4">💾</div>
+              <h3 className="text-white mb-3">찜 기능</h3>
+              <p className="text-gray-400">
+                마음에 드는 영화를 저장하고 플레이리스트 생성
+              </p>
+            </motion.div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Section 3: How it works */}
+      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start bg-[#1a1a24]">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          viewport={{ once: true, margin: "-100px" }}
+          className="max-w-4xl mx-auto text-center"
+        >
+          <h2 className="text-white mb-6 text-5xl">
+            어떻게 작동하나요?
+          </h2>
+          <p className="text-gray-400 mb-16 text-lg">
+            간단한 3단계로 당신만의 영화 추천을 받아보세요
+          </p>
+
+          <div className="space-y-12">
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="flex items-start gap-6 text-left"
+            >
+              <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
+                1
+              </div>
+              <div>
+                <h3 className="text-white mb-2">취향 설문 작성</h3>
+                <p className="text-gray-400">
+                  선호하는 장르, 분위기, 러닝타임 등을 선택해주세요. 1분이면 충분합니다.
+                </p>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="flex items-start gap-6 text-left"
+            >
+              <div className="w-12 h-12 bg-pink-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
+                2
+              </div>
+              <div>
+                <h3 className="text-white mb-2">알고리즘 기반 분석</h3>
+                <p className="text-gray-400">
+                  가중치 기반 알고리즘으로 당신의 취향을 분석하고 TMDB에서 최적의 영화를 찾습니다.
+                </p>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
+              viewport={{ once: true, margin: "-50px" }}
+              className="flex items-start gap-6 text-left"
+            >
+              <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
+                3
+              </div>
+              <div>
+                <h3 className="text-white mb-2">맞춤 추천</h3>
+                <p className="text-gray-400">
+                  당신을 위한 영화 리스트를 받고, 찜하고, 나만의 플레이리스트를 만드세요.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
+            viewport={{ once: true, margin: "-50px" }}
+            className="mt-16"
+          >
+            <Button
+              onClick={onNext}
+              size="lg"
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-16 py-8 rounded-full text-lg"
+            >
+              시작하기
+            </Button>
+            <p className="text-gray-500 text-sm mt-4">
+              1분이면 완료됩니다
+            </p>
+          </motion.div>
+        </motion.div>
+      </section>
+    </div>
+  );
+}
