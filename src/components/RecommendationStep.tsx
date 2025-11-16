@@ -38,6 +38,7 @@ export function RecommendationStep({
 
   useEffect(() => {
     loadMovies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences]);
 
   const loadMovies = async () => {
@@ -66,8 +67,13 @@ export function RecommendationStep({
 
       const allMovies = [...page1, ...page2, ...page3];
 
+      // ✅ id 기준으로 중복 제거 (같은 영화가 여러 페이지에 있을 수 있음)
+      const uniqueMovies = Array.from(
+        new Map(allMovies.map((m) => [m.id, m])).values()
+      ) as TMDBMovie[];
+
       // 매칭 점수 계산 및 정렬
-      const moviesWithScores: MovieWithScore[] = allMovies.map((movie) => ({
+      const moviesWithScores: MovieWithScore[] = uniqueMovies.map((movie) => ({
         ...movie,
         matchScore: calculateMatchScore(movie, preferences),
       }));
@@ -103,7 +109,9 @@ export function RecommendationStep({
       title: movie.title,
       poster: getPosterUrl(movie.poster_path),
       rating: movie.vote_average,
-      year: new Date(movie.release_date).getFullYear(),
+      year: movie.release_date
+        ? new Date(movie.release_date).getFullYear()
+        : undefined,
       genre: preferences.genres[0] || "드라마",
       matchScore: movie.matchScore,
       runtime: 120, // TMDB에서 상세 정보 가져올 때 업데이트
@@ -213,9 +221,6 @@ export function RecommendationStep({
       transition={{ duration: 0.6 }}
       className="min-h-screen p-6 pb-20 relative bg-[#1a1a24] flex items-center justify-center"
     >
-      {/* Cinema spotlight effect */}
-      {/* <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-gradient-to-b from-purple-600/15 to-transparent rounded-full blur-3xl pointer-events-none" /> */}
-
       <div className="max-w-5xl mx-auto relative z-10 w-full">
         {/* Header */}
         <div className="text-center mb-10 pt-8">
@@ -239,58 +244,74 @@ export function RecommendationStep({
         <div className="mb-10">
           <h3 className="text-white mb-5 text-xl font-bold">추천 영화 목록</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {movies.map((movie: MovieWithScore) => (
-              <div
-                key={movie.id}
-                className="group cursor-pointer"
-                onClick={() => handleMovieClick(movie)}
-              >
-                <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
-                  <img
-                    src={getPosterUrl(movie.poster_path)}
-                    alt={movie.title}
-                    className="w-full h-full object-cover transition-opacity duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            {movies.map((movie: MovieWithScore) => {
+              const posterUrl = getPosterUrl(movie.poster_path, "w500");
 
-                  {/* Heart button */}
-                  <Button
-                    size="sm"
-                    onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                      e.stopPropagation();
-                      toggleFavorite(movie.id);
-                    }}
-                    variant="ghost"
-                    className="absolute top-2 right-2 w-7 h-7 p-0 bg-black/50 hover:bg-black/70 backdrop-blur-sm transition-all"
-                  >
-                    <Heart
-                      className={`w-3 h-3 transition-all ${
-                        favorites.includes(movie.id)
-                          ? "fill-current text-red-500"
-                          : "text-white"
-                      }`}
-                    />
-                  </Button>
+              return (
+                <div
+                  key={movie.id} // ✅ id 중복이 제거된 상태라 경고 없음
+                  className="group cursor-pointer"
+                  onClick={() => handleMovieClick(movie)}
+                >
+                  <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
+                    {posterUrl ? (
+                      <img
+                        src={posterUrl}
+                        alt={movie.title}
+                        className="w-full h-full object-cover transition-opacity duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-neutral-800 flex items-center justify-center text-neutral-400 text-xs">
+                        No Image
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                  {/* Match score badge */}
-                  <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
-                    {movie.matchScore}% 매칭
+                    {/* Heart button */}
+                    <Button
+                      size="sm"
+                      onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                        e.stopPropagation();
+                        toggleFavorite(movie.id);
+                      }}
+                      variant="ghost"
+                      className="absolute top-2 right-2 w-7 h-7 p-0 bg-black/50 hover:bg-black/70 backdrop-blur-sm transition-all"
+                    >
+                      <Heart
+                        className={`w-3 h-3 transition-all ${
+                          favorites.includes(movie.id)
+                            ? "fill-current text-red-500"
+                            : "text-white"
+                        }`}
+                      />
+                    </Button>
+
+                    {/* Match score badge */}
+                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
+                      {movie.matchScore}% 매칭
+                    </div>
+                  </div>
+
+                  <h4 className="text-white mb-1 truncate text-sm">
+                    {movie.title}
+                  </h4>
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1">
+                      <Star className="w-3 h-3 fill-current text-yellow-400" />
+                      {movie.vote_average.toFixed(1)}
+                    </span>
+                    {movie.release_date && (
+                      <>
+                        <span>·</span>
+                        <span>
+                          {new Date(movie.release_date).getFullYear()}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
-
-                <h4 className="text-white mb-1 truncate text-sm">
-                  {movie.title}
-                </h4>
-                <div className="flex items-center gap-2 text-xs text-gray-400">
-                  <span className="flex items-center gap-1">
-                    <Star className="w-3 h-3 fill-current text-yellow-400" />
-                    {movie.vote_average.toFixed(1)}
-                  </span>
-                  <span>·</span>
-                  <span>{new Date(movie.release_date).getFullYear()}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

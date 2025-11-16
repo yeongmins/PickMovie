@@ -69,6 +69,22 @@
   }
 }
 
+@keyframes page-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 페이지 전환용 페이드 인 */
+.page-fade-in {
+  animation: page-fade-in 0.4s ease-out;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -3619,5 +3635,29 @@ body:after {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .preview-hide-mobile {
+    display: none;
+  }
+}
+
+/* 캐러셀 제목 반응형 + 애니메이션 */
+.carousel-title {
+  /* 기본: 모바일 기준 3xl */
+  font-size: var(--text-3xl);
+  line-height: var(--text-3xl--line-height);
+
+  /* 크기 변경 시 부드럽게 */
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (min-width: 768px) {
+  /* 태블릿 이상: 4xl */
+  .carousel-title {
+    font-size: var(--text-4xl);
+    line-height: var(--text-4xl--line-height);
   }
 }

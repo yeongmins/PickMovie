@@ -6,10 +6,6 @@ import {
   lazy,
   Suspense,
 } from "react";
-// 🔽 직접 import 하던 컴포넌트는 lazy로 변경
-// import { Header } from "./Header";
-// import { FavoritesCarousel } from "./FavoritesCarousel";
-// import { MovieRow } from "./MovieRow";
 import { Button } from "./ui/button";
 import { AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
@@ -89,7 +85,6 @@ export function MainScreen({
 
   const favoriteIds = useMemo(() => favorites.map((f) => f.id), [favorites]);
 
-  // 마운트 로그 (DEV에서만)
   useEffect(() => {
     if (IS_DEV) {
       console.log("✅ MainScreen mounted");
@@ -101,7 +96,6 @@ export function MainScreen({
     };
   }, []);
 
-  // favorites 변경 로그 (DEV에서만)
   useEffect(() => {
     if (IS_DEV) {
       console.log("[MainScreen] favorites updated:", favorites);
@@ -161,8 +155,8 @@ export function MainScreen({
             id: detail.id,
             title: (detail as any).title || (detail as any).name || "제목 없음",
             overview: detail.overview || "",
-            poster_path: detail.poster_path || "",
-            backdrop_path: detail.backdrop_path || "",
+            poster_path: detail.poster_path ?? null,
+            backdrop_path: detail.backdrop_path ?? null,
             vote_average: detail.vote_average || 0,
             release_date:
               (detail as any).release_date ||
@@ -229,7 +223,7 @@ export function MainScreen({
     } finally {
       setLoading(false);
     }
-  }, [userPreferences]); // loadRecommendedMovies / loadGenreBasedMovies가 prefs를 캡쳐
+  }, [userPreferences]);
 
   useEffect(() => {
     loadAllData();
@@ -247,22 +241,35 @@ export function MainScreen({
   // 🔻 여기서부터 실제 데이터 로더들
   // =========================
 
-  // ✅ 인기 영화: 1페이지만
+  // ✅ 인기 영화: 1~4 페이지에서 최대 80개까지
   const loadPopularMovies = async (): Promise<TMDBMovie[]> => {
-    const page1 = await getPopularMovies(1);
-    // 혹시 중복 있을 수 있으니 한 번만 유니크 처리
-    const unique = Array.from(new Map(page1.map((m) => [m.id, m])).values());
-    return unique;
+    const pages = await Promise.all([
+      getPopularMovies(1),
+      getPopularMovies(2),
+      getPopularMovies(3),
+      getPopularMovies(4),
+    ]);
+
+    const merged = pages.flat();
+    const unique = Array.from(new Map(merged.map((m) => [m.id, m])).values());
+    return unique.slice(0, 80);
   };
 
-  // ✅ 인기 TV: 1페이지만 + TV → Movie 포맷 정규화
+  // ✅ 인기 TV: 1~4 페이지 + TV → Movie 포맷 정규화, 최대 80개
   const loadPopularTVShows = async (): Promise<TMDBMovie[]> => {
-    const page1 = await getPopularTVShows(1);
-    const normalized = page1.map((tv) => normalizeTVToMovie(tv));
+    const pages = await Promise.all([
+      getPopularTVShows(1),
+      getPopularTVShows(2),
+      getPopularTVShows(3),
+      getPopularTVShows(4),
+    ]);
+
+    const mergedTV = pages.flat();
+    const normalized = mergedTV.map((tv) => normalizeTVToMovie(tv));
     const unique = Array.from(
       new Map(normalized.map((m) => [m.id, m])).values()
     );
-    return unique;
+    return unique.slice(0, 80);
   };
 
   // ✅ 높은 평점 영화: 1페이지만
@@ -277,7 +284,7 @@ export function MainScreen({
     return page1;
   };
 
-  // ✅ 추천 영화: 1~2페이지만 사용 (기존 1~5페이지에서 축소)
+  // ✅ 추천 영화: 1~2페이지만 사용
   const loadRecommendedMovies = async (): Promise<MovieWithScore[]> => {
     const genreIds = userPreferences.genres
       .map((g) => GENRE_IDS[g])
@@ -454,33 +461,60 @@ export function MainScreen({
         />
       </Suspense>
 
-      <main className="pb-20">
+      <main key={currentSection} className="pb-20 page-fade-in">
         {/* Search Results */}
         {filteredContent && (
           <section className="pt-6" aria-label="검색 결과">
-            <h2 className="text-[#ffffff] mb-4 px-6 text-2xl">
+            {/* 제목 */}
+            <h2
+              className="mb-4 px-6 text-2xl"
+              style={{ color: "#ffffff" }} // 🔥 흰색 강제
+            >
               검색 결과: "{searchQuery}"
             </h2>
+
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
-              {filteredContent.map((movie) => (
-                <button
-                  key={movie.id}
-                  className="group cursor-pointer text-left"
-                  onClick={() => handleMovieClick(movie)}
-                >
-                  <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
-                    <img
-                      loading="lazy"
-                      src={getPosterUrl(movie.poster_path, "w300")}
-                      alt={movie.title || (movie as any).name}
-                      className="w-full h-full object-cover"
-                    />
+              {filteredContent.map((movie) => {
+                const title = movie.title || (movie as any).name || "제목 없음";
+                const posterUrl = getPosterUrl(movie.poster_path, "w500");
+
+                return (
+                  <div
+                    key={movie.id}
+                    role="button"
+                    tabIndex={0}
+                    className="group cursor-pointer text-left outline-none"
+                    onClick={() => handleMovieClick(movie)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleMovieClick(movie);
+                    }}
+                  >
+                    {/* 포스터 */}
+                    <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
+                      {posterUrl ? (
+                        <img
+                          loading="lazy"
+                          src={posterUrl}
+                          alt={title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-800 flex items-center justify-center text-neutral-400 text-xs">
+                          No Image
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 영화 제목 */}
+                    <p
+                      className="text-sm truncate"
+                      style={{ color: "#ffffff" }} // 🔥 여기서도 흰색 강제
+                    >
+                      {title}
+                    </p>
                   </div>
-                  <h3 className="text-white text-sm truncate">
-                    {movie.title || (movie as any).name}
-                  </h3>
-                </button>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -489,7 +523,6 @@ export function MainScreen({
         {!filteredContent && currentSection === "home" && (
           <>
             <section className="pt-6" aria-label="내 찜 목록 캐러셀">
-              {/* 🔹 FavoritesCarousel lazy-load */}
               <Suspense
                 fallback={
                   <div className="h-[260px] flex items-center justify-center">
@@ -627,7 +660,7 @@ export function MainScreen({
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                       <img
                         loading="lazy"
-                        src={getPosterUrl(movie.poster_path, "w300")}
+                        src={getPosterUrl(movie.poster_path, "w500") || ""}
                         alt={movie.title}
                         className="w-full h-full object-cover"
                       />
@@ -667,7 +700,7 @@ export function MainScreen({
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
                       loading="lazy"
-                      src={getPosterUrl(movie.poster_path, "w300")}
+                      src={getPosterUrl(movie.poster_path, "w500") || ""}
                       alt={movie.title}
                       className="w-full h-full object-cover"
                     />
@@ -693,7 +726,7 @@ export function MainScreen({
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
                       loading="lazy"
-                      src={getPosterUrl(show.poster_path, "w300")}
+                      src={getPosterUrl(show.poster_path, "w500") || ""}
                       alt={show.name}
                       className="w-full h-full object-cover"
                     />

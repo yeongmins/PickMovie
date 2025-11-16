@@ -1,3 +1,4 @@
+// MovieDetailModal.tsx
 import { useState, useEffect, useRef } from "react";
 import { X, Star, Heart, User } from "lucide-react";
 import { motion } from "framer-motion";
@@ -69,7 +70,7 @@ export function MovieDetailModal({
       try {
         const contentDetails = await getContentDetails(
           tmdbId,
-          movie.mediaType || "movie" // ✅ movie / tv 구분
+          movie.mediaType || "movie"
         );
         setDetails(contentDetails);
       } finally {
@@ -91,7 +92,7 @@ export function MovieDetailModal({
   const genreNames =
     details?.genres?.map((g) => g.name).join(", ") || movie.genre;
 
-  // 감독 정보 (crew에 Director가 있을 때) – 지금은 UI에서 안 쓰지만 남겨둠
+  // 감독 정보 (지금은 UI에서 사용 X)
   const director =
     (details as any)?.credits?.crew?.find((p: any) => p.job === "Director")
       ?.name || "정보 없음";
@@ -99,23 +100,28 @@ export function MovieDetailModal({
   // 출연진 정보
   const cast = (details as any)?.credits?.cast?.slice(0, 8) ?? [];
 
-  // ✅ 영화/TV 모두 커버하는 러닝타임 계산
+  // 영화/TV 러닝타임
   const runtime =
     (details as any)?.runtime ??
     (details as any)?.episode_run_time?.[0] ??
     movie.runtime ??
     120;
 
-  // 비슷한 영화 (중복 제거) + 매칭 점수 계산
+  // ⬇️ 비슷한 콘텐츠 원본
   const similarMoviesRaw =
-    (details as any)?.similar?.results?.slice(0, 4) ?? [];
+    (details as any)?.similar?.results?.slice(0, 8) ?? [];
+
+  // 1) id 기준 중복 제거
+  // 2) poster_path 없는 애들은 미리 제거
   const similarMovies = similarMoviesRaw
     .filter((m: any) => m && m.id)
     .filter(
       (m: any, index: number, self: any[]) =>
         index === self.findIndex((x) => x.id === m.id)
-    );
+    )
+    .filter((m: any) => !!m.poster_path); // ✅ 포스터 없는 콘텐츠 제거
 
+  // 매칭 점수 계산
   const similarMoviesWithScore = similarMovies.map((similar: any) => {
     let matchScore = 0;
     if (userPreferences) {
@@ -333,32 +339,45 @@ export function MovieDetailModal({
                 비슷한 콘텐츠
               </h3>
               <div className="grid grid-cols-4 gap-4">
-                {similarMoviesWithScore.map((similar: any) => (
-                  <div
-                    key={similar.id}
-                    className="group cursor-pointer"
-                    onClick={() => handleSimilarMovieClick(similar)}
-                  >
-                    <div className="relative aspect-[2/3] bg-white/5 rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500/50 transition-all">
-                      <img
-                        src={getPosterUrl(similar.poster_path, "w200")}
-                        alt={similar.title || similar.name}
-                        loading="lazy"
-                        className="w-full h-full object-cover transition-opacity group-hover:opacity-80"
-                      />
-                      <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
-                        {similar.matchScore}%
+                {similarMoviesWithScore.map((similar: any) => {
+                  const posterUrl = getPosterUrl(similar.poster_path, "w200");
+
+                  // 혹시라도 posterUrl이 비어 있으면 카드 자체를 렌더링하지 않음
+                  if (!posterUrl) return null;
+
+                  return (
+                    <div
+                      key={similar.id}
+                      className="group cursor-pointer"
+                      onClick={() => handleSimilarMovieClick(similar)}
+                    >
+                      <div className="relative aspect-[2/3] bg-white/5 rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500/50 transition-all">
+                        <img
+                          src={posterUrl}
+                          alt={similar.title || similar.name}
+                          loading="lazy"
+                          className="w-full h-full object-cover transition-opacity group-hover:opacity-80"
+                          onError={(e) => {
+                            // 이미지 깨지면 그냥 해당 카드만 안 보이도록
+                            (
+                              e.currentTarget.parentElement as HTMLElement
+                            ).style.display = "none";
+                          }}
+                        />
+                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
+                          {similar.matchScore}%
+                        </div>
+                      </div>
+                      <p className="text-gray-300 text-xs truncate font-medium">
+                        {similar.title || similar.name}
+                      </p>
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <Star className="w-3 h-3 fill-current text-yellow-400" />
+                        {similar.vote_average.toFixed(1)}
                       </div>
                     </div>
-                    <p className="text-gray-300 text-xs truncate font-medium">
-                      {similar.title || similar.name}
-                    </p>
-                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                      <Star className="w-3 h-3 fill-current text-yellow-400" />
-                      {similar.vote_average.toFixed(1)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

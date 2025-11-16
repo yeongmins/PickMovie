@@ -127,7 +127,7 @@ export function ExcludeStep({
               </div>
 
               {/* Right side - Preview */}
-              <div className="w-80 flex-shrink-0">
+              <div className="w-80 flex-shrink-0 preview-hide-mobile">
                 <PreferencesPreview
                   genres={currentPreferences.genres}
                   moods={currentPreferences.moods}

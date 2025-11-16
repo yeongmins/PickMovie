@@ -171,19 +171,16 @@ export async function getMovieDetails(
   movieId: number
 ): Promise<MovieDetails | null> {
   try {
-    // 먼저 영화 정보만 확인
     const movieResponse = await fetch(
       `${TMDB_BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=ko-KR`
     );
 
-    // 404 또는 다른 에러 응답 처리 (조용히 null)
     if (!movieResponse.ok) {
       return null;
     }
 
     const movie = await movieResponse.json();
 
-    // 영화가 존재하면 credits와 similar 정보도 가져오기
     const [creditsResponse, similarResponse] = await Promise.all([
       fetch(
         `${TMDB_BASE_URL}/movie/${movieId}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`
@@ -206,7 +203,6 @@ export async function getMovieDetails(
       similar,
     };
   } catch (error) {
-    // 네트워크 에러만 로그 출력
     if (error instanceof TypeError) {
       console.error(`Network error for movie ${movieId}:`, error.message);
     }
@@ -291,7 +287,6 @@ export function calculateMatchScore(
     ? new Date(movie.release_date).getFullYear()
     : NaN;
 
-  // release_year 가 없거나 잘못된 경우 현재 연도로 대체
   const releaseYear = Number.isFinite(rawReleaseYear)
     ? rawReleaseYear
     : currentYear;
@@ -363,7 +358,7 @@ export function calculateMatchScore(
   }
 
   const finalScore = Math.round(Math.min(score, 100));
-  return Number.isFinite(finalScore) ? finalScore : 0; // NaN이면 0점 처리
+  return Number.isFinite(finalScore) ? finalScore : 0;
 }
 
 // 인기 영화 가져오기

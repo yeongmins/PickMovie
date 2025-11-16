@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Heart, Star, Info, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { getPosterUrl } from "../utils/tmdb";
+import { getPosterUrl, getBackdropUrl } from "../utils/tmdb";
 
 interface Movie {
   id: number;
@@ -14,7 +14,7 @@ interface Movie {
   release_date?: string;
   first_air_date?: string;
   matchScore?: number;
-  media_type?: "movie" | "tv"; // mediaType 추가
+  media_type?: "movie" | "tv";
 }
 
 interface FavoritesCarouselProps {
@@ -29,9 +29,8 @@ export function FavoritesCarousel({
   onToggleFavorite,
 }: FavoritesCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [autoPlayKey, setAutoPlayKey] = useState(0); // 자동 재생 타이머를 리셋하기 위한 키
+  const [autoPlayKey, setAutoPlayKey] = useState(0);
 
-  // movies 배열이 변경되면 currentIndex를 0으로 리셋
   useEffect(() => {
     setCurrentIndex(0);
   }, [movies.length]);
@@ -44,16 +43,16 @@ export function FavoritesCarousel({
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [movies.length, autoPlayKey]); // autoPlayKey가 변경될 때마다 타이머 재시작
+  }, [movies.length, autoPlayKey]);
 
   const goToPrevious = () => {
     setCurrentIndex((prev) => (prev - 1 + movies.length) % movies.length);
-    setAutoPlayKey((prev) => prev + 1); // 타이머 리셋
+    setAutoPlayKey((prev) => prev + 1);
   };
 
   const goToNext = () => {
     setCurrentIndex((prev) => (prev + 1) % movies.length);
-    setAutoPlayKey((prev) => prev + 1); // 타이머 리셋
+    setAutoPlayKey((prev) => prev + 1);
   };
 
   if (movies.length === 0) {
@@ -72,7 +71,6 @@ export function FavoritesCarousel({
 
   const currentMovie = movies[currentIndex];
 
-  // currentMovie가 undefined인 경우 방어 코드
   if (!currentMovie) {
     return (
       <div className="relative h-[500px] bg-gradient-to-b from-purple-900/20 to-transparent rounded-xl mb-10 mx-6 flex items-center justify-center border border-white/10">
@@ -98,8 +96,8 @@ export function FavoritesCarousel({
           {/* Background image */}
           <div className="absolute inset-0">
             <img
-              src={getPosterUrl(
-                currentMovie.backdrop_path || currentMovie.poster_path,
+              src={getBackdropUrl(
+                currentMovie.backdrop_path || currentMovie.poster_path || null,
                 "original"
               )}
               alt={currentMovie.title}
@@ -116,9 +114,9 @@ export function FavoritesCarousel({
                 <Heart className="w-5 h-5 fill-current text-red-500" />
                 <span className="text-purple-300 text-sm">내 찜 목록</span>
               </div>
-
-              <h1 className="text-white text-5xl mb-4">{currentMovie.title}</h1>
-
+              <h1 className="text-white mb-4 carousel-title">
+                {currentMovie.title}
+              </h1>
               <div className="flex items-center gap-4 mb-4 text-sm">
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
