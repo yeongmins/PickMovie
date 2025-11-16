@@ -83,7 +83,6 @@ coverage/
 # Images / Cache
 # ---------------------------
 .cache/
-*.png
 *.jpg
 *.jpeg
 *.gif
