@@ -1,0 +1,101 @@
+# ---------------------------
+# Node
+# ---------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ---------------------------
+# Build Output
+# ---------------------------
+dist/
+build/
+.cache/
+.temp/
+
+# ---------------------------
+# Environment Variables
+# ---------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------
+# Logs
+# ---------------------------
+logs/
+*.log
+*.log.*
+log.txt
+
+# ---------------------------
+# OS / Editor files
+# ---------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# VS Code
+.vscode/
+.history/
+*.code-workspace
+
+# JetBrains
+.idea/
+
+# ---------------------------
+# Temp Files
+# ---------------------------
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ---------------------------
+# Local Development Files
+# ---------------------------
+*.local
+local.settings.json
+firebase-debug.log
+
+# ---------------------------
+# Coverage / Test Output
+# ---------------------------
+coverage/
+*.lcov
+
+# ---------------------------
+# Images / Cache
+# ---------------------------
+.cache/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+
+# If you want to keep images, remove above lines.
+# 추천: public/images/ 정도는 포함시키고, 캐시 파일만 ignore
+
+# ---------------------------
+# Misc
+# ---------------------------
+*.swp
+*.swo
+robots.txt

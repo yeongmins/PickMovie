@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Button } from './ui/button';
-import { PreferencesPreview } from './PreferencesPreview';
-import { UserPreferences } from './Onboarding';
+import { useState } from "react";
+import { Button } from "./ui/button";
+import { PreferencesPreview } from "./PreferencesPreview";
+import { UserPreferences } from "./Onboarding";
 
 interface MoodStepProps {
   onNext: () => void;
@@ -12,26 +12,32 @@ interface MoodStepProps {
 }
 
 const moodOptions = [
-  { id: 'exciting', label: '흥미진진', icon: '🔥' },
-  { id: 'touching', label: '감동적인', icon: '😢' },
-  { id: 'fun', label: '재미있는', icon: '😄' },
-  { id: 'scary', label: '무서운', icon: '😨' },
-  { id: 'romantic', label: '로맨틱', icon: '💖' },
-  { id: 'serious', label: '진지한', icon: '🤔' },
-  { id: 'light', label: '가벼운', icon: '☁️' },
-  { id: 'dark', label: '어두운', icon: '🌑' },
-  { id: 'inspiring', label: '영감을 주는', icon: '✨' },
-  { id: 'mysterious', label: '신비로운', icon: '🎭' },
-  { id: 'nostalgic', label: '향수를 불러일으키는', icon: '📼' },
-  { id: 'intense', label: '강렬한', icon: '⚡' },
+  { id: "exciting", label: "흥미진진", icon: "🔥" },
+  { id: "touching", label: "감동적인", icon: "😢" },
+  { id: "fun", label: "재미있는", icon: "😄" },
+  { id: "scary", label: "무서운", icon: "😨" },
+  { id: "romantic", label: "로맨틱", icon: "💖" },
+  { id: "serious", label: "진지한", icon: "🤔" },
+  { id: "light", label: "가벼운", icon: "☁️" },
+  { id: "dark", label: "어두운", icon: "🌑" },
+  { id: "inspiring", label: "영감을 주는", icon: "✨" },
+  { id: "mysterious", label: "신비로운", icon: "🎭" },
+  { id: "nostalgic", label: "향수를 불러일으키는", icon: "📼" },
+  { id: "intense", label: "강렬한", icon: "⚡" },
 ];
 
-export function MoodStep({ onNext, onBack, selectedMoods, onMoodsChange, currentPreferences }: MoodStepProps) {
+export function MoodStep({
+  onNext,
+  onBack,
+  selectedMoods,
+  onMoodsChange,
+  currentPreferences,
+}: MoodStepProps) {
   const [localMoods, setLocalMoods] = useState<string[]>(selectedMoods);
 
   const toggleMood = (mood: string) => {
     const newMoods = localMoods.includes(mood)
-      ? localMoods.filter(m => m !== mood)
+      ? localMoods.filter((m) => m !== mood)
       : [...localMoods, mood];
     setLocalMoods(newMoods);
     onMoodsChange(newMoods);
@@ -46,8 +52,8 @@ export function MoodStep({ onNext, onBack, selectedMoods, onMoodsChange, current
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
       {/* Cinema spotlight effect */}
-      <div className="absolute top-1/4 right-1/4 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-3xl pointer-events-none" />
-      
+      {/* <div className="absolute top-1/4 right-1/4 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-3xl pointer-events-none" /> */}
+
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* Left side - Selection */}
         <div className="flex-1 flex flex-col max-w-2xl">
@@ -64,14 +70,14 @@ export function MoodStep({ onNext, onBack, selectedMoods, onMoodsChange, current
           </div>
 
           <div className="flex-1 grid grid-cols-3 gap-3 mb-6">
-            {moodOptions.map(mood => (
+            {moodOptions.map((mood) => (
               <button
                 key={mood.id}
                 onClick={() => toggleMood(mood.label)}
                 className={`p-4 rounded-xl border-2 transition-all text-left ${
                   localMoods.includes(mood.label)
-                    ? 'bg-pink-500/20 border-pink-500 shadow-lg shadow-pink-500/20'
-                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    ? "bg-pink-500/20 border-pink-500 shadow-lg shadow-pink-500/20"
+                    : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                 }`}
               >
                 <div className="text-3xl mb-2">{mood.icon}</div>

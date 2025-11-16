@@ -1,7 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Star, Heart, User } from 'lucide-react';
-import { motion } from 'motion/react';
-import { getMovieDetails, getPosterUrl, calculateMatchScore, type MovieDetails, type TMDBMovie } from '../utils/tmdb';
+import { useState, useEffect, useRef } from "react";
+import { X, Star, Heart, User } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  getContentDetails,
+  getPosterUrl,
+  calculateMatchScore,
+  type MovieDetails,
+  type TVDetails,
+} from "../utils/tmdb";
 
 interface Movie {
   id: number;
@@ -16,7 +22,7 @@ interface Movie {
   director?: string;
   cast?: string[];
   tmdbId?: number;
-  mediaType?: 'movie' | 'tv';
+  mediaType?: "movie" | "tv";
 }
 
 interface MovieDetailModalProps {
@@ -34,32 +40,44 @@ interface MovieDetailModalProps {
   };
 }
 
-export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite, onMovieChange, userPreferences }: MovieDetailModalProps) {
-  const [details, setDetails] = useState<MovieDetails | null>(null);
+export function MovieDetailModal({
+  movie,
+  onClose,
+  isFavorite,
+  onToggleFavorite,
+  onMovieChange,
+  userPreferences,
+}: MovieDetailModalProps) {
+  const [details, setDetails] = useState<MovieDetails | TVDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const modalContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // 모달이 열릴 때 body 스크롤 방지
-    document.body.style.overflow = 'hidden';
-    
+    document.body.style.overflow = "hidden";
     return () => {
-      // 모달이 닫힐 때 body 스크롤 복원
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = "unset";
     };
   }, []);
 
   useEffect(() => {
     const loadDetails = async () => {
-      if (movie.tmdbId || movie.id) {
-        setLoading(true);
-        const movieDetails = await getMovieDetails(movie.tmdbId || movie.id);
-        setDetails(movieDetails);
+      const tmdbId = movie.tmdbId || movie.id;
+      if (!tmdbId) return;
+
+      setLoading(true);
+      try {
+        const contentDetails = await getContentDetails(
+          tmdbId,
+          movie.mediaType || "movie" // ✅ movie / tv 구분
+        );
+        setDetails(contentDetails);
+      } finally {
         setLoading(false);
       }
     };
     loadDetails();
-  }, [movie.id, movie.tmdbId]);
+  }, [movie.id, movie.tmdbId, movie.mediaType]);
 
   // 영화가 변경될 때 스크롤을 맨 위로 이동
   useEffect(() => {
@@ -70,51 +88,68 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
   }, [movie.id]);
 
   // 장르 이름들 추출
-  const genreNames = details?.genres?.map(g => g.name).join(', ') || movie.genre;
-  
-  // 감독 정보 추출
-  const director = details?.credits?.cast?.[0]?.name || '정보 없음';
-  
+  const genreNames =
+    details?.genres?.map((g) => g.name).join(", ") || movie.genre;
+
+  // 감독 정보 (crew에 Director가 있을 때) – 지금은 UI에서 안 쓰지만 남겨둠
+  const director =
+    (details as any)?.credits?.crew?.find((p: any) => p.job === "Director")
+      ?.name || "정보 없음";
+
   // 출연진 정보
-  const cast = details?.credits?.cast?.slice(0, 8) || [];
-  
+  const cast = (details as any)?.credits?.cast?.slice(0, 8) ?? [];
+
+  // ✅ 영화/TV 모두 커버하는 러닝타임 계산
+  const runtime =
+    (details as any)?.runtime ??
+    (details as any)?.episode_run_time?.[0] ??
+    movie.runtime ??
+    120;
+
   // 비슷한 영화 (중복 제거) + 매칭 점수 계산
-  const similarMoviesRaw = details?.similar?.results?.slice(0, 4) || [];
+  const similarMoviesRaw =
+    (details as any)?.similar?.results?.slice(0, 4) ?? [];
   const similarMovies = similarMoviesRaw
-    .filter((movie) => movie && movie.id) // undefined ID 필터링
-    .filter((movie, index, self) => 
-      index === self.findIndex((m) => m.id === movie.id)
+    .filter((m: any) => m && m.id)
+    .filter(
+      (m: any, index: number, self: any[]) =>
+        index === self.findIndex((x) => x.id === m.id)
     );
 
-  // 비슷한 영화에 매칭 점수 추가
-  const similarMoviesWithScore = similarMovies.map((similar) => {
-    let matchScore = 50; // 기본 점수
+  const similarMoviesWithScore = similarMovies.map((similar: any) => {
+    let matchScore = 0;
     if (userPreferences) {
-      matchScore = calculateMatchScore(similar, userPreferences);
+      const rawScore = calculateMatchScore(similar, userPreferences);
+      matchScore = Number.isFinite(rawScore) ? rawScore : 0;
     }
     return { ...similar, matchScore };
   });
 
   const handleSimilarMovieClick = (similar: any) => {
-    // 유효성 검사
     if (!similar || !similar.id) {
-      console.warn('Invalid similar movie data:', similar);
+      console.warn("Invalid similar movie data:", similar);
       return;
     }
 
     if (onMovieChange) {
+      const safeMatchScore = userPreferences
+        ? calculateMatchScore(similar, userPreferences)
+        : 50;
+
       const newMovie: Movie = {
         id: similar.id,
-        title: similar.title || similar.name || '제목 없음',
+        title: similar.title || similar.name || "제목 없음",
         poster: getPosterUrl(similar.poster_path),
         rating: similar.vote_average || 0,
-        year: new Date(similar.release_date || similar.first_air_date || '').getFullYear(),
+        year: new Date(
+          similar.release_date || similar.first_air_date || ""
+        ).getFullYear(),
         genre: details?.genres?.[0]?.name || movie.genre,
-        matchScore: calculateMatchScore(similar, userPreferences), // 매칭 점수 계산
-        description: similar.overview || '',
-        runtime: 120,
+        matchScore: safeMatchScore,
+        description: similar.overview || "",
+        runtime: runtime,
         tmdbId: similar.id,
-        mediaType: similar.media_type || movie.mediaType || 'movie', // mediaType 전파
+        mediaType: similar.media_type || movie.mediaType || "movie",
       };
       onMovieChange(newMovie);
     }
@@ -142,6 +177,7 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
         <button
           onClick={onClose}
           className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center transition-colors duration-200"
+          aria-label="영화 상세 닫기"
         >
           <X className="w-5 h-5 text-white" />
         </button>
@@ -152,6 +188,7 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
             src={movie.poster}
             alt={movie.title}
             className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm"
+            loading="lazy"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a24] via-[#1a1a24]/80 to-transparent" />
 
@@ -163,13 +200,14 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
                 src={movie.poster}
                 alt={movie.title}
                 className="w-full h-full object-cover"
+                loading="lazy"
               />
             </div>
 
             {/* Title & basic info */}
             <div className="flex-1 flex flex-col justify-end">
               <h2 className="text-white mb-3 text-3xl">{movie.title}</h2>
-              
+
               {/* Meta badges */}
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="px-3 py-1 bg-green-600/80 backdrop-blur-sm rounded text-white text-sm font-semibold">
@@ -177,11 +215,13 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
                 </div>
                 <div className="flex items-center gap-1.5 text-gray-300 text-sm">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
-                  <span className="font-semibold">{movie.rating.toFixed(1)}</span>
+                  <span className="font-semibold">
+                    {movie.rating.toFixed(1)}
+                  </span>
                 </div>
                 <span className="text-gray-400 text-sm">{movie.year}년</span>
                 <span className="text-gray-400 text-sm">{genreNames}</span>
-                <span className="text-gray-400 text-sm">{details?.runtime || movie.runtime || 120}분</span>
+                <span className="text-gray-400 text-sm">{runtime}분</span>
               </div>
 
               {/* Action Buttons */}
@@ -190,12 +230,18 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
                   onClick={onToggleFavorite}
                   className={`px-5 py-2 rounded-lg border-2 transition-colors flex items-center gap-2 ${
                     isFavorite
-                      ? 'border-red-500 bg-red-500/10 hover:bg-red-500/20'
-                      : 'border-white/20 bg-white/5 hover:bg-white/10'
+                      ? "border-red-500 bg-red-500/10 hover:bg-red-500/20"
+                      : "border-white/20 bg-white/5 hover:bg-white/10"
                   }`}
                 >
-                  <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current text-red-500' : 'text-white'}`} />
-                  <span className="text-white text-sm font-medium">{isFavorite ? '찜 완료' : '찜하기'}</span>
+                  <Heart
+                    className={`w-4 h-4 ${
+                      isFavorite ? "fill-current text-red-500" : "text-white"
+                    }`}
+                  />
+                  <span className="text-white text-sm font-medium">
+                    {isFavorite ? "찜 완료" : "찜하기"}
+                  </span>
                 </button>
               </div>
             </div>
@@ -208,8 +254,9 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
           <div className="mb-8">
             <h3 className="text-white mb-3 text-lg font-semibold">줄거리</h3>
             <p className="text-gray-300 leading-relaxed text-sm">
-              {details?.overview || movie.description || 
-                '이 영화는 당신의 취향에 맞춰 추천된 작품입니다. 흥미진진한 스토리와 뛰어난 연출로 많은 관객들의 사랑을 받은 명작입니다.'}
+              {details?.overview ||
+                movie.description ||
+                "이 영화는 당신의 취향에 맞춰 추천된 작품입니다. 흥미진진한 스토리와 뛰어난 연출로 많은 관객들의 사랑을 받은 명작입니다."}
             </p>
           </div>
 
@@ -230,7 +277,7 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
             {/* Runtime */}
             <div className="flex gap-4">
               <span className="text-gray-500 w-24 flex-shrink-0">러닝타임</span>
-              <span className="text-gray-300">{details?.runtime || movie.runtime || 120}분</span>
+              <span className="text-gray-300">{runtime}분</span>
             </div>
 
             {/* Cast */}
@@ -238,7 +285,7 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
               <div className="flex gap-4">
                 <span className="text-gray-500 w-24 flex-shrink-0">출연</span>
                 <span className="text-gray-300">
-                  {cast.map(c => c.name).join(', ')}
+                  {cast.map((c: any) => c.name).join(", ")}
                 </span>
               </div>
             )}
@@ -247,9 +294,11 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
           {/* Cast thumbnails */}
           {cast.length > 0 && (
             <div className="mb-8">
-              <h3 className="text-white mb-4 text-lg font-semibold">주요 출연진</h3>
+              <h3 className="text-white mb-4 text-lg font-semibold">
+                주요 출연진
+              </h3>
               <div className="grid grid-cols-4 gap-4">
-                {cast.map((actor) => (
+                {cast.map((actor: any) => (
                   <div key={actor.id} className="text-center">
                     <div className="w-full aspect-square bg-white/5 rounded-lg mb-2 overflow-hidden">
                       {actor.profile_path ? (
@@ -257,6 +306,7 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
                           src={`https://image.tmdb.org/t/p/w200${actor.profile_path}`}
                           alt={actor.name}
                           className="w-full h-full object-cover"
+                          loading="lazy"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
@@ -264,8 +314,12 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
                         </div>
                       )}
                     </div>
-                    <p className="text-gray-300 text-xs truncate font-medium">{actor.name}</p>
-                    <p className="text-gray-500 text-xs truncate">{actor.character}</p>
+                    <p className="text-gray-300 text-xs truncate font-medium">
+                      {actor.name}
+                    </p>
+                    <p className="text-gray-500 text-xs truncate">
+                      {actor.character}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -275,22 +329,30 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
           {/* Similar movies section */}
           {similarMoviesWithScore.length > 0 && (
             <div>
-              <h3 className="text-white mb-4 text-lg font-semibold">비슷한 콘텐츠</h3>
+              <h3 className="text-white mb-4 text-lg font-semibold">
+                비슷한 콘텐츠
+              </h3>
               <div className="grid grid-cols-4 gap-4">
-                {similarMoviesWithScore.map((similar) => (
-                  <div key={similar.id} className="group cursor-pointer" onClick={() => handleSimilarMovieClick(similar)}>
+                {similarMoviesWithScore.map((similar: any) => (
+                  <div
+                    key={similar.id}
+                    className="group cursor-pointer"
+                    onClick={() => handleSimilarMovieClick(similar)}
+                  >
                     <div className="relative aspect-[2/3] bg-white/5 rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500/50 transition-all">
                       <img
-                        src={getPosterUrl(similar.poster_path, 'w200')}
-                        alt={similar.title}
+                        src={getPosterUrl(similar.poster_path, "w200")}
+                        alt={similar.title || similar.name}
+                        loading="lazy"
                         className="w-full h-full object-cover transition-opacity group-hover:opacity-80"
                       />
-                      {/* Match score badge */}
                       <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
                         {similar.matchScore}%
                       </div>
                     </div>
-                    <p className="text-gray-300 text-xs truncate font-medium">{similar.title}</p>
+                    <p className="text-gray-300 text-xs truncate font-medium">
+                      {similar.title || similar.name}
+                    </p>
                     <div className="flex items-center gap-1 text-xs text-gray-500">
                       <Star className="w-3 h-3 fill-current text-yellow-400" />
                       {similar.vote_average.toFixed(1)}
@@ -301,12 +363,16 @@ export function MovieDetailModal({ movie, onClose, isFavorite, onToggleFavorite,
             </div>
           )}
 
-          {loading && cast.length === 0 && similarMovies.length === 0 && (
-            <div className="text-center py-8">
-              <div className="inline-block w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-gray-400 text-sm mt-2">상세 정보를 불러오는 중...</p>
-            </div>
-          )}
+          {loading &&
+            cast.length === 0 &&
+            similarMoviesWithScore.length === 0 && (
+              <div className="text-center py-8">
+                <div className="inline-block w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-400 text-sm mt-2">
+                  상세 정보를 불러오는 중...
+                </p>
+              </div>
+            )}
         </div>
       </motion.div>
     </motion.div>

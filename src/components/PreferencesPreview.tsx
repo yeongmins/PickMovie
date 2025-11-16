@@ -1,5 +1,12 @@
-import { Film, Sparkles, Clock, Calendar, Globe, XCircle, Heart } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import {
+  Film,
+  Sparkles,
+  Clock,
+  Calendar,
+  Globe,
+  XCircle,
+  Heart,
+} from "lucide-react";
 
 interface PreferencesPreviewProps {
   genres: string[];
@@ -31,20 +38,18 @@ export function PreferencesPreview({
         {/* Progress indicator */}
         <div className="mb-5">
           <div className="flex items-center gap-1 mb-2">
-            {[1, 2, 3, 4].map(step => (
+            {[1, 2, 3, 4].map((step) => (
               <div
                 key={step}
                 className={`h-1 flex-1 rounded-full transition-all ${
                   step <= currentStep
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-500'
-                    : 'bg-white/10'
+                    ? "bg-gradient-to-r from-purple-500 to-pink-500"
+                    : "bg-white/10"
                 }`}
               />
             ))}
           </div>
-          <p className="text-gray-400 text-xs">
-            {currentStep}/4 단계 완료
-          </p>
+          <p className="text-gray-400 text-xs">{currentStep}/4 단계 완료</p>
         </div>
 
         <div className="space-y-4">
@@ -56,7 +61,7 @@ export function PreferencesPreview({
             </div>
             {genres.length > 0 ? (
               <div className="flex flex-wrap gap-1">
-                {genres.map(genre => (
+                {genres.map((genre) => (
                   <span
                     key={genre}
                     className="px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-200 text-xs"
@@ -78,7 +83,7 @@ export function PreferencesPreview({
             </div>
             {moods.length > 0 ? (
               <div className="flex flex-wrap gap-1">
-                {moods.map(mood => (
+                {moods.map((mood) => (
                   <span
                     key={mood}
                     className="px-2 py-1 bg-pink-500/20 border border-pink-500/30 rounded-md text-pink-200 text-xs"
@@ -99,8 +104,12 @@ export function PreferencesPreview({
                 <Clock className="w-3 h-3 text-blue-300" />
                 <span className="text-gray-300 text-xs">러닝타임</span>
               </div>
-              <p className={`text-xs ${runtime ? 'text-blue-200' : 'text-gray-500'}`}>
-                {runtime || '선택되지 않음'}
+              <p
+                className={`text-xs ${
+                  runtime ? "text-blue-200" : "text-gray-500"
+                }`}
+              >
+                {runtime || "선택되지 않음"}
               </p>
             </div>
             <div>
@@ -108,8 +117,12 @@ export function PreferencesPreview({
                 <Calendar className="w-3 h-3 text-green-300" />
                 <span className="text-gray-300 text-xs">개봉 연도</span>
               </div>
-              <p className={`text-xs ${releaseYear ? 'text-green-200' : 'text-gray-500'}`}>
-                {releaseYear || '선택되지 않음'}
+              <p
+                className={`text-xs ${
+                  releaseYear ? "text-green-200" : "text-gray-500"
+                }`}
+              >
+                {releaseYear || "선택되지 않음"}
               </p>
             </div>
             <div>
@@ -117,8 +130,12 @@ export function PreferencesPreview({
                 <Globe className="w-3 h-3 text-yellow-300" />
                 <span className="text-gray-300 text-xs">국가</span>
               </div>
-              <p className={`text-xs ${country ? 'text-yellow-200' : 'text-gray-500'}`}>
-                {country || '선택되지 않음'}
+              <p
+                className={`text-xs ${
+                  country ? "text-yellow-200" : "text-gray-500"
+                }`}
+              >
+                {country || "선택되지 않음"}
               </p>
             </div>
           </div>
@@ -131,7 +148,7 @@ export function PreferencesPreview({
                 <span className="text-gray-300 text-xs">제외 요소</span>
               </div>
               <div className="flex flex-wrap gap-1">
-                {excludes.map(exclude => (
+                {excludes.map((exclude) => (
                   <span
                     key={exclude}
                     className="px-2 py-1 bg-orange-500/20 border border-orange-500/30 rounded-md text-orange-200 text-xs"

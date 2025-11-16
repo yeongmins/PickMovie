@@ -1,13 +1,20 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Header } from './Header';
-import { FavoritesCarousel } from './FavoritesCarousel';
-import { MovieRow } from './MovieRow';
-import { MovieDetailModal } from './MovieDetailModal';
-import { Button } from './ui/button';
-import { AnimatePresence } from 'motion/react';
-import { Loader2 } from 'lucide-react';
-import { UserPreferences } from './Onboarding';
-import { FavoriteItem } from '../App';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
+// 🔽 직접 import 하던 컴포넌트는 lazy로 변경
+// import { Header } from "./Header";
+// import { FavoritesCarousel } from "./FavoritesCarousel";
+// import { MovieRow } from "./MovieRow";
+import { Button } from "./ui/button";
+import { AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
+import { UserPreferences } from "./Onboarding";
+import { FavoriteItem } from "../App";
 import {
   getPopularMovies,
   getPopularTVShows,
@@ -20,149 +27,213 @@ import {
   getPosterUrl,
   normalizeTVToMovie,
   GENRE_IDS,
-  type TMDBMovie
-} from '../utils/tmdb';
+  type TMDBMovie,
+} from "../utils/tmdb";
+
+// 🔹 lazy-load 컴포넌트들 (코드 스플리팅)
+const Header = lazy(() =>
+  import("./Header").then((mod) => ({ default: mod.Header }))
+);
+
+const FavoritesCarousel = lazy(() =>
+  import("./FavoritesCarousel").then((mod) => ({
+    default: mod.FavoritesCarousel,
+  }))
+);
+
+const MovieRow = lazy(() =>
+  import("./MovieRow").then((mod) => ({ default: mod.MovieRow }))
+);
+
+// 🔹 MovieDetailModal을 lazy-load (초기 번들 크기 줄이기)
+const MovieDetailModal = lazy(() =>
+  import("./MovieDetailModal").then((mod) => ({
+    default: mod.MovieDetailModal,
+  }))
+);
 
 interface MainScreenProps {
   userPreferences: UserPreferences;
   favorites: FavoriteItem[];
   onReanalyze?: () => void;
-  onToggleFavorite?: (movieId: number, mediaType?: 'movie' | 'tv') => void;
+  onToggleFavorite?: (movieId: number, mediaType?: "movie" | "tv") => void;
 }
 
 interface MovieWithScore extends TMDBMovie {
   matchScore?: number;
 }
 
-export function MainScreen({ userPreferences, favorites, onReanalyze, onToggleFavorite }: MainScreenProps) {
-  const [currentSection, setCurrentSection] = useState('home');
-  const [searchQuery, setSearchQuery] = useState('');
+const IS_DEV = import.meta.env.DEV;
+
+export function MainScreen({
+  userPreferences,
+  favorites,
+  onReanalyze,
+  onToggleFavorite,
+}: MainScreenProps) {
+  const [currentSection, setCurrentSection] = useState("home");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Movie data states
   const [favoriteMovies, setFavoriteMovies] = useState<MovieWithScore[]>([]);
-  const [recommendedMovies, setRecommendedMovies] = useState<MovieWithScore[]>([]);
+  const [recommendedMovies, setRecommendedMovies] = useState<MovieWithScore[]>(
+    []
+  );
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularTV, setPopularTV] = useState<TMDBMovie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
   const [genreMovies, setGenreMovies] = useState<MovieWithScore[]>([]);
 
-  // 컴포넌트 마운트/언마운트 감지 (개발 환경에서만)
+  const favoriteIds = useMemo(() => favorites.map((f) => f.id), [favorites]);
+
+  // 마운트 로그 (DEV에서만)
   useEffect(() => {
-    const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-    if (isDev) {
-      console.log('✅ MainScreen mounted');
+    if (IS_DEV) {
+      console.log("✅ MainScreen mounted");
     }
     return () => {
-      if (isDev) {
-        console.log('❌ MainScreen unmounted');
+      if (IS_DEV) {
+        console.log("❌ MainScreen unmounted");
       }
     };
   }, []);
 
-  // favorites 변경 감지 (개발 환경에서만)
+  // favorites 변경 로그 (DEV에서만)
   useEffect(() => {
-    const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-    if (isDev) {
-      console.log('[MainScreen] favorites updated:', favorites);
+    if (IS_DEV) {
+      console.log("[MainScreen] favorites updated:", favorites);
     }
   }, [favorites]);
 
   const loadFavoriteMoviesDetails = useCallback(async () => {
-    const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-    if (isDev) {
-      console.log('[loadFavoriteMoviesDetails] CALLED with favorites:', favorites);
+    if (IS_DEV) {
+      console.log(
+        "[loadFavoriteMoviesDetails] CALLED with favorites:",
+        favorites
+      );
     }
 
     try {
-      // mediaType에 따라 올바른 API 호출
-      const movieDetailsPromises = favorites.map(item => {
-        if (isDev) {
+      const movieDetailsPromises = favorites.map((item) => {
+        if (IS_DEV) {
           console.log(`[loadFavoriteMoviesDetails] Processing item:`, item);
         }
 
-        if (item.mediaType === 'tv') {
-          return getTVDetails(item.id).then(detail => {
-            if (!detail) return null;
-            // TV 데이터를 영화 형식으로 정규화
-            return {
-              ...detail,
-              title: detail.name,
-              release_date: detail.first_air_date,
-              runtime: detail.episode_run_time?.[0] || 120,
-              media_type: 'tv' as const, // mediaType 추가
-            };
-          }).catch(() => null);
+        if (item.mediaType === "tv") {
+          return getTVDetails(item.id)
+            .then((detail) => {
+              if (!detail) return null;
+              return {
+                ...detail,
+                title: detail.name,
+                release_date: detail.first_air_date,
+                runtime: detail.episode_run_time?.[0] || 120,
+                media_type: "tv" as const,
+              };
+            })
+            .catch(() => null);
         } else {
-          return getMovieDetails(item.id).then(detail => {
-            if (!detail) return null;
-            return {
-              ...detail,
-              media_type: 'movie' as const, // mediaType 추가
-            };
-          }).catch(() => null);
+          return getMovieDetails(item.id)
+            .then((detail) => {
+              if (!detail) return null;
+              return {
+                ...detail,
+                media_type: "movie" as const,
+              };
+            })
+            .catch(() => null);
         }
       });
-      
+
       const details = await Promise.all(movieDetailsPromises);
-      
+
       const moviesWithScore = details
-        .filter((detail): detail is NonNullable<typeof detail> => detail !== null)
-        .map(detail => {
-          // genres 배열을 genre_ids로 변환
-          const genreIds = detail.genres?.map(g => g.id) || [];
-          
-          return {
+        .filter(
+          (detail): detail is NonNullable<typeof detail> => detail !== null
+        )
+        .map((detail) => {
+          const genreIds = detail.genres?.map((g) => g.id) || [];
+
+          const baseMovie: TMDBMovie = {
             id: detail.id,
-            title: detail.title || (detail as any).name,
-            poster_path: detail.poster_path || '',
-            backdrop_path: detail.backdrop_path || '',
+            title: (detail as any).title || (detail as any).name || "제목 없음",
+            overview: detail.overview || "",
+            poster_path: detail.poster_path || "",
+            backdrop_path: detail.backdrop_path || "",
             vote_average: detail.vote_average || 0,
-            overview: detail.overview || '',
-            release_date: detail.release_date || (detail as any).first_air_date || '',
+            release_date:
+              (detail as any).release_date ||
+              (detail as any).first_air_date ||
+              "",
             genre_ids: genreIds,
             popularity: detail.popularity || 0,
             adult: detail.adult || false,
-            original_language: detail.original_language || '',
-            media_type: detail.media_type, // mediaType 보존
-            matchScore: calculateMatchScore({
-              id: detail.id,
-              title: detail.title || (detail as any).name,
-              overview: detail.overview || '',
-              poster_path: detail.poster_path || '',
-              backdrop_path: detail.backdrop_path || '',
-              vote_average: detail.vote_average || 0,
-              release_date: detail.release_date || (detail as any).first_air_date || '',
-              genre_ids: genreIds,
-              popularity: detail.popularity || 0,
-              adult: detail.adult || false,
-              original_language: detail.original_language || '',
-            }, userPreferences),
+            original_language: detail.original_language || "",
+            media_type: detail.media_type as "movie" | "tv",
+          };
+
+          return {
+            ...baseMovie,
+            matchScore: calculateMatchScore(baseMovie, userPreferences),
           };
         });
-      
-      if (isDev) {
-        console.log('[loadFavoriteMoviesDetails] RESULT moviesWithScore:', moviesWithScore);
+
+      if (IS_DEV) {
+        console.log(
+          "[loadFavoriteMoviesDetails] RESULT moviesWithScore:",
+          moviesWithScore
+        );
       }
 
       setFavoriteMovies(moviesWithScore);
     } catch (error) {
-      console.error('Failed to load favorite movies:', error);
+      console.error("Failed to load favorite movies:", error);
       setFavoriteMovies([]);
     }
   }, [favorites, userPreferences]);
 
-  const toggleFavorite = useCallback((movieId: number, mediaType?: 'movie' | 'tv') => {
-    if (onToggleFavorite) {
-      onToggleFavorite(movieId, mediaType);
+  const toggleFavorite = useCallback(
+    (movieId: number, mediaType?: "movie" | "tv") => {
+      if (onToggleFavorite) {
+        onToggleFavorite(movieId, mediaType);
+      }
+    },
+    [onToggleFavorite]
+  );
+
+  // 🔹 인기/TV/평점/최신/추천/장르별 데이터를 한 번에 로딩
+  const loadAllData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [popular, tv, topRated, latest, recommended, genre] =
+        await Promise.all([
+          loadPopularMovies(),
+          loadPopularTVShows(),
+          loadTopRatedMovies(),
+          loadNowPlayingMovies(),
+          loadRecommendedMovies(),
+          loadGenreBasedMovies(),
+        ]);
+
+      setPopularMovies(popular);
+      setPopularTV(tv);
+      setTopRatedMovies(topRated);
+      setLatestMovies(latest);
+      setRecommendedMovies(recommended);
+      setGenreMovies(genre);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+    } finally {
+      setLoading(false);
     }
-  }, [onToggleFavorite]);
+  }, [userPreferences]); // loadRecommendedMovies / loadGenreBasedMovies가 prefs를 캡쳐
 
   useEffect(() => {
     loadAllData();
-  }, []);
+  }, [loadAllData]);
 
   useEffect(() => {
     if (favorites.length > 0) {
@@ -172,180 +243,187 @@ export function MainScreen({ userPreferences, favorites, onReanalyze, onToggleFa
     }
   }, [favorites, loadFavoriteMoviesDetails]);
 
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      const [popular, tv, topRated, latest, recommended, genre] = await Promise.all([
-        loadPopularMovies(),
-        loadPopularTVShows(),
-        loadTopRatedMovies(),
-        loadNowPlayingMovies(),
-        loadRecommendedMovies(),
-        loadGenreBasedMovies(),
-      ]);
+  // =========================
+  // 🔻 여기서부터 실제 데이터 로더들
+  // =========================
 
-      setPopularMovies(popular);
-      setPopularTV(tv);
-      setTopRatedMovies(topRated);
-      setLatestMovies(latest);
-      setRecommendedMovies(recommended);
-      setGenreMovies(genre);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // ✅ 인기 영화: 1페이지만
   const loadPopularMovies = async (): Promise<TMDBMovie[]> => {
-    const [page1, page2, page3] = await Promise.all([
-      getPopularMovies(1),
-      getPopularMovies(2),
-      getPopularMovies(3),
-    ]);
-    return [...page1, ...page2, ...page3];
+    const page1 = await getPopularMovies(1);
+    // 혹시 중복 있을 수 있으니 한 번만 유니크 처리
+    const unique = Array.from(new Map(page1.map((m) => [m.id, m])).values());
+    return unique;
   };
 
+  // ✅ 인기 TV: 1페이지만 + TV → Movie 포맷 정규화
   const loadPopularTVShows = async (): Promise<TMDBMovie[]> => {
-    const [page1, page2, page3] = await Promise.all([
-      getPopularTVShows(1),
-      getPopularTVShows(2),
-      getPopularTVShows(3),
-    ]);
-    // TV 데이터를 영화 형식으로 정규화하고 media_type 추가
-    return [...page1, ...page2, ...page3].map(tv => normalizeTVToMovie(tv));
+    const page1 = await getPopularTVShows(1);
+    const normalized = page1.map((tv) => normalizeTVToMovie(tv));
+    const unique = Array.from(
+      new Map(normalized.map((m) => [m.id, m])).values()
+    );
+    return unique;
   };
 
+  // ✅ 높은 평점 영화: 1페이지만
   const loadTopRatedMovies = async (): Promise<TMDBMovie[]> => {
-    const [page1, page2, page3] = await Promise.all([
-      getTopRatedMovies(1),
-      getTopRatedMovies(2),
-      getTopRatedMovies(3),
-    ]);
-    return [...page1, ...page2, ...page3];
+    const page1 = await getTopRatedMovies(1);
+    return page1;
   };
 
+  // ✅ 최신 상영 영화: 1페이지만
   const loadNowPlayingMovies = async (): Promise<TMDBMovie[]> => {
-    const [page1, page2, page3] = await Promise.all([
-      getNowPlayingMovies(1),
-      getNowPlayingMovies(2),
-      getNowPlayingMovies(3),
-    ]);
-    return [...page1, ...page2, ...page3];
+    const page1 = await getNowPlayingMovies(1);
+    return page1;
   };
 
+  // ✅ 추천 영화: 1~2페이지만 사용 (기존 1~5페이지에서 축소)
   const loadRecommendedMovies = async (): Promise<MovieWithScore[]> => {
     const genreIds = userPreferences.genres
-      .map(g => GENRE_IDS[g])
+      .map((g) => GENRE_IDS[g])
       .filter(Boolean);
 
-    // 여러 페이지 가져오기 (1~5페이지로 증가)
-    const [page1, page2, page3, page4, page5] = await Promise.all([
+    const [page1, page2] = await Promise.all([
       discoverMovies({ genres: genreIds, page: 1 }),
       discoverMovies({ genres: genreIds, page: 2 }),
-      discoverMovies({ genres: genreIds, page: 3 }),
-      discoverMovies({ genres: genreIds, page: 4 }),
-      discoverMovies({ genres: genreIds, page: 5 }),
     ]);
-    
-    const allMovies = [...page1, ...page2, ...page3, ...page4, ...page5];
-    
-    return allMovies.map(movie => ({
-      ...movie,
-      matchScore: calculateMatchScore(movie, userPreferences),
-    })).sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 80);
+
+    const allMovies = [...page1, ...page2];
+
+    return allMovies
+      .map((movie) => ({
+        ...movie,
+        matchScore: calculateMatchScore(movie, userPreferences),
+      }))
+      .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
+      .slice(0, 80);
   };
 
+  // ✅ 장르 기반: 1페이지만
   const loadGenreBasedMovies = async (): Promise<MovieWithScore[]> => {
     if (userPreferences.genres.length === 0) return [];
-    
+
     const mainGenre = userPreferences.genres[0];
     const genreId = GENRE_IDS[mainGenre];
     if (!genreId) return [];
 
     const movies = await discoverMovies({ genres: [genreId], page: 1 });
-    
-    return movies.map(movie => ({
-      ...movie,
-      matchScore: calculateMatchScore(movie, userPreferences),
-    })).slice(0, 20);
+
+    return movies
+      .map((movie) => ({
+        ...movie,
+        matchScore: calculateMatchScore(movie, userPreferences),
+      }))
+      .slice(0, 20);
   };
 
   const handleMovieClick = async (movie: any) => {
-    // 유효성 검사: movie.id가 없으면 함수 종료
     if (!movie || !movie.id) {
-      console.warn('Invalid movie data:', movie);
+      console.warn("Invalid movie data:", movie);
       return;
     }
 
-    // TMDB API에서 상세 정보를 바로 가져오기
     try {
-      const details = movie.media_type === 'tv' ? await getTVDetails(movie.id) : await getMovieDetails(movie.id);
-      
-      // details가 null이어도 괜찮음 (출연진 정보가 없는 경우)
+      const details =
+        movie.media_type === "tv"
+          ? await getTVDetails(movie.id)
+          : await getMovieDetails(movie.id);
+
       const movieData = {
         id: movie.id,
-        title: movie.title || movie.name || details?.title || details?.name || '제목 없음',
-        poster: getPosterUrl(movie.poster_path || details?.poster_path),
-        rating: movie.vote_average || details?.vote_average || 0,
-        year: new Date(movie.release_date || movie.first_air_date || details?.release_date || details?.first_air_date || '').getFullYear(),
-        genre: details?.genres?.[0]?.name || userPreferences.genres[0] || '드라마',
+        title:
+          movie.title ||
+          movie.name ||
+          (details as any)?.title ||
+          (details as any)?.name ||
+          "제목 없음",
+        poster: getPosterUrl(
+          movie.poster_path || (details as any)?.poster_path
+        ),
+        rating: movie.vote_average || (details as any)?.vote_average || 0,
+        year: new Date(
+          movie.release_date ||
+            movie.first_air_date ||
+            (details as any)?.release_date ||
+            (details as any)?.first_air_date ||
+            ""
+        ).getFullYear(),
+        genre:
+          (details as any)?.genres?.[0]?.name ||
+          userPreferences.genres[0] ||
+          "드라마",
         matchScore: movie.matchScore || 50,
-        runtime: details?.runtime || details?.episode_run_time?.[0] || 120,
-        director: details?.credits?.crew?.find((person: any) => person.job === 'Director')?.name || '정보 없음',
-        cast: details?.credits?.cast?.slice(0, 5).map((actor: any) => actor.name) || [],
-        description: movie.overview || details?.overview || '줄거리 정보가 없습니다.',
+        runtime:
+          (details as any)?.runtime ||
+          (details as any)?.episode_run_time?.[0] ||
+          120,
+        director:
+          (details as any)?.credits?.crew?.find(
+            (person: any) => person.job === "Director"
+          )?.name || "정보 없음",
+        cast:
+          (details as any)?.credits?.cast
+            ?.slice(0, 5)
+            .map((actor: any) => actor.name) || [],
+        description:
+          movie.overview ||
+          (details as any)?.overview ||
+          "줄거리 정보가 없습니다.",
         tmdbId: movie.id,
-        mediaType: movie.media_type || 'movie', // mediaType 추가
+        mediaType: movie.media_type || "movie",
       };
+
       setSelectedMovie(movieData);
     } catch (error) {
-      console.error('Failed to load movie details:', error);
-      // 폴백: 기본 데이터 사용 (출연진 없어도 모달 표시)
+      console.error("Failed to load movie details:", error);
       const movieData = {
         id: movie.id,
-        title: movie.title || movie.name || '제목 없음',
+        title: movie.title || movie.name || "제목 없음",
         poster: getPosterUrl(movie.poster_path),
         rating: movie.vote_average || 0,
-        year: new Date(movie.release_date || movie.first_air_date || '').getFullYear(),
-        genre: userPreferences.genres[0] || '드라마',
+        year: new Date(
+          movie.release_date || movie.first_air_date || ""
+        ).getFullYear(),
+        genre: userPreferences.genres[0] || "드라마",
         matchScore: movie.matchScore || 50,
         runtime: 120,
-        director: '정보 없음',
+        director: "정보 없음",
         cast: [],
-        description: movie.overview || '줄거리 정보가 없습니다.',
+        description: movie.overview || "줄거리 정보가 없습니다.",
         tmdbId: movie.id,
-        mediaType: movie.media_type || 'movie', // mediaType 추가
+        mediaType: movie.media_type || "movie",
       };
       setSelectedMovie(movieData);
     }
   };
 
-  const getFilteredContent = () => {
-    if (searchQuery.trim()) {
-      // Filter all movies by search query
-      const query = searchQuery.toLowerCase();
-      const allMovies = [
-        ...recommendedMovies,
-        ...popularMovies,
-        ...topRatedMovies,
-        ...latestMovies,
-      ];
-      
-      // Remove duplicates by ID and filter
-      const uniqueMovies = Array.from(
-        new Map(allMovies.map(movie => [movie.id, movie])).values()
-      );
-      
-      return uniqueMovies.filter(movie => 
-        movie.title?.toLowerCase().includes(query) ||
-        movie.name?.toLowerCase().includes(query)
-      );
-    }
-    return null;
-  };
+  const filteredContent = useMemo(() => {
+    if (!searchQuery.trim()) return null;
 
-  const filteredContent = getFilteredContent();
+    const query = searchQuery.toLowerCase();
+    const allMovies = [
+      ...recommendedMovies,
+      ...popularMovies,
+      ...topRatedMovies,
+      ...latestMovies,
+    ];
+
+    const uniqueMovies = Array.from(
+      new Map(allMovies.map((movie) => [movie.id, movie])).values()
+    );
+
+    return uniqueMovies.filter(
+      (movie) =>
+        movie.title?.toLowerCase().includes(query) ||
+        (movie as any).name?.toLowerCase().includes(query)
+    );
+  }, [
+    searchQuery,
+    recommendedMovies,
+    popularMovies,
+    topRatedMovies,
+    latestMovies,
+  ]);
 
   if (loading) {
     return (
@@ -360,112 +438,168 @@ export function MainScreen({ userPreferences, favorites, onReanalyze, onToggleFa
 
   return (
     <div className="min-h-screen bg-[#1a1a24]">
-      <Header
-        onNavigate={setCurrentSection}
-        currentSection={currentSection}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
+      {/* 🔹 Header lazy-load (Suspense) */}
+      <Suspense
+        fallback={
+          <div className="h-16 flex items-center px-6 text-white/60">
+            Loading...
+          </div>
+        }
+      >
+        <Header
+          onNavigate={setCurrentSection}
+          currentSection={currentSection}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+      </Suspense>
 
       <main className="pb-20">
         {/* Search Results */}
         {filteredContent && (
-          <div className="pt-6">
-            <h2 className="text-white mb-4 px-6 text-2xl">
+          <section className="pt-6" aria-label="검색 결과">
+            <h2 className="text-[#ffffff] mb-4 px-6 text-2xl">
               검색 결과: "{searchQuery}"
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
-              {filteredContent.map(movie => (
-                <div
+              {filteredContent.map((movie) => (
+                <button
                   key={movie.id}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer text-left"
                   onClick={() => handleMovieClick(movie)}
                 >
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
-                      src={getPosterUrl(movie.poster_path, 'w300')}
-                      alt={movie.title || movie.name}
+                      loading="lazy"
+                      src={getPosterUrl(movie.poster_path, "w300")}
+                      alt={movie.title || (movie as any).name}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h4 className="text-white text-sm truncate">{movie.title || movie.name}</h4>
-                </div>
+                  <h3 className="text-white text-sm truncate">
+                    {movie.title || (movie as any).name}
+                  </h3>
+                </button>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {/* Home Section */}
-        {!filteredContent && currentSection === 'home' && (
+        {!filteredContent && currentSection === "home" && (
           <>
-            {/* Favorites Carousel */}
-            <div className="pt-6">
-              <FavoritesCarousel
-                movies={favoriteMovies}
-                onMovieClick={handleMovieClick}
-                onToggleFavorite={toggleFavorite}
-              />
-            </div>
+            <section className="pt-6" aria-label="내 찜 목록 캐러셀">
+              {/* 🔹 FavoritesCarousel lazy-load */}
+              <Suspense
+                fallback={
+                  <div className="h-[260px] flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+                  </div>
+                }
+              >
+                <FavoritesCarousel
+                  movies={favoriteMovies}
+                  onMovieClick={handleMovieClick}
+                  onToggleFavorite={toggleFavorite}
+                />
+              </Suspense>
+            </section>
 
-            {/* Movie Rows */}
-            <MovieRow
-              title="당신을 위한 추천"
-              movies={recommendedMovies}
-              favorites={favorites.map(f => f.id)}
-              onToggleFavorite={toggleFavorite}
-              onMovieClick={handleMovieClick}
-              showMatchScore={true}
-            />
-
-            <MovieRow
-              title="인기 영화"
-              movies={popularMovies}
-              favorites={favorites.map(f => f.id)}
-              onToggleFavorite={toggleFavorite}
-              onMovieClick={handleMovieClick}
-            />
-
-            <MovieRow
-              title="인기 TV 프로그램"
-              movies={popularTV}
-              favorites={favorites.map(f => f.id)}
-              onToggleFavorite={toggleFavorite}
-              onMovieClick={handleMovieClick}
-            />
-
-            <MovieRow
-              title="최신 개봉작"
-              movies={latestMovies}
-              favorites={favorites.map(f => f.id)}
-              onToggleFavorite={toggleFavorite}
-              onMovieClick={handleMovieClick}
-            />
-
-            <MovieRow
-              title="높은 평점 영화"
-              movies={topRatedMovies}
-              favorites={favorites.map(f => f.id)}
-              onToggleFavorite={toggleFavorite}
-              onMovieClick={handleMovieClick}
-            />
-
-            {userPreferences.genres.length > 0 && (
+            {/* 🔹 MovieRow 들 lazy-load */}
+            <Suspense
+              fallback={
+                <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+              }
+            >
               <MovieRow
-                title={`${userPreferences.genres[0]} 추천`}
-                movies={genreMovies}
-                favorites={favorites.map(f => f.id)}
+                title="당신을 위한 추천"
+                movies={recommendedMovies}
+                favorites={favoriteIds}
                 onToggleFavorite={toggleFavorite}
                 onMovieClick={handleMovieClick}
                 showMatchScore={true}
               />
+            </Suspense>
+
+            <Suspense
+              fallback={
+                <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+              }
+            >
+              <MovieRow
+                title="인기 영화"
+                movies={popularMovies}
+                favorites={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+                onMovieClick={handleMovieClick}
+              />
+            </Suspense>
+
+            <Suspense
+              fallback={
+                <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+              }
+            >
+              <MovieRow
+                title="인기 TV 프로그램"
+                movies={popularTV}
+                favorites={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+                onMovieClick={handleMovieClick}
+              />
+            </Suspense>
+
+            <Suspense
+              fallback={
+                <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+              }
+            >
+              <MovieRow
+                title="최신 개봉작"
+                movies={latestMovies}
+                favorites={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+                onMovieClick={handleMovieClick}
+              />
+            </Suspense>
+
+            <Suspense
+              fallback={
+                <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+              }
+            >
+              <MovieRow
+                title="높은 평점 영화"
+                movies={topRatedMovies}
+                favorites={favoriteIds}
+                onToggleFavorite={toggleFavorite}
+                onMovieClick={handleMovieClick}
+              />
+            </Suspense>
+
+            {userPreferences.genres.length > 0 && (
+              <Suspense
+                fallback={
+                  <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
+                }
+              >
+                <MovieRow
+                  title={`${userPreferences.genres[0]} 추천`}
+                  movies={genreMovies}
+                  favorites={favoriteIds}
+                  onToggleFavorite={toggleFavorite}
+                  onMovieClick={handleMovieClick}
+                  showMatchScore={true}
+                />
+              </Suspense>
             )}
 
             {/* Reanalyze Button */}
-            <div className="text-center mt-16 mb-10 px-6">
+            <section className="text-center mt-16 mb-10 px-6">
               <div className="max-w-md mx-auto">
-                <h3 className="text-white text-xl mb-4">
+                <h2 className="text-white text-xl mb-4">
                   새로운 추천을 받아보세요
-                </h3>
+                </h2>
                 <Button
                   onClick={onReanalyze}
                   size="lg"
@@ -474,25 +608,26 @@ export function MainScreen({ userPreferences, favorites, onReanalyze, onToggleFa
                   취향 재분석하기
                 </Button>
               </div>
-            </div>
+            </section>
           </>
         )}
 
         {/* Favorites Section */}
-        {!filteredContent && currentSection === 'favorites' && (
-          <div className="pt-6">
+        {!filteredContent && currentSection === "favorites" && (
+          <section className="pt-6" aria-label="내 찜 목록">
             <h2 className="text-white mb-6 px-6 text-2xl">내 찜 목록</h2>
             {favoriteMovies.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
-                {favoriteMovies.map(movie => (
-                  <div
+                {favoriteMovies.map((movie) => (
+                  <button
                     key={movie.id}
-                    className="group cursor-pointer"
+                    className="group cursor-pointer text-left"
                     onClick={() => handleMovieClick(movie)}
                   >
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                       <img
-                        src={getPosterUrl(movie.poster_path, 'w300')}
+                        loading="lazy"
+                        src={getPosterUrl(movie.poster_path, "w300")}
                         alt={movie.title}
                         className="w-full h-full object-cover"
                       />
@@ -502,80 +637,90 @@ export function MainScreen({ userPreferences, favorites, onReanalyze, onToggleFa
                         </div>
                       )}
                     </div>
-                    <h4 className="text-white text-sm truncate">{movie.title}</h4>
-                  </div>
+                    <h3 className="text-white text-sm truncate">
+                      {movie.title}
+                    </h3>
+                  </button>
                 ))}
               </div>
             ) : (
               <div className="text-center py-20">
-                <p className="text-gray-400 text-lg">아직 찜한 영화가 없습니다</p>
+                <p className="text-gray-400 text-lg">
+                  아직 찜한 영화가 없습니다
+                </p>
               </div>
             )}
-          </div>
+          </section>
         )}
 
         {/* Popular Movies Section */}
-        {!filteredContent && currentSection === 'popular-movies' && (
-          <div className="pt-6">
+        {!filteredContent && currentSection === "popular-movies" && (
+          <section className="pt-6" aria-label="인기 영화">
             <h2 className="text-white mb-6 px-6 text-2xl">인기 영화</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
-              {popularMovies.map(movie => (
-                <div
+              {popularMovies.map((movie) => (
+                <button
                   key={movie.id}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer text-left"
                   onClick={() => handleMovieClick(movie)}
                 >
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
-                      src={getPosterUrl(movie.poster_path, 'w300')}
+                      loading="lazy"
+                      src={getPosterUrl(movie.poster_path, "w300")}
                       alt={movie.title}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h4 className="text-white text-sm truncate">{movie.title}</h4>
-                </div>
+                  <h3 className="text-white text-sm truncate">{movie.title}</h3>
+                </button>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
         {/* Popular TV Section */}
-        {!filteredContent && currentSection === 'popular-tv' && (
-          <div className="pt-6">
+        {!filteredContent && currentSection === "popular-tv" && (
+          <section className="pt-6" aria-label="인기 TV 컨텐츠">
             <h2 className="text-white mb-6 px-6 text-2xl">인기 TV 컨텐츠</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
-              {popularTV.map(show => (
-                <div
+              {popularTV.map((show) => (
+                <button
                   key={show.id}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer text-left"
                   onClick={() => handleMovieClick(show)}
                 >
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
-                      src={getPosterUrl(show.poster_path, 'w300')}
+                      loading="lazy"
+                      src={getPosterUrl(show.poster_path, "w300")}
                       alt={show.name}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                  <h4 className="text-white text-sm truncate">{show.name}</h4>
-                </div>
+                  <h3 className="text-white text-sm truncate">{show.name}</h3>
+                </button>
               ))}
             </div>
-          </div>
+          </section>
         )}
       </main>
 
       {/* Movie Detail Modal */}
       <AnimatePresence>
         {selectedMovie && (
-          <MovieDetailModal
-            movie={selectedMovie}
-            onClose={() => setSelectedMovie(null)}
-            isFavorite={favorites.some(f => f.id === selectedMovie.id)}
-            onToggleFavorite={() => toggleFavorite(selectedMovie.id, selectedMovie.mediaType)}
-            onMovieChange={(newMovie) => setSelectedMovie(newMovie)}
-            userPreferences={userPreferences}
-          />
+          <Suspense fallback={null}>
+            <MovieDetailModal
+              movie={selectedMovie}
+              onClose={() => setSelectedMovie(null)}
+              isFavorite={favorites.some((f) => f.id === selectedMovie.id)}
+              onToggleFavorite={() =>
+                toggleFavorite(selectedMovie.id, selectedMovie.mediaType)
+              }
+              onMovieChange={(newMovie) => setSelectedMovie(newMovie)}
+              userPreferences={userPreferences}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { TrendingUp, Heart, Film } from 'lucide-react';
-import { Button } from './ui/button';
-import { motion } from 'motion/react';
-import { MouseScrollIcon } from './MouseScrollIcon';
-import { Logo } from './Logo';
+// WelcomeStep.tsx
+import { useEffect, useRef, useState } from "react";
+import { Button } from "./ui/button";
+import { motion } from "framer-motion";
+import { MouseScrollIcon } from "./MouseScrollIcon";
+import { Logo } from "./Logo";
 
 interface WelcomeStepProps {
   onNext: () => void;
@@ -22,38 +22,42 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
 
     const container = containerRef.current;
     if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
+      container.addEventListener("scroll", handleScroll);
+      return () => container.removeEventListener("scroll", handleScroll);
     }
   }, []);
 
+  // 필요하면 나중에 패럴랙스에 사용할 수 있음
   const parallaxOffset = scrollY * 0.5;
 
   return (
     <div
       ref={containerRef}
-      className="h-screen overflow-y-auto snap-y snap-mandatory scroll-smooth"
+      className="relative h-screen overflow-y-auto snap-y snap-mandatory scroll-smooth"
     >
+      <div className="pointer-events-none fixed inset-0 z-0 flex items-center justify-center">
+        <div className="w-[140vmax] h-[140vmax] rounded-full bg-[#341551] opacity-90 blur-3xl" />
+      </div>
+
       {/* Section 1: Hero */}
-      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start relative bg-[#1a1a24]">
-        {/* Cinema spotlight effect */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
-        
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 snap-start overflow-hidden">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, ease: "easeOut" }}
-          className="text-center relative z-10"
+          className="text-center"
         >
           <Logo size="xl" className="justify-center mb-12" />
-          
+
           <h1 className="text-white mb-8 text-5xl font-bold">
             당신만을 위한 영화 추천 서비스
           </h1>
-          
+
           <p className="text-gray-300 mb-16 text-xl">
-            1분만 투자하세요.<br />
-            알고리즘이 당신의 취향을 분석하여<br />
+            1분만 투자하세요.
+            <br />
+            알고리즘이 당신의 취향을 분석하여
+            <br />
             완벽한 영화를 찾아드립니다.
           </p>
 
@@ -68,7 +72,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       </section>
 
       {/* Section 2: Why PickMovie */}
-      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start bg-[#1a1a24]">
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 snap-start">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -77,7 +81,11 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           className="max-w-6xl mx-auto text-center"
         >
           <h2 className="text-white mb-8 text-5xl">
-            왜 <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent font-bold">PickMovie</span> 인가요?
+            왜{" "}
+            <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent font-bold">
+              PickMovie
+            </span>{" "}
+            인가요?
           </h2>
           <p className="text-gray-400 mb-16 text-xl">
             수많은 OTT 플랫폼과 영화 속에서 선택 장애를 겪고 계신가요?
@@ -130,7 +138,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       </section>
 
       {/* Section 3: How it works */}
-      <section className="min-h-screen flex flex-col items-center justify-center p-6 snap-start bg-[#1a1a24]">
+      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 snap-start">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -138,9 +146,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           viewport={{ once: true, margin: "-100px" }}
           className="max-w-4xl mx-auto text-center"
         >
-          <h2 className="text-white mb-6 text-5xl">
-            어떻게 작동하나요?
-          </h2>
+          <h2 className="text-white mb-6 text-5xl">어떻게 작동하나요?</h2>
           <p className="text-gray-400 mb-16 text-lg">
             간단한 3단계로 당신만의 영화 추천을 받아보세요
           </p>
@@ -159,7 +165,8 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               <div>
                 <h3 className="text-white mb-2">취향 설문 작성</h3>
                 <p className="text-gray-400">
-                  선호하는 장르, 분위기, 러닝타임 등을 선택해주세요. 1분이면 충분합니다.
+                  선호하는 장르, 분위기, 러닝타임 등을 선택해주세요. 1분이면
+                  충분합니다.
                 </p>
               </div>
             </motion.div>
@@ -177,7 +184,8 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               <div>
                 <h3 className="text-white mb-2">알고리즘 기반 분석</h3>
                 <p className="text-gray-400">
-                  가중치 기반 알고리즘으로 당신의 취향을 분석하고 TMDB에서 최적의 영화를 찾습니다.
+                  가중치 기반 알고리즘으로 당신의 취향을 분석하고 TMDB에서
+                  최적의 영화를 찾습니다.
                 </p>
               </div>
             </motion.div>
@@ -195,7 +203,8 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               <div>
                 <h3 className="text-white mb-2">맞춤 추천</h3>
                 <p className="text-gray-400">
-                  당신을 위한 영화 리스트를 받고, 찜하고, 나만의 플레이리스트를 만드세요.
+                  당신을 위한 영화 리스트를 받고, 찜하고, 나만의 플레이리스트를
+                  만드세요.
                 </p>
               </div>
             </motion.div>
@@ -215,9 +224,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
             >
               시작하기
             </Button>
-            <p className="text-gray-500 text-sm mt-4">
-              1분이면 완료됩니다
-            </p>
+            <p className="text-gray-500 text-sm mt-4">1분이면 완료됩니다</p>
           </motion.div>
         </motion.div>
       </section>

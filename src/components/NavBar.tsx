@@ -1,6 +1,6 @@
-import { Logo } from './Logo';
-import { Button } from './ui/button';
-import { Search, User, Heart } from 'lucide-react';
+import { Logo } from "./Logo";
+import { Button } from "./ui/button";
+import { Search, User, Heart } from "lucide-react";
 
 export function NavBar() {
   return (
@@ -24,11 +24,18 @@ export function NavBar() {
 
           {/* Nav items */}
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" className="text-gray-300 hover:text-white">
-              <Heart className="w-4 h-4 mr-2" />
-              찜 목록
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-gray-300 hover:text-white"
+            >
+              <Heart className="w-4 h-4 mr-2" />찜 목록
             </Button>
-            <Button variant="ghost" size="sm" className="text-gray-300 hover:text-white">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-gray-300 hover:text-white"
+            >
               <User className="w-4 h-4" />
             </Button>
           </div>

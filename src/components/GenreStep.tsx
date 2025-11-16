@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Button } from './ui/button';
-import { Film } from 'lucide-react';
-import { PreferencesPreview } from './PreferencesPreview';
-import { UserPreferences } from './Onboarding';
+import { useState, useEffect } from "react";
+import { Button } from "./ui/button";
+import { PreferencesPreview } from "./PreferencesPreview";
+import { UserPreferences } from "./Onboarding";
 
 interface GenreStepProps {
   onNext: () => void;
@@ -13,29 +12,35 @@ interface GenreStepProps {
 }
 
 const genreOptions = [
-  { id: 'action', label: '액션', icon: '💥' },
-  { id: 'comedy', label: '코미디', icon: '😂' },
-  { id: 'romance', label: '로맨스', icon: '💕' },
-  { id: 'thriller', label: '스릴러', icon: '😱' },
-  { id: 'sf', label: 'SF', icon: '🚀' },
-  { id: 'drama', label: '드라마', icon: '🎭' },
-  { id: 'horror', label: '공포', icon: '👻' },
-  { id: 'animation', label: '애니메이션', icon: '🎨' },
-  { id: 'fantasy', label: '판타지', icon: '🧙‍♂️' },
-  { id: 'crime', label: '범죄', icon: '🔫' },
-  { id: 'adventure', label: '모험', icon: '🗺️' },
-  { id: 'mystery', label: '미스터리', icon: '🔍' },
-  { id: 'family', label: '가족', icon: '👨‍👩‍👧‍👦' },
-  { id: 'music', label: '음악', icon: '🎵' },
-  { id: 'documentary', label: '다큐멘터리', icon: '📹' },
+  { id: "action", label: "액션", icon: "💥" },
+  { id: "comedy", label: "코미디", icon: "😂" },
+  { id: "romance", label: "로맨스", icon: "💕" },
+  { id: "thriller", label: "스릴러", icon: "😱" },
+  { id: "sf", label: "SF", icon: "🚀" },
+  { id: "drama", label: "드라마", icon: "🎭" },
+  { id: "horror", label: "공포", icon: "👻" },
+  { id: "animation", label: "애니메이션", icon: "🎨" },
+  { id: "fantasy", label: "판타지", icon: "🧙‍♂️" },
+  { id: "crime", label: "범죄", icon: "🔫" },
+  { id: "adventure", label: "모험", icon: "🗺️" },
+  { id: "mystery", label: "미스터리", icon: "🔍" },
+  { id: "family", label: "가족", icon: "👨‍👩‍👧‍👦" },
+  { id: "music", label: "음악", icon: "🎵" },
+  { id: "documentary", label: "다큐멘터리", icon: "📹" },
 ];
 
-export function GenreStep({ onNext, onBack, selectedGenres, onGenresChange, currentPreferences }: GenreStepProps) {
+export function GenreStep({
+  onNext,
+  onBack,
+  selectedGenres,
+  onGenresChange,
+  currentPreferences,
+}: GenreStepProps) {
   const [localGenres, setLocalGenres] = useState<string[]>(selectedGenres);
 
   const toggleGenre = (genre: string) => {
     const newGenres = localGenres.includes(genre)
-      ? localGenres.filter(g => g !== genre)
+      ? localGenres.filter((g) => g !== genre)
       : [...localGenres, genre];
     setLocalGenres(newGenres);
     onGenresChange(newGenres);
@@ -50,8 +55,8 @@ export function GenreStep({ onNext, onBack, selectedGenres, onGenresChange, curr
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
       {/* Cinema spotlight effect */}
-      <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
-      
+      {/* <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-3xl pointer-events-none" /> */}
+
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* Left side - Selection */}
         <div className="flex-1 flex flex-col max-w-2xl">
@@ -60,7 +65,9 @@ export function GenreStep({ onNext, onBack, selectedGenres, onGenresChange, curr
               <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm">
                 1
               </div>
-              <h2 className="text-white text-2xl">좋아하는 장르를 선택해주세요</h2>
+              <h2 className="text-white text-2xl">
+                좋아하는 장르를 선택해주세요
+              </h2>
             </div>
             <p className="text-gray-400 text-sm">
               최소 1개 이상 선택해주세요 (여러 개 선택 가능)
@@ -68,14 +75,14 @@ export function GenreStep({ onNext, onBack, selectedGenres, onGenresChange, curr
           </div>
 
           <div className="flex-1 grid grid-cols-3 gap-3 mb-6">
-            {genreOptions.map(genre => (
+            {genreOptions.map((genre) => (
               <button
                 key={genre.id}
                 onClick={() => toggleGenre(genre.label)}
                 className={`p-4 rounded-xl border-2 transition-all text-left ${
                   localGenres.includes(genre.label)
-                    ? 'bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20'
-                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                    ? "bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20"
+                    : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                 }`}
               >
                 <div className="text-3xl mb-2">{genre.icon}</div>
