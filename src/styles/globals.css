@@ -141,6 +141,13 @@ body::-webkit-scrollbar {
   transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
 }
 
+.pick-cta-start {
+  height: 3rem;
+  font-size: 1rem;
+  font-weight: bold;
+  padding-inline: 3rem;
+}
+
 /* 🔁 더 긴 버튼(“더 많은 영화 보러가기”)용 */
 .pick-cta-wide {
   padding-inline: 3rem;

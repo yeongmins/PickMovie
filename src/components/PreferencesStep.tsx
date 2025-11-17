@@ -137,7 +137,6 @@ export function PreferencesStep({
             </div>
 
             {/* Country */}
-            {/* Country */}
             <div>
               <label className="text-white mb-2 block text-sm">국가</label>
               <div className="grid grid-cols-4 gap-2">
