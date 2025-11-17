@@ -90,16 +90,15 @@ export function GenreStep({
               </button>
             ))}
           </div>
-
           <div className="flex gap-3">
-            <Button
+            {/* <Button
               onClick={onBack}
               variant="outline"
               size="lg"
               className="border-white/20 text-white hover:bg-white/10 bg-white/5"
             >
               이전
-            </Button>
+            </Button> */}
             <Button
               onClick={handleNext}
               disabled={localGenres.length === 0}
