@@ -92,19 +92,19 @@ export function GenreStep({
           </div>
 
           <div className="flex gap-3">
-            {/* <Button
+            <Button
               onClick={onBack}
               variant="outline"
               size="lg"
               className="border-white/20 text-white hover:bg-white/10 bg-white/5"
             >
               이전
-            </Button> */}
+            </Button>
             <Button
               onClick={handleNext}
               disabled={localGenres.length === 0}
               size="lg"
-              className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               다음
             </Button>

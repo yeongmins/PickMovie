@@ -137,6 +137,7 @@ export function PreferencesStep({
             </div>
 
             {/* Country */}
+            {/* Country */}
             <div>
               <label className="text-white mb-2 block text-sm">국가</label>
               <div className="grid grid-cols-4 gap-2">
@@ -150,7 +151,12 @@ export function PreferencesStep({
                         : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
-                    <div className="text-xl mb-0.5">{option.icon}</div>
+                    <div
+                      className="text-xl mb-0.5 flag-emoji"
+                      aria-hidden="true"
+                    >
+                      {option.icon}
+                    </div>
                     <div className="text-white text-sm">{option.label}</div>
                   </button>
                 ))}
@@ -171,7 +177,7 @@ export function PreferencesStep({
               onClick={handleNext}
               disabled={!localRuntime || !localYear || !localCountry}
               size="lg"
-              className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               다음
             </Button>

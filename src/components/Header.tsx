@@ -58,7 +58,7 @@ export function Header({
               <button
                 key={item.id}
                 onClick={() => handleNavigate(item.id)} // 🔥 모든 메뉴 클릭 시 최상단
-                className={`text-lg font-medium transition-colors relative group ${
+                className={`text-md font-medium transition-colors relative group ${
                   currentSection === item.id
                     ? "text-white"
                     : "text-gray-400 hover:text-white"

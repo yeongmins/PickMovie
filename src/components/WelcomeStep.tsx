@@ -220,7 +220,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
             <Button
               onClick={onNext}
               size="lg"
-              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-16 py-8 rounded-full text-lg"
+              className="pick-cta bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
             >
               시작하기
             </Button>
