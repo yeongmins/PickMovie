@@ -60,12 +60,12 @@ export function GenreStep({
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* Left side - Selection */}
         <div className="flex-1 flex flex-col max-w-2xl">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                 1
               </div>
-              <h2 className="text-white text-2xl">
+              <h2 className="text-white text-2xl font-medium">
                 좋아하는 장르를 선택해주세요
               </h2>
             </div>
@@ -74,31 +74,31 @@ export function GenreStep({
             </p>
           </div>
 
-          <div className="flex-1 grid grid-cols-3 gap-3 mb-6">
+          <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
             {genreOptions.map((genre) => (
               <button
                 key={genre.id}
                 onClick={() => toggleGenre(genre.label)}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                className={`p-3 rounded-xl border-2 transition-all text-left ${
                   localGenres.includes(genre.label)
                     ? "bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20"
                     : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                 }`}
               >
-                <div className="text-3xl mb-2">{genre.icon}</div>
-                <div className="text-white">{genre.label}</div>
+                <div className="text-xl mb-2">{genre.icon}</div>
+                <div className="text-sm text-white font-medium">{genre.label}</div>
               </button>
             ))}
           </div>
           <div className="flex gap-3">
-            {/* <Button
+            <Button
               onClick={onBack}
               variant="outline"
               size="lg"
               className="border-white/20 text-white hover:bg-white/10 bg-white/5"
             >
               이전
-            </Button> */}
+            </Button>
             <Button
               onClick={handleNext}
               disabled={localGenres.length === 0}

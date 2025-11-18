@@ -114,7 +114,7 @@ export function FavoritesCarousel({
                 <Heart className="w-5 h-5 fill-current text-red-500" />
                 <span className="text-purple-300 text-sm">내 찜 목록</span>
               </div>
-              <h1 className="text-white mb-4 carousel-title">
+              <h1 className="text-white mb-4 carousel-title font-semibold">
                 {currentMovie.title}
               </h1>
               <div className="flex items-center gap-4 mb-4 text-sm">

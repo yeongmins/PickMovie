@@ -83,19 +83,19 @@ export function PreferencesStep({
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* Left side - Selection */}
         <div className="flex-1 flex flex-col max-w-2xl">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                 3
               </div>
-              <h2 className="text-white text-2xl">
+              <h2 className="text-white text-2xl font-medium">
                 세부 선호사항을 알려주세요
               </h2>
             </div>
             <p className="text-gray-400 text-sm">모든 항목을 선택해주세요</p>
           </div>
 
-          <div className="flex-1 space-y-4 mb-6">
+          <div className="flex-1 space-y-4 mb-3">
             {/* Runtime */}
             <div>
               <label className="text-white mb-2 block text-sm">러닝타임</label>
@@ -106,11 +106,11 @@ export function PreferencesStep({
                     onClick={() => handleRuntimeChange(option.label)}
                     className={`p-2.5 rounded-lg border-2 transition-all ${
                       localRuntime === option.label
-                        ? "bg-blue-500/20 border-blue-500"
-                        : "bg-white/5 border-white/10 hover:bg-white/10"
+                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
+                        : "bg-white/5 border-white/10 hover:bg-white/10 "
                     }`}
                   >
-                    <div className="text-white text-sm">{option.label}</div>
+                    <div className="text-white text-xs font-medium">{option.label}</div>
                   </button>
                 ))}
               </div>
@@ -126,11 +126,11 @@ export function PreferencesStep({
                     onClick={() => handleYearChange(option.label)}
                     className={`p-2.5 rounded-lg border-2 transition-all ${
                       localYear === option.label
-                        ? "bg-blue-500/20 border-blue-500"
+                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
                         : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
-                    <div className="text-white text-sm">{option.label}</div>
+                    <div className="text-white text-xs font-medium">{option.label}</div>
                   </button>
                 ))}
               </div>
@@ -146,7 +146,7 @@ export function PreferencesStep({
                     onClick={() => handleCountryChange(option.label)}
                     className={`p-2.5 rounded-lg border-2 transition-all ${
                       localCountry === option.label
-                        ? "bg-blue-500/20 border-blue-500"
+                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
                         : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
@@ -156,7 +156,7 @@ export function PreferencesStep({
                     >
                       {option.icon}
                     </div>
-                    <div className="text-white text-sm">{option.label}</div>
+                    <div className="text-white text-xs font-medium">{option.label}</div>
                   </button>
                 ))}
               </div>

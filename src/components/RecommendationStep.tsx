@@ -205,7 +205,7 @@ export function RecommendationStep({
           <Button
             onClick={onRestart}
             size="lg"
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            className="pick-cta pick-cta-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
           >
             다시 시작하기
           </Button>

@@ -76,12 +76,12 @@ export function ExcludeStep({
             >
               {/* Left side - Selection */}
               <div className="flex-1 flex flex-col max-w-2xl">
-                <div className="mb-6">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white text-sm">
+                <div className="mb-3">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                       4
                     </div>
-                    <h2 className="text-white text-2xl">
+                    <h2 className="text-white text-2xl font-medium">
                       제외하고 싶은 요소가 있나요?
                     </h2>
                   </div>
@@ -90,7 +90,7 @@ export function ExcludeStep({
                   </p>
                 </div>
 
-                <div className="flex-1 grid grid-cols-3 gap-3 mb-6">
+                <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
                   {excludeOptions.map((option) => (
                     <button
                       key={option.id}
@@ -101,8 +101,8 @@ export function ExcludeStep({
                           : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                       }`}
                     >
-                      <div className="text-3xl mb-2">{option.icon}</div>
-                      <div className="text-white">{option.label}</div>
+                      <div className="text-2xl mb-1">{option.icon}</div>
+                      <div className="text-white text-sm font-medium">{option.label}</div>
                     </button>
                   ))}
                 </div>

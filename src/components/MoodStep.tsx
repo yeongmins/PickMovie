@@ -57,19 +57,20 @@ export function MoodStep({
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* Left side - Selection */}
         <div className="flex-1 flex flex-col max-w-2xl">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 bg-pink-500 rounded-full flex items-center justify-center text-white text-sm">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 bg-pink-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                 2
               </div>
-              <h2 className="text-white text-2xl">어떤 분위기를 원하시나요?</h2>
+              <h2 className="text-white text-2xl font-medium
+              ">어떤 분위기를 원하시나요?</h2>
             </div>
             <p className="text-gray-400 text-sm">
               최소 1개 이상 선택해주세요 (여러 개 선택 가능)
             </p>
           </div>
 
-          <div className="flex-1 grid grid-cols-3 gap-3 mb-6">
+          <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
             {moodOptions.map((mood) => (
               <button
                 key={mood.id}
@@ -80,8 +81,8 @@ export function MoodStep({
                     : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                 }`}
               >
-                <div className="text-3xl mb-2">{mood.icon}</div>
-                <div className="text-white">{mood.label}</div>
+                <div className="text-xl mb-2">{mood.icon}</div>
+                <div className="text-sm text-white font-medium">{mood.label}</div>
               </button>
             ))}
           </div>
