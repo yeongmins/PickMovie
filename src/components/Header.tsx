@@ -1,3 +1,5 @@
+// Header.tsx
+import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { Logo } from "./Logo";
 
@@ -14,6 +16,8 @@ export function Header({
   searchQuery,
   onSearchChange,
 }: HeaderProps) {
+  const [scrolled, setScrolled] = useState(false);
+
   const menuItems = [
     { id: "home", label: "홈" },
     { id: "favorites", label: "내 찜 목록" },
@@ -21,29 +25,49 @@ export function Header({
     { id: "popular-tv", label: "인기 TV 컨텐츠" },
   ];
 
-  // 🟣 스크롤을 "즉시" 최상단으로 이동시키는 함수 (애니메이션 X)
   const scrollToTopInstant = () => {
     if (typeof window !== "undefined") {
-      // behavior 생략 or "auto" => 눈에 보이는 스무스 스크롤 없이 바로 점프
       window.scrollTo(0, 0);
     }
   };
 
-  // 공통 네비게이션 핸들러
   const handleNavigate = (sectionId: string) => {
-    onNavigate(sectionId); // 섹션 변경
-    onSearchChange(""); // 검색어 초기화
-    scrollToTopInstant(); // 최상단으로 이동
+    onNavigate(sectionId);
+    onSearchChange("");
+    scrollToTopInstant();
   };
 
+  // 🔥 스크롤 여부에 따라 배경/그림자 토글
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 10);
+    };
+
+    handleScroll(); // 첫 렌더 때 한 번 체크
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   return (
-    <header className="sticky top-0 z-50 bg-[#1a1a24]/95 backdrop-blur-md border-b border-white/10">
-      <div className="mx-auto px-6 py-4">
-        <div className="flex items-center justify-between gap-8">
+    // 화면 최상단 고정 + 다른 레이아웃 위
+    <header className="fixed top-0 left-0 right-0 z-50 w-full">
+      <div
+        className={`
+          w-full px-6 md:px-10 py-4
+          flex items-center justify-between
+          transition-all duration-300
+          ${
+            scrolled
+              ? "bg-[#1a1a24]/95 backdrop-blur-md shadow-lg"
+              : "bg-transparent"
+          }
+        `}
+      >
+        <div className="flex items-center gap-8">
           {/* Logo */}
           <button
-            onClick={() => handleNavigate("home")} // 🔥 로고 클릭 시 홈 + 최상단
-            className="flex-shrink-0 hover:opacity-80 transition-opacity"
+            onClick={() => handleNavigate("home")}
+            className="flex-shrink-0 hover:opacity-80 transition-opacity pr-4"
             aria-label="PickMovie 홈으로 이동"
           >
             <Logo size="md" />
@@ -57,67 +81,42 @@ export function Header({
             {menuItems.map((item) => (
               <button
                 key={item.id}
-                onClick={() => handleNavigate(item.id)} // 🔥 모든 메뉴 클릭 시 최상단
-                className={`text-md font-medium transition-colors relative group ${
+                onClick={() => handleNavigate(item.id)}
+                className={`text-md transition-colors ${
                   currentSection === item.id
                     ? "text-white"
-                    : "text-gray-400 hover:text-white"
+                    : "text-gray-300 hover:text-white"
                 }`}
                 aria-current={currentSection === item.id ? "page" : undefined}
               >
                 {item.label}
-                {currentSection === item.id && (
-                  <div className="absolute -bottom-[20px] left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
-                )}
               </button>
             ))}
           </nav>
-
-          {/* Search Bar */}
-          <div className="flex-1 max-w-md">
-            <label htmlFor="main-search" className="sr-only">
-              콘텐츠 검색
-            </label>
-
-            <div className="relative">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
-                aria-hidden="true"
-              />
-              <input
-                id="main-search"
-                name="search"
-                type="search"
-                autoComplete="off"
-                placeholder="영화, TV 프로그램 검색..."
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:bg-white/10 transition-all"
-              />
-            </div>
-          </div>
         </div>
 
-        {/* Mobile Navigation */}
-        <nav
-          className="flex md:hidden items-center gap-4 mt-4 overflow-x-auto pb-2"
-          aria-label="모바일 내비게이션"
-        >
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => handleNavigate(item.id)} // 🔥 모바일 메뉴도 동일
-              className={`text-md whitespace-nowrap px-3 py-1.5 rounded-full transition-all ${
-                currentSection === item.id
-                  ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white"
-                  : "bg-white/5 text-gray-400 hover:bg-white/10"
-              }`}
-              aria-current={currentSection === item.id ? "page" : undefined}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        {/* Search Bar */}
+        <div className="flex-1 max-w-search">
+          <label htmlFor="main-search" className="sr-only">
+            콘텐츠 검색
+          </label>
+          <div className="relative">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300"
+              aria-hidden="true"
+            />
+            <input
+              id="main-search"
+              name="search"
+              type="search"
+              autoComplete="off"
+              placeholder="제목을 입력하세요..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="w-full bg-black/40 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-purple-400/70 focus:bg-black/60 transition-all"
+            />
+          </div>
+        </div>
       </div>
     </header>
   );

@@ -82,7 +82,7 @@
 
 /* 페이지 전환용 페이드 인 */
 .page-fade-in {
-  animation: page-fade-in 0.4s ease-out;
+  animation: page-fade-in 0.5s ease-out;
 }
 
 .sr-only {
@@ -252,6 +252,8 @@
     -webkit-text-decoration: underline dotted;
     text-decoration: underline dotted;
   }
+
+  
 
   h1,
   h2,
@@ -944,6 +946,10 @@
     height: 500px;
   }
 
+  .h-main-carousel {
+    height: 600px;
+  }
+
   .h-\[600px\] {
     height: 600px;
   }
@@ -1046,6 +1052,10 @@
 
   .w-full {
     width: 100%;
+  }
+
+  .max-w-search {
+    max-width: 11.5rem;
   }
 
   .max-w-2xl {
@@ -1453,7 +1463,7 @@
   }
 
   .bg-\[\#1a1a24\]\/95 {
-    background-color: oklab(22.2494% 0.00492509 -0.0187526 / 0.95);
+    background-color: oklab(20.838% 0.00407 -0.01525 / 0.95);
   }
 
   .bg-background {
@@ -2230,6 +2240,14 @@
 
   .pt-8 {
     padding-top: calc(var(--spacing) * 8);
+  }
+
+  .pt-20 {
+    padding-top: calc(var(--spacing) * 20);
+  }
+
+  .pt-25 {
+    padding-top: calc(var(--spacing) * 25);
   }
 
   .pr-2 {

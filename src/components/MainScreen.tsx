@@ -1,3 +1,4 @@
+// MainScreen.tsx
 import {
   useState,
   useEffect,
@@ -6,6 +7,7 @@ import {
   lazy,
   Suspense,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
@@ -26,7 +28,7 @@ import {
   type TMDBMovie,
 } from "../utils/tmdb";
 
-// 🔹 lazy-load 컴포넌트들 (코드 스플리팅)
+// lazy-load 컴포넌트들
 const Header = lazy(() =>
   import("./Header").then((mod) => ({ default: mod.Header }))
 );
@@ -41,7 +43,6 @@ const MovieRow = lazy(() =>
   import("./MovieRow").then((mod) => ({ default: mod.MovieRow }))
 );
 
-// 🔹 MovieDetailModal을 lazy-load (초기 번들 크기 줄이기)
 const MovieDetailModal = lazy(() =>
   import("./MovieDetailModal").then((mod) => ({
     default: mod.MovieDetailModal,
@@ -53,6 +54,7 @@ interface MainScreenProps {
   favorites: FavoriteItem[];
   onReanalyze?: () => void;
   onToggleFavorite?: (movieId: number, mediaType?: "movie" | "tv") => void;
+  initialSection: "home" | "favorites" | "popular-movies" | "popular-tv";
 }
 
 interface MovieWithScore extends TMDBMovie {
@@ -66,13 +68,15 @@ export function MainScreen({
   favorites,
   onReanalyze,
   onToggleFavorite,
+  initialSection,
 }: MainScreenProps) {
-  const [currentSection, setCurrentSection] = useState("home");
+  const navigate = useNavigate();
+
+  const [currentSection, setCurrentSection] = useState<string>(initialSection);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Movie data states
   const [favoriteMovies, setFavoriteMovies] = useState<MovieWithScore[]>([]);
   const [recommendedMovies, setRecommendedMovies] = useState<MovieWithScore[]>(
     []
@@ -198,7 +202,7 @@ export function MainScreen({
     [onToggleFavorite]
   );
 
-  // 🔹 인기/TV/평점/최신/추천/장르별 데이터를 한 번에 로딩
+  // 전체 데이터 로딩
   const loadAllData = useCallback(async () => {
     setLoading(true);
     try {
@@ -238,10 +242,9 @@ export function MainScreen({
   }, [favorites, loadFavoriteMoviesDetails]);
 
   // =========================
-  // 🔻 여기서부터 실제 데이터 로더들
+  // 데이터 로더들
   // =========================
 
-  // ✅ 인기 영화: 1~4 페이지에서 최대 80개까지
   const loadPopularMovies = async (): Promise<TMDBMovie[]> => {
     const pages = await Promise.all([
       getPopularMovies(1),
@@ -255,7 +258,6 @@ export function MainScreen({
     return unique.slice(0, 80);
   };
 
-  // ✅ 인기 TV: 1~4 페이지 + TV → Movie 포맷 정규화, 최대 80개
   const loadPopularTVShows = async (): Promise<TMDBMovie[]> => {
     const pages = await Promise.all([
       getPopularTVShows(1),
@@ -272,19 +274,16 @@ export function MainScreen({
     return unique.slice(0, 80);
   };
 
-  // ✅ 높은 평점 영화: 1페이지만
   const loadTopRatedMovies = async (): Promise<TMDBMovie[]> => {
     const page1 = await getTopRatedMovies(1);
     return page1;
   };
 
-  // ✅ 최신 상영 영화: 1페이지만
   const loadNowPlayingMovies = async (): Promise<TMDBMovie[]> => {
     const page1 = await getNowPlayingMovies(1);
     return page1;
   };
 
-  // ✅ 추천 영화: 1~2페이지만 사용
   const loadRecommendedMovies = async (): Promise<MovieWithScore[]> => {
     const genreIds = userPreferences.genres
       .map((g) => GENRE_IDS[g])
@@ -306,7 +305,6 @@ export function MainScreen({
       .slice(0, 80);
   };
 
-  // ✅ 장르 기반: 1페이지만
   const loadGenreBasedMovies = async (): Promise<MovieWithScore[]> => {
     if (userPreferences.genres.length === 0) return [];
 
@@ -432,6 +430,28 @@ export function MainScreen({
     latestMovies,
   ]);
 
+  // 라우팅 + 섹션 전환
+  const handleNavigate = (section: string) => {
+    setCurrentSection(section);
+
+    switch (section) {
+      case "favorites":
+        navigate("/favorites");
+        break;
+      case "popular-movies":
+        navigate("/popular-movies");
+        break;
+      case "popular-tv":
+        navigate("/popular-tv");
+        break;
+      default:
+        navigate("/");
+        break;
+    }
+  };
+
+  const hasHeroCarousel = currentSection === "home" && !filteredContent;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#1a1a24] flex items-center justify-center">
@@ -444,8 +464,8 @@ export function MainScreen({
   }
 
   return (
-    <div className="min-h-screen bg-[#1a1a24]">
-      {/* 🔹 Header lazy-load (Suspense) */}
+    <div className="min-h-screen bg-[#1a1a24] text-white">
+      {/* 🔹 헤더는 항상 맨 위에서 한 번만 렌더링 (sticky/fixed는 Header.tsx에서 처리) */}
       <Suspense
         fallback={
           <div className="h-16 flex items-center px-6 text-white/60">
@@ -454,25 +474,39 @@ export function MainScreen({
         }
       >
         <Header
-          onNavigate={setCurrentSection}
+          onNavigate={handleNavigate}
           currentSection={currentSection}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
       </Suspense>
 
-      <main key={currentSection} className="pb-20 page-fade-in">
+      {/* 🔹 홈 + 검색 중이 아닐 때만 캐러셀(히어로) 노출 */}
+      {hasHeroCarousel && (
+        <section className="relative z-20">
+          <Suspense
+            fallback={
+              <div className="h-[260px] flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+              </div>
+            }
+          >
+            <FavoritesCarousel
+              movies={favoriteMovies}
+              onMovieClick={handleMovieClick}
+              onToggleFavorite={toggleFavorite}
+            />
+          </Suspense>
+        </section>
+      )}
+
+      {/* =========================
+          아래 컨텐츠 섹션
+         ========================= */}
+      <main key={currentSection} className={"page-fade-in pb-20"}>
         {/* Search Results */}
         {filteredContent && (
-          <section className="pt-6" aria-label="검색 결과">
-            {/* 제목 */}
-            <h2
-              className="mb-4 px-6 text-2xl"
-              style={{ color: "#ffffff" }} // 🔥 흰색 강제
-            >
-              검색 결과: "{searchQuery}"
-            </h2>
-
+          <section className="pt-25" aria-label="검색 결과">
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {filteredContent.map((movie) => {
                 const title = movie.title || (movie as any).name || "제목 없음";
@@ -489,7 +523,6 @@ export function MainScreen({
                       if (e.key === "Enter") handleMovieClick(movie);
                     }}
                   >
-                    {/* 포스터 */}
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                       {posterUrl ? (
                         <img
@@ -505,10 +538,9 @@ export function MainScreen({
                       )}
                     </div>
 
-                    {/* 영화 제목 */}
                     <p
                       className="text-sm truncate"
-                      style={{ color: "#ffffff" }} // 🔥 여기서도 흰색 강제
+                      style={{ color: "#ffffff" }}
                     >
                       {title}
                     </p>
@@ -519,26 +551,9 @@ export function MainScreen({
           </section>
         )}
 
-        {/* Home Section */}
+        {/* Home Section – 캐러셀 아래 나머지 섹션들 */}
         {!filteredContent && currentSection === "home" && (
           <>
-            <section className="pt-6" aria-label="내 찜 목록 캐러셀">
-              <Suspense
-                fallback={
-                  <div className="h-[260px] flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
-                  </div>
-                }
-              >
-                <FavoritesCarousel
-                  movies={favoriteMovies}
-                  onMovieClick={handleMovieClick}
-                  onToggleFavorite={toggleFavorite}
-                />
-              </Suspense>
-            </section>
-
-            {/* 🔹 MovieRow 들 lazy-load */}
             <Suspense
               fallback={
                 <div className="h-[220px] my-4 bg-neutral-900/40 rounded-lg" />
@@ -628,7 +643,7 @@ export function MainScreen({
             )}
 
             {/* Reanalyze Button */}
-            <section className="text-center mt-16 mb-10 px-6">
+            <section className="text-center px-6">
               <div className="max-w-md mx-auto">
                 <h2 className="text-white text-xl mb-4">
                   새로운 추천을 받아보세요
@@ -647,8 +662,10 @@ export function MainScreen({
 
         {/* Favorites Section */}
         {!filteredContent && currentSection === "favorites" && (
-          <section className="pt-6" aria-label="내 찜 목록">
-            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">내 찜 목록</h2>
+          <section className="pt-25" aria-label="내 찜 목록">
+            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+              내 찜 목록
+            </h2>
             {favoriteMovies.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
                 {favoriteMovies.map((movie) => (
@@ -665,7 +682,7 @@ export function MainScreen({
                         className="w-full h-full object-cover"
                       />
                       {movie.matchScore && (
-                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
+                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
                           {movie.matchScore}%
                         </div>
                       )}
@@ -688,8 +705,10 @@ export function MainScreen({
 
         {/* Popular Movies Section */}
         {!filteredContent && currentSection === "popular-movies" && (
-          <section className="pt-6" aria-label="인기 영화">
-            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">인기 영화</h2>
+          <section className="pt-25" aria-label="인기 영화">
+            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+              인기 영화
+            </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {popularMovies.map((movie) => (
                 <button
@@ -714,8 +733,10 @@ export function MainScreen({
 
         {/* Popular TV Section */}
         {!filteredContent && currentSection === "popular-tv" && (
-          <section className="pt-6" aria-label="인기 TV 컨텐츠">
-            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">인기 TV 컨텐츠</h2>
+          <section className="pt-25" aria-label="인기 TV 컨텐츠">
+            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+              인기 TV 컨텐츠
+            </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {popularTV.map((show) => (
                 <button

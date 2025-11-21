@@ -83,7 +83,7 @@ export function FavoritesCarousel({
   }
 
   return (
-    <div className="relative h-[500px] mb-10 mx-6 rounded-xl overflow-hidden group">
+    <div className="relative h-main-carousel mb-5 overflow-hidden group z-30">
       <AnimatePresence mode="wait">
         <motion.div
           key={currentMovie.id}
@@ -109,7 +109,7 @@ export function FavoritesCarousel({
 
           {/* Content */}
           <div className="relative h-full flex items-center px-12">
-            <div className="max-w-2xl">
+            <div className="max-w-2xl mt-10">
               <div className="flex items-center gap-2 mb-3">
                 <Heart className="w-5 h-5 fill-current text-red-500" />
                 <span className="text-purple-300 text-sm font-semibold">내 찜 목록</span>

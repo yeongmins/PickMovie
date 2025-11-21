@@ -176,7 +176,7 @@ export function MovieDetailModal({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="relative bg-[#1a1a24] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto border border-white/10"
+        className="relative bg-[#1a1a24] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
@@ -201,7 +201,7 @@ export function MovieDetailModal({
           {/* Movie info overlay */}
           <div className="absolute bottom-0 left-0 right-0 p-8 flex gap-6">
             {/* Poster */}
-            <div className="w-32 h-48 rounded-lg overflow-hidden border-2 border-white/20 flex-shrink-0 hidden sm:block">
+            <div className="w-32 h-48 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block">
               <img
                 src={movie.poster}
                 alt={movie.title}
