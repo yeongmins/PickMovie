@@ -38,7 +38,7 @@ export function Header({
 
   return (
     <header className="sticky top-0 z-50 bg-[#1a1a24]/95 backdrop-blur-md border-b border-white/10">
-      <div className="max-w-[1800px] mx-auto px-6 py-4">
+      <div className="mx-auto px-6 py-4">
         <div className="flex items-center justify-between gap-8">
           {/* Logo */}
           <button

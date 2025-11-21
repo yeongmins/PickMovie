@@ -112,7 +112,7 @@ export function FavoritesCarousel({
             <div className="max-w-2xl">
               <div className="flex items-center gap-2 mb-3">
                 <Heart className="w-5 h-5 fill-current text-red-500" />
-                <span className="text-purple-300 text-sm">내 찜 목록</span>
+                <span className="text-purple-300 text-sm font-semibold">내 찜 목록</span>
               </div>
               <h1 className="text-white mb-4 carousel-title font-semibold">
                 {currentMovie.title}
@@ -120,12 +120,12 @@ export function FavoritesCarousel({
               <div className="flex items-center gap-4 mb-4 text-sm">
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
-                  <span className="text-white">
+                  <span className="text-white font-semibold">
                     {currentMovie.vote_average.toFixed(1)}
                   </span>
                 </div>
                 {(currentMovie.release_date || currentMovie.first_air_date) && (
-                  <span className="text-gray-300">
+                  <span className="text-gray-300 font-semibold">
                     {new Date(
                       currentMovie.release_date ||
                         currentMovie.first_air_date ||
@@ -134,7 +134,7 @@ export function FavoritesCarousel({
                   </span>
                 )}
                 {currentMovie.matchScore && (
-                  <div className="px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
+                  <div className="px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
                     {currentMovie.matchScore}% 매칭
                   </div>
                 )}

@@ -212,7 +212,7 @@ export function MovieDetailModal({
 
             {/* Title & basic info */}
             <div className="flex-1 flex flex-col justify-end">
-              <h2 className="text-white mb-3 text-3xl">{movie.title}</h2>
+              <h2 className="text-white mb-3 text-3xl font-semibold">{movie.title}</h2>
 
               {/* Meta badges */}
               <div className="flex flex-wrap items-center gap-3 mb-3">

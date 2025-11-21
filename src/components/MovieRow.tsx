@@ -64,7 +64,7 @@ export function MovieRow({
 
   return (
     <div className="mb-10 group/row relative">
-      <h2 className="text-white mb-4 px-6 text-2xl tracking-tight">{title}</h2>
+      <h2 className="text-white mb-2 px-6 text-2xl tracking-tight font-semibold">{title}</h2>
 
       <div className="relative">
         {/* Left scroll button */}
@@ -139,7 +139,7 @@ export function MovieRow({
 
                     {/* Match score badge */}
                     {showMatchScore && movie.matchScore !== undefined && (
-                      <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
+                      <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
                         {movie.matchScore}%
                       </div>
                     )}

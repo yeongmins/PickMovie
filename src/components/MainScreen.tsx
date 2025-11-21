@@ -648,7 +648,7 @@ export function MainScreen({
         {/* Favorites Section */}
         {!filteredContent && currentSection === "favorites" && (
           <section className="pt-6" aria-label="내 찜 목록">
-            <h2 className="text-white mb-6 px-6 text-2xl">내 찜 목록</h2>
+            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">내 찜 목록</h2>
             {favoriteMovies.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
                 {favoriteMovies.map((movie) => (
@@ -665,7 +665,7 @@ export function MainScreen({
                         className="w-full h-full object-cover"
                       />
                       {movie.matchScore && (
-                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs">
+                        <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
                           {movie.matchScore}%
                         </div>
                       )}
@@ -689,7 +689,7 @@ export function MainScreen({
         {/* Popular Movies Section */}
         {!filteredContent && currentSection === "popular-movies" && (
           <section className="pt-6" aria-label="인기 영화">
-            <h2 className="text-white mb-6 px-6 text-2xl">인기 영화</h2>
+            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">인기 영화</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {popularMovies.map((movie) => (
                 <button
@@ -715,7 +715,7 @@ export function MainScreen({
         {/* Popular TV Section */}
         {!filteredContent && currentSection === "popular-tv" && (
           <section className="pt-6" aria-label="인기 TV 컨텐츠">
-            <h2 className="text-white mb-6 px-6 text-2xl">인기 TV 컨텐츠</h2>
+            <h2 className="text-white mb-6 px-6 text-2xl font-semibold">인기 TV 컨텐츠</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {popularTV.map((show) => (
                 <button
