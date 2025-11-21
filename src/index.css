@@ -1458,6 +1458,10 @@
     border-top-color: #0000;
   }
 
+  .bg-search {
+    background-color: #1a1a24ab;
+  }
+
   .bg-\[\#1a1a24\] {
     background-color: #1a1a24;
   }
@@ -2246,8 +2250,8 @@
     padding-top: calc(var(--spacing) * 20);
   }
 
-  .pt-25 {
-    padding-top: calc(var(--spacing) * 25);
+  .pt-24 {
+    padding-top: calc(var(--spacing) * 24);
   }
 
   .pr-2 {

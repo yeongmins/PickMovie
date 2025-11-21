@@ -506,7 +506,7 @@ export function MainScreen({
       <main key={currentSection} className={"page-fade-in pb-20"}>
         {/* Search Results */}
         {filteredContent && (
-          <section className="pt-25" aria-label="검색 결과">
+          <section className="pt-20" aria-label="검색 결과">
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {filteredContent.map((movie) => {
                 const title = movie.title || (movie as any).name || "제목 없음";
@@ -662,8 +662,8 @@ export function MainScreen({
 
         {/* Favorites Section */}
         {!filteredContent && currentSection === "favorites" && (
-          <section className="pt-25" aria-label="내 찜 목록">
-            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+          <section className="pt-24" aria-label="내 찜 목록">
+            <h2 className="text-white mb-4 px-6 text-2xl font-semibold">
               내 찜 목록
             </h2>
             {favoriteMovies.length > 0 ? (
@@ -705,8 +705,8 @@ export function MainScreen({
 
         {/* Popular Movies Section */}
         {!filteredContent && currentSection === "popular-movies" && (
-          <section className="pt-25" aria-label="인기 영화">
-            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+          <section className="pt-24" aria-label="인기 영화">
+            <h2 className="text-white mb-4 px-6 text-2xl font-semibold">
               인기 영화
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
@@ -733,8 +733,8 @@ export function MainScreen({
 
         {/* Popular TV Section */}
         {!filteredContent && currentSection === "popular-tv" && (
-          <section className="pt-25" aria-label="인기 TV 컨텐츠">
-            <h2 className="text-white mb-6 px-6 text-3xl font-bold">
+          <section className="pt-24" aria-label="인기 TV 컨텐츠">
+            <h2 className="text-white mb-4 px-6 text-2xl font-semibold">
               인기 TV 컨텐츠
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">

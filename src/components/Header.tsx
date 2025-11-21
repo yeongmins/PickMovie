@@ -113,7 +113,7 @@ export function Header({
               placeholder="제목을 입력하세요..."
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full bg-black/40 border border-white/20 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-purple-400/70 focus:bg-black/60 transition-all"
+              className="w-full bg-search rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-purple-400/70 focus:bg-black/60 transition-all"
             />
           </div>
         </div>
