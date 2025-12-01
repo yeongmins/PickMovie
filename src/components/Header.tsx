@@ -75,7 +75,7 @@ export function Header({
 
           {/* Navigation Menu (Desktop) */}
           <nav
-            className="hidden md:flex items-center gap-6"
+            className="hidden md:flex items-center gap-6 pr-4"
             aria-label="주요 섹션"
           >
             {menuItems.map((item) => (

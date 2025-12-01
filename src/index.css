@@ -3812,6 +3812,10 @@ body:after {
   }
 }
 
+.welcome-title-main {
+  
+}
+
 .welcome-middle {
   transition: font-size 0.25s ease, line-height 0.25s ease;
 }

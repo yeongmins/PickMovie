@@ -106,10 +106,10 @@ export function Logo({
       {/* Logo Text */}
       {showText && (
         <div className={currentSize.text}>
-          <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent font-bold welcome-title">
+          <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent font-bold">
             Pick
           </span>
-          <span className="text-white font-bold welcome-title">Movie</span>
+          <span className="text-white font-bold">Movie</span>
         </div>
       )}
     </div>
