@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { motion } from "framer-motion";
 import { MouseScrollIcon } from "./MouseScrollIcon";
 import { Logo } from "./Logo";
+import { MobileFeatureSlider } from "./ui/mobile-slider";
 
 interface WelcomeStepProps {
   onNext: () => void;
@@ -27,8 +28,9 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
     }
   }, []);
 
-  // 필요하면 나중에 패럴랙스에 사용할 수 있음
+  // 나중에 패럴랙스 효과에 쓸 수 있음
   const parallaxOffset = scrollY * 0.5;
+  void parallaxOffset;
 
   return (
     <div
@@ -47,13 +49,13 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           transition={{ duration: 1, ease: "easeOut" }}
           className="text-center"
         >
-          <Logo size="xl" className="justify-center mb-12" />
+          <Logo size="xl" className="justify-center mb-12 welcome-title" />
 
-          <h1 className="text-white mb-8 text-5xl font-bold">
+          <h1 className="text-white mb-8 text-5xl font-bold welcome-middle">
             당신만을 위한 영화 추천 서비스
           </h1>
 
-          <p className="text-gray-300 mb-16 text-xl">
+          <p className="text-gray-300 mb-16 text-xl welcome-small-text">
             1분만 투자하세요.
             <br />
             알고리즘이 당신의 취향을 분석하여
@@ -72,26 +74,28 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
       </section>
 
       {/* Section 2: Why PickMovie */}
-      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 snap-start">
+      <section className="relative z-10 min-h-screen flex items-center justify-center px-6 py-12 snap-start">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, ease: "easeOut" }}
           viewport={{ once: true, margin: "-100px" }}
-          className="max-w-6xl mx-auto text-center"
+          className="w-full max-w-5xl mx-auto text-center"
         >
-          <h2 className="text-white mb-8 text-5xl">
+          <h2 className="text-white mb-6 text-6xl welcome-why">
             왜{" "}
             <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent font-bold">
               PickMovie
             </span>{" "}
             인가요?
           </h2>
-          <p className="text-gray-400 mb-16 text-xl">
+
+          <p className="text-gray-400 mb-10 text-base text-xl welcome-small-text">
             수많은 OTT 플랫폼과 영화 속에서 선택 장애를 겪고 계신가요?
           </p>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          {/* 🖥 데스크탑 / 태블릿: 3개 카드 */}
+          <div className="hidden lg:grid grid-cols-3 gap-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -134,6 +138,11 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               </p>
             </motion.div>
           </div>
+
+          {/* 📱 모바일/태블릿: 중앙 슬라이더 */}
+          <div className="flex justify-center mt-6 lg:hidden">
+            <MobileFeatureSlider />
+          </div>
         </motion.div>
       </section>
 
@@ -146,8 +155,8 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           viewport={{ once: true, margin: "-100px" }}
           className="max-w-4xl mx-auto text-center"
         >
-          <h2 className="text-white mb-6 text-5xl">어떻게 작동하나요?</h2>
-          <p className="text-gray-400 mb-16 text-lg">
+          <h2 className="text-white mb-6 text-5xl welcome-why">어떻게 작동하나요?</h2>
+          <p className="text-gray-400 mb-16 text-lg welcome-small-text">
             간단한 3단계로 당신만의 영화 추천을 받아보세요
           </p>
 
@@ -157,7 +166,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
               viewport={{ once: true, margin: "-50px" }}
-              className="flex items-start gap-6 text-left"
+              className="flex items-start gap-6 text-left welcome-gap"
             >
               <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
                 1
@@ -176,7 +185,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
               viewport={{ once: true, margin: "-50px" }}
-              className="flex items-start gap-6 text-left"
+              className="flex items-start gap-6 text-left welcome-gap"
             >
               <div className="w-12 h-12 bg-pink-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
                 2
@@ -195,7 +204,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
               whileInView={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
               viewport={{ once: true, margin: "-50px" }}
-              className="flex items-start gap-6 text-left"
+              className="flex items-start gap-6 text-left welcome-gap"
             >
               <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 text-white">
                 3

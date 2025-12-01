@@ -108,16 +108,16 @@ export function FavoritesCarousel({
           </div>
 
           {/* Content */}
-          <div className="relative h-full flex items-center px-12">
+          <div className="relative h-full flex items-center px-12 carousel-content">
             <div className="max-w-2xl mt-10">
               <div className="flex items-center gap-2 mb-3">
                 <Heart className="w-5 h-5 fill-current text-red-500" />
                 <span className="text-purple-300 text-sm font-semibold">내 찜 목록</span>
               </div>
-              <h1 className="text-white mb-4 carousel-title font-semibold">
+              <h1 className="text-white mb-4 font-semibold carousel-title ">
                 {currentMovie.title}
               </h1>
-              <div className="flex items-center gap-4 mb-4 text-sm">
+              <div className="flex items-center gap-4 mb-4 text-sm carousel-middle">
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
                   <span className="text-white font-semibold">
@@ -141,7 +141,7 @@ export function FavoritesCarousel({
               </div>
 
               {currentMovie.overview && (
-                <p className="text-gray-300 text-sm leading-relaxed mb-6 line-clamp-3">
+                <p className="text-gray-300 text-sm leading-relaxed mb-6 line-clamp-3 mobile-xs">
                   {currentMovie.overview}
                 </p>
               )}

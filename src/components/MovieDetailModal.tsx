@@ -199,7 +199,7 @@ export function MovieDetailModal({
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a24] via-[#1a1a24]/80 to-transparent" />
 
           {/* Movie info overlay */}
-          <div className="absolute bottom-0 left-0 right-0 p-8 flex gap-6">
+          <div className="absolute bottom-0 left-0 right-0 p-8 flex gap-6 detail-padding">
             {/* Poster */}
             <div className="w-32 h-48 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block">
               <img
@@ -212,10 +212,10 @@ export function MovieDetailModal({
 
             {/* Title & basic info */}
             <div className="flex-1 flex flex-col justify-end">
-              <h2 className="text-white mb-3 text-3xl font-semibold">{movie.title}</h2>
+              <h2 className="text-white mb-3 text-3xl font-semibold detail-title">{movie.title}</h2>
 
               {/* Meta badges */}
-              <div className="flex flex-wrap items-center gap-3 mb-3">
+              <div className="flex flex-wrap items-center gap-3 mb-3 detail-gap">
                 <div className="px-3 py-1 bg-green-600/80 backdrop-blur-sm rounded text-white text-sm font-semibold">
                   {movie.matchScore}% 매칭
                 </div>
@@ -255,7 +255,7 @@ export function MovieDetailModal({
         </div>
 
         {/* Content section */}
-        <div className="p-8">
+        <div className="p-8 detail-padding">
           {/* Description */}
           <div className="mb-8">
             <h3 className="text-white mb-3 text-lg font-semibold">줄거리</h3>
@@ -303,7 +303,7 @@ export function MovieDetailModal({
               <h3 className="text-white mb-4 text-lg font-semibold">
                 주요 출연진
               </h3>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-4 gap-4 detail-gap">
                 {cast.map((actor: any) => (
                   <div key={actor.id} className="text-center">
                     <div className="w-full aspect-square bg-white/5 rounded-lg mb-2 overflow-hidden">
@@ -338,7 +338,7 @@ export function MovieDetailModal({
               <h3 className="text-white mb-4 text-lg font-semibold">
                 비슷한 콘텐츠
               </h3>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-4 gap-4 detail-gap">
                 {similarMoviesWithScore.map((similar: any) => {
                   const posterUrl = getPosterUrl(similar.poster_path, "w200");
 

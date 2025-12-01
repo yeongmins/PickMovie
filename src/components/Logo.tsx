@@ -21,7 +21,9 @@ export function Logo({
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       {/* Logo Icon */}
-      <div className={`${currentSize.icon} relative flex-shrink-0`}>
+      <div
+        className={`${currentSize.icon} relative flex-shrink-0 logo-icon`}
+      >
         <svg
           viewBox="0 0 100 100"
           fill="none"
@@ -104,10 +106,10 @@ export function Logo({
       {/* Logo Text */}
       {showText && (
         <div className={currentSize.text}>
-          <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent font-bold">
+          <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent font-bold welcome-title">
             Pick
           </span>
-          <span className="text-white font-bold">Movie</span>
+          <span className="text-white font-bold welcome-title">Movie</span>
         </div>
       )}
     </div>

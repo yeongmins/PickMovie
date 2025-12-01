@@ -1,4 +1,8 @@
 /*! tailwindcss v4.1.3 | MIT License | https://tailwindcss.com */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or
     ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
@@ -252,8 +256,6 @@
     -webkit-text-decoration: underline dotted;
     text-decoration: underline dotted;
   }
-
-  
 
   h1,
   h2,
@@ -950,6 +952,12 @@
     height: 600px;
   }
 
+  @media (min-width: 1920px) {
+    .h-main-carousel {
+      height: 800px;
+    }
+  }
+
   .h-\[600px\] {
     height: 600px;
   }
@@ -1055,7 +1063,7 @@
   }
 
   .max-w-search {
-    max-width: 11.5rem;
+    max-width: 12rem;
   }
 
   .max-w-2xl {
@@ -2170,6 +2178,10 @@
     padding: calc(var(--spacing) * 8);
   }
 
+  .p-12 {
+    padding: calc(var(--spacing) * 12);
+  }
+
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
   }
@@ -2220,6 +2232,10 @@
 
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
+  }
+
+  .py-5 {
+    padding-block: calc(var(--spacing) * 5);
   }
 
   .py-6 {
@@ -3689,9 +3705,51 @@ body:after {
   }
 }
 
+@media (max-width: 431px) {
+  .mobile-xs {
+    margin-bottom: calc(var(--spacing) * 4);
+    /* font-size: 0.75rem; */
+    transition: margin-bottom font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+@media (max-width: 431px) {
+  .carousel-content {
+    padding-inline: calc(var(--spacing) * 6);
+  }
+}
+
+.detail-title {
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (max-width: 431px) {
+  .detail-title {
+    font-size: var(--text-2xl);
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+.detail-padding {
+  transition: padding 0.25s ease;
+}
+
+@media (max-width: 431px) {
+  .detail-padding {
+    padding: calc(var(--spacing) * 4);
+    transition: padding 0.25s ease;
+  }
+}
+
+@media (max-width: 431px) {
+  .detail-gap {
+    gap: calc(var(--spacing) * 2);
+    transition: gap 0.25s ease;
+  }
+}
+
 /* 캐러셀 제목 반응형 + 애니메이션 */
 .carousel-title {
-  /* 기본: 모바일 기준 3xl */
   font-size: var(--text-3xl);
   line-height: var(--text-3xl--line-height);
 
@@ -3699,11 +3757,114 @@ body:after {
   transition: font-size 0.25s ease, line-height 0.25s ease;
 }
 
-@media (min-width: 768px) {
-  /* 태블릿 이상: 4xl */
-  .carousel-title {
-    font-size: var(--text-4xl);
-    line-height: var(--text-4xl--line-height);
+@media (max-width: 431px) {
+  .carousel-middle {
+    margin-bottom: calc(var(--spacing) * 3);
   }
 }
 
+@media (max-width: 431px) {
+  .carousel-title {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+    margin-bottom: calc(var(--spacing) * 3);
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+@media (min-width: 1025px) {
+  .carousel-title {
+    font-size: var(--text-4xl);
+    line-height: var(--text-4xl--line-height);
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+@media (min-width: 1920px) {
+  .carousel-title {
+    font-size: 45px;
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+/* 기본값: 모바일 + 태블릿에서는 안 보이게 */
+.logo-icon {
+  display: none;
+}
+
+/* 1024px 이상(PC)에서만 보이게 */
+@media (min-width: 1025px) {
+  .logo-icon {
+    display: block;
+  }
+}
+
+.welcome-title {
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (max-width: 769px) {
+  .welcome-title {
+    font-size: var(--text-5xl);
+    line-height: var(--tw-leading, var(--text-5xl--line-height));
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+    margin-bottom: calc(var(--spacing) * 8);
+  }
+}
+
+.welcome-middle {
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (max-width: 769px) {
+  .welcome-middle {
+    font-size: var(--text-2xl);
+    line-height: var(--tw-leading, var(--text-4xl--line-height));
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+    margin-bottom: calc(var(--spacing) * 6);
+  }
+}
+
+.welcome-small-text {
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (max-width: 769px) {
+  .welcome-small-text {
+    font-size: var(--text-lg);
+    line-height: var(--tw-leading, var(--text-lg--line-height));
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+    margin-bottom: calc(var(--spacing) * 6);
+  }
+}
+
+.welcome-why {
+  transition: font-size 0.25s ease, line-height 0.25s ease;
+}
+
+@media (max-width: 768px) {
+  .welcome-why {
+    font-size: var(--text-5xl);
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+    margin-bottom: calc(var(--spacing) * 4);
+  }
+}
+
+@media (max-width: 550px) {
+  .welcome-why {
+    font-size: 2rem;
+    transition: font-size 0.25s ease, line-height 0.25s ease;
+  }
+}
+
+@media (max-width: 1024px) {
+  .welcome-mn {
+    margin: 0;
+  }
+}
+
+@media (max-width: 550px) {
+  .welcome-gap {
+    gap: calc(var(--spacing) * 4);
+  }
+}

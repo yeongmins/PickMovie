@@ -53,7 +53,7 @@ export function Header({
     <header className="fixed top-0 left-0 right-0 z-50 w-full">
       <div
         className={`
-          w-full px-6 md:px-10 py-4
+          w-full px-6 md:px-10 py-5
           flex items-center justify-between
           transition-all duration-300
           ${
@@ -102,7 +102,7 @@ export function Header({
           </label>
           <div className="relative">
             <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 mt-2"
               aria-hidden="true"
             />
             <input
