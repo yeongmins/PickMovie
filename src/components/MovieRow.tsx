@@ -7,7 +7,7 @@ import { getPosterUrl } from "../utils/tmdb";
 interface Movie {
   id: number;
   title: string;
-  poster_path: string | null; // ⬅️ TMDB에서 null 올 수 있으니까 이렇게!
+  poster_path: string | null;
   vote_average: number;
   release_date?: string;
   first_air_date?: string;
@@ -35,11 +35,11 @@ export function MovieRow({
   const [scrollPosition, setScrollPosition] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // ⬇️ 이미지 로드 실패한 영화의 id 저장
+  // 이미지 로드 실패한 영화 id 저장
   const [hiddenMovieIds, setHiddenMovieIds] = useState<number[]>([]);
 
-  // 1️⃣ ID 기준으로 중복 제거
-  // 2️⃣ poster_path 없는 영화 제거
+  // 1) ID 기준으로 중복 제거
+  // 2) poster_path 없는 영화 제거
   const uniqueMovies = useMemo(() => {
     const deduped = Array.from(new Map(movies.map((m) => [m.id, m])).values());
     return deduped.filter((movie) => !!movie.poster_path);
@@ -64,7 +64,9 @@ export function MovieRow({
 
   return (
     <div className="mb-10 group/row relative">
-      <h2 className="text-white mb-2 px-6 text-2xl tracking-tight font-semibold">{title}</h2>
+      <h2 className="text-white mb-2 px-6 text-2xl tracking-tight font-semibold">
+        {title}
+      </h2>
 
       <div className="relative">
         {/* Left scroll button */}
@@ -83,6 +85,7 @@ export function MovieRow({
           ref={scrollContainerRef}
           className="flex gap-3 overflow-x-auto scrollbar-hide px-6 scroll-smooth py-2"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          onScroll={(e) => setScrollPosition(e.currentTarget.scrollLeft)}
         >
           {uniqueMovies.map((movie) => {
             // onError로 숨기기로 한 영화라면 렌더링 스킵
@@ -93,10 +96,10 @@ export function MovieRow({
             return (
               <div
                 key={movie.id}
-                className="flex-shrink-0 w-[200px] group/card cursor-pointer"
+                className="flex-shrink-0 w-[200px] group/card cursor-pointer transition-transform duration-300 hover:scale-[1.03]"
                 onClick={() => onMovieClick(movie)}
               >
-                <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 transition-transform duration-300 group-hover/card:scale-105">
+                <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2">
                   <div className="absolute inset-0 rounded-lg overflow-hidden border-2 border-transparent group-hover/card:border-purple-500 transition-all">
                     <img
                       src={posterUrl}
@@ -113,6 +116,7 @@ export function MovieRow({
                       }}
                     />
 
+                    {/* Hover gradient overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/card:opacity-100 transition-opacity" />
 
                     {/* Heart button */}
