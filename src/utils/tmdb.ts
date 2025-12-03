@@ -1,30 +1,39 @@
-const env = (import.meta as any).env;
+// TMDB 관련 설정, 타입 정의, 추천 알고리즘, 공통 유틸 함수들을 모아둔 파일
+
+const env = (import.meta as any).env; // Vite 환경변수 객체
 export type PosterSize = "w200" | "w300" | "w500" | "original";
+
+// TMDB API 키 (환경변수에서 읽어옴)
 export const TMDB_API_KEY: string = env.VITE_TMDB_API_KEY ?? "";
+
+// TMDB 기본 API URL 및 이미지 베이스 URL
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 export const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p";
 
+// TMDB에서 내려주는 영화(또는 TV)를 표현하는 공통 타입
 export interface TMDBMovie {
   id: number;
   title: string; // 영화 제목
   name?: string; // TV 시리즈 이름(TMDB에서 TV는 name을 씀)
-  overview: string;
-  poster_path: string | null;
-  backdrop_path: string | null;
-  vote_average: number;
+  overview: string; // 줄거리
+  poster_path: string | null; // 포스터 경로
+  backdrop_path: string | null; // 배경 이미지 경로
+  vote_average: number; // 평균 평점
   release_date: string; // 영화 개봉일
   first_air_date?: string; // TV 첫 방영일(있을 때만)
-  genre_ids: number[];
-  popularity: number;
-  adult: boolean;
-  original_language: string;
-  media_type?: "movie" | "tv";
+  genre_ids: number[]; // 장르 ID 목록
+  popularity: number; // 인기 지표
+  adult: boolean; // 청불 여부
+  original_language: string; // 원어 코드 (ko, en 등)
+  media_type?: "movie" | "tv"; // 콘텐츠 타입
 }
 
+// 영화 상세 정보 타입 (기본 TMDBMovie + 추가 정보)
 export interface MovieDetails extends TMDBMovie {
-  runtime: number;
-  genres: { id: number; name: string }[];
+  runtime: number; // 러닝타임
+  genres: { id: number; name: string }[]; // 장르 이름까지 포함
   credits?: {
+    // 출연/제작진 정보
     cast: Array<{
       id: number;
       name: string;
@@ -39,10 +48,12 @@ export interface MovieDetails extends TMDBMovie {
     }>;
   };
   similar?: {
+    // 비슷한 영화 목록
     results: TMDBMovie[];
   };
 }
 
+// TV 상세 정보 타입 (영화와 조금 다른 필드 포함)
 export interface TVDetails {
   id: number;
   name: string; // TV는 title 대신 name 사용
@@ -77,7 +88,11 @@ export interface TVDetails {
   };
 }
 
-// TMDB 장르 ID 매핑
+// =========================
+// 장르 / 언어 매핑 설정
+// =========================
+
+// TMDB 장르 ID 매핑 (한글로 선택된 장르를 TMDB 숫자 ID로 변환하는 데 사용)
 export const GENRE_IDS: Record<string, number> = {
   액션: 28,
   모험: 12,
@@ -100,7 +115,7 @@ export const GENRE_IDS: Record<string, number> = {
   서부: 37,
 };
 
-// 언어 코드 매핑
+// 언어 코드 매핑 (설문에서 선택한 국가 → TMDB 언어 코드)
 export const LANGUAGE_CODES: Record<string, string> = {
   한국: "ko",
   미국: "en",
@@ -110,24 +125,35 @@ export const LANGUAGE_CODES: Record<string, string> = {
   상관없음: "",
 };
 
+// =========================
+// 이미지 URL 유틸 함수
+// =========================
+
+// 포스터 이미지 URL 생성 함수
 export function getPosterUrl(
   path: string | null | undefined,
   size: string = "w500"
 ): string | null {
-  if (!path) return null;
+  if (!path) return null; // 포스터가 없으면 null 반환
   return `${TMDB_IMAGE_BASE_URL}/${size}${path}`;
 }
 
+// 배경 이미지 URL 생성 함수 (없을 경우 기본 Unsplash 이미지 사용)
 export function getBackdropUrl(
   path: string | null,
   size: "w780" | "w1280" | "original" = "w1280"
 ): string {
   if (!path)
+    // 기본 배경 이미지 (영화 느낌 나는 랜덤 이미지)
     return "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1280&h=720&fit=crop";
   return `${TMDB_IMAGE_BASE_URL}/${size}${path}`;
 }
 
-// API 호출 함수들
+// =========================
+// TMDB API 호출 함수들
+// =========================
+
+// 설문에서 선택한 조건을 기반으로 영화 목록 조회
 export async function discoverMovies(params: {
   genres?: number[];
   language?: string;
@@ -135,21 +161,25 @@ export async function discoverMovies(params: {
   sortBy?: string;
   page?: number;
 }): Promise<TMDBMovie[]> {
+  // 쿼리스트링 생성
   const queryParams = new URLSearchParams({
     api_key: TMDB_API_KEY,
     language: "ko-KR",
     page: (params.page || 1).toString(),
-    sort_by: params.sortBy || "popularity.desc",
+    sort_by: params.sortBy || "popularity.desc", // 기본 정렬: 인기순
   });
 
+  // 선택된 장르가 있으면 with_genres에 추가
   if (params.genres && params.genres.length > 0) {
     queryParams.append("with_genres", params.genres.join(","));
   }
 
+  // 원어(국가) 필터
   if (params.language) {
     queryParams.append("with_original_language", params.language);
   }
 
+  // 개봉 연도 필터
   if (params.year) {
     queryParams.append("primary_release_year", params.year);
   }
@@ -160,27 +190,30 @@ export async function discoverMovies(params: {
     );
     if (!response.ok) throw new Error("Failed to fetch movies");
     const data = await response.json();
-    return data.results || [];
+    return data.results || []; // 결과가 없으면 빈 배열 반환
   } catch (error) {
     console.error("Error fetching movies:", error);
-    return [];
+    return []; // 에러 발생 시에도 앱이 죽지 않도록 빈 배열 반환
   }
 }
 
+// 단일 영화 상세 정보 + 출연진 + 비슷한 영화까지 한 번에 가져오는 함수
 export async function getMovieDetails(
   movieId: number
 ): Promise<MovieDetails | null> {
   try {
+    // 1) 기본 영화 정보 요청
     const movieResponse = await fetch(
       `${TMDB_BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=ko-KR`
     );
 
     if (!movieResponse.ok) {
-      return null;
+      return null; // 영화가 없거나 에러일 경우 null 반환
     }
 
     const movie = await movieResponse.json();
 
+    // 2) 출연진, 3) 비슷한 영화 정보를 동시에 요청 (Promise.all)
     const [creditsResponse, similarResponse] = await Promise.all([
       fetch(
         `${TMDB_BASE_URL}/movie/${movieId}/credits?api_key=${TMDB_API_KEY}&language=ko-KR`
@@ -190,6 +223,7 @@ export async function getMovieDetails(
       ),
     ]);
 
+    // 응답이 실패하더라도 기본 구조는 유지하도록 안전 처리
     const credits = creditsResponse.ok
       ? await creditsResponse.json()
       : { cast: [], crew: [] };
@@ -197,12 +231,14 @@ export async function getMovieDetails(
       ? await similarResponse.json()
       : { results: [] };
 
+    // 기본 movie 데이터에 credits와 similar을 합쳐서 반환
     return {
       ...movie,
       credits,
       similar,
     };
   } catch (error) {
+    // 네트워크 에러 등 처리
     if (error instanceof TypeError) {
       console.error(`Network error for movie ${movieId}:`, error.message);
     }
@@ -210,7 +246,11 @@ export async function getMovieDetails(
   }
 }
 
-// 추천 알고리즘
+// =========================
+// 추천 점수 계산 알고리즘
+// =========================
+
+// 사용자의 설문 응답(preferences)과 영화 정보를 기반으로 0~100 점수 계산
 export function calculateMatchScore(
   movie: TMDBMovie,
   preferences: {
@@ -221,33 +261,36 @@ export function calculateMatchScore(
     excludes: string[];
   }
 ): number {
-  let score = 0;
+  let score = 0; // 가중치 합산용 점수
 
   // 1. 장르 매칭 (40%)
   const selectedGenreIds = preferences.genres
-    .map((g) => GENRE_IDS[g])
+    .map((g) => GENRE_IDS[g]) // 한글 장르 → TMDB 장르 ID로 변환
     .filter(Boolean);
   if (selectedGenreIds.length > 0) {
     const matchingGenres = movie.genre_ids.filter((gId) =>
       selectedGenreIds.includes(gId)
     );
-    const genreMatchRatio = matchingGenres.length / selectedGenreIds.length;
-    const genreScore = genreMatchRatio * 40;
+    const genreMatchRatio = matchingGenres.length / selectedGenreIds.length; // 사용자가 고른 장르 중 얼마나 겹치는지
+    const genreScore = genreMatchRatio * 40; // 최대 40점
     score += genreScore;
   } else {
+    // 장르를 선택하지 않은 경우 기본 점수 부여
     score += 20;
   }
 
   // 2. 평점/인기도 (20%)
-  const ratingScore = (movie.vote_average / 10) * 15; // 15%
+  const ratingScore = (movie.vote_average / 10) * 15; // 평점 비율로 최대 15점
   score += ratingScore;
 
+  // 인기(popularity)에 따른 보너스 (최대 5점)
   const popularityBonus =
-    movie.popularity > 50 ? 5 : (movie.popularity / 50) * 5; // 5%
+    movie.popularity > 50 ? 5 : (movie.popularity / 50) * 5;
   score += popularityBonus;
 
-  // 3. 러닝타임 매칭 (15%) — discover 에는 runtime 없어서 장르 기반 추정
+  // 3. 러닝타임 매칭 (15%) — discover에는 runtime이 없어서 장르 기반 추정
   if (preferences.runtime) {
+    // 사용자가 선호하는 러닝타임을 기준값 + 허용 오차로 변환
     let preferredRuntime = 120;
     let tolerance = 30;
 
@@ -262,36 +305,44 @@ export function calculateMatchScore(
       tolerance = 40;
     }
 
+    // 장르 조합으로 러닝타임을 대략 추정
     let estimatedRuntime = 110;
     if (movie.genre_ids.includes(28) || movie.genre_ids.includes(878)) {
+      // 액션, SF는 대체로 긴 편
       estimatedRuntime = 120;
     } else if (movie.genre_ids.includes(35)) {
+      // 코미디는 보통 짧은 편
       estimatedRuntime = 100;
     } else if (
       movie.genre_ids.includes(18) ||
       movie.genre_ids.includes(10749)
     ) {
+      // 드라마/로맨스는 중간 정도
       estimatedRuntime = 110;
     }
 
+    // 선호 러닝타임과 추정 러닝타임 차이에 따라 감점
     const runtimeDiff = Math.abs(estimatedRuntime - preferredRuntime);
     const runtimeScore = Math.max(0, 15 - (runtimeDiff / tolerance) * 15);
     score += runtimeScore;
   } else {
+    // 러닝타임 상관없음 선택 시 기본 점수
     score += 10;
   }
 
-  // 4. 최신성 매칭 (15%)
+  // 4. 최신성 매칭 (15%) - 사용자가 선호하는 연대/연도와 실제 개봉년 비교
   const currentYear = new Date().getFullYear();
   const rawReleaseYear = movie.release_date
     ? new Date(movie.release_date).getFullYear()
     : NaN;
 
+  // release_date가 비어있을 경우 현재 연도로 대체
   const releaseYear = Number.isFinite(rawReleaseYear)
     ? rawReleaseYear
     : currentYear;
 
   if (preferences.releaseYear) {
+    // 특정 연도를 선택한 경우 (2024, 2023, 2022)
     if (preferences.releaseYear === "2024년" && releaseYear === 2024) {
       score += 15;
     } else if (preferences.releaseYear === "2023년" && releaseYear === 2023) {
@@ -299,52 +350,63 @@ export function calculateMatchScore(
     } else if (preferences.releaseYear === "2022년" && releaseYear === 2022) {
       score += 15;
     } else if (preferences.releaseYear === "2020년대") {
+      // 2020년대 전반적으로 가깝게 줄수록 점수 높게
       const yearDiff = Math.abs(releaseYear - currentYear);
       score += Math.max(0, 15 - yearDiff * 2);
     } else if (preferences.releaseYear === "2010년대") {
       const yearDiff = Math.abs(releaseYear - 2015);
       score += Math.max(0, 15 - yearDiff * 1.5);
     } else if (preferences.releaseYear === "상관없음") {
+      // 상관없음이지만 너무 오래된 영화는 약간 감점
       const yearDiff = currentYear - releaseYear;
       score += Math.max(5, 15 - yearDiff);
     } else {
+      // 기타 범위(2000년대, 고전 등) 처리
       const yearDiff = Math.abs(releaseYear - currentYear);
       score += Math.max(0, 15 - yearDiff * 2);
     }
   } else {
+    // 연도 선택 안했을 경우: 최신일수록 점수 높게
     const yearDiff = currentYear - releaseYear;
     score += Math.max(0, 15 - yearDiff);
   }
 
-  // 5. 국가/언어 매칭 (10%)
+  // 5. 국가/언어 매칭 (10%) - 원어(original_language) 비교
   if (preferences.country && preferences.country !== "상관없음") {
     const preferredLanguage = LANGUAGE_CODES[preferences.country];
     if (preferredLanguage && movie.original_language === preferredLanguage) {
+      // 사용자가 고른 국가의 언어와 일치
       score += 10;
     } else {
+      // 완전히 일치하진 않지만 기본 점수
       score += 3;
     }
   } else {
+    // 국가 상관없음
     score += 7;
   }
 
-  // 6. 제외 요소 처리 (감점)
+  // 6. 제외 요소 처리 (감점 로직)
   if (preferences.excludes && preferences.excludes.length > 0) {
+    // 폭력적 장면 제외 + 액션 장르 포함 시 감점
     if (
       preferences.excludes.includes("폭력적 장면") &&
       movie.genre_ids.includes(28)
     ) {
       score *= 0.7;
     }
+    // 공포 요소 제외 + 공포 장르 포함 시 감점
     if (
       preferences.excludes.includes("공포 요소") &&
       movie.genre_ids.includes(27)
     ) {
       score *= 0.7;
     }
+    // 선정적 내용 제외 + 성인 영화면 바로 제외
     if (preferences.excludes.includes("선정적 내용") && movie.adult) {
       score = 0;
     }
+    // 슬픈 결말 제외 + 드라마 장르일 경우 약간 감점
     if (preferences.excludes.includes("슬픈 결말")) {
       if (movie.genre_ids.includes(18)) {
         score *= 0.9;
@@ -352,14 +414,19 @@ export function calculateMatchScore(
     }
   }
 
-  // 7. 품질 보너스
+  // 7. 품질 보너스 - 평점과 인기가 모두 높은 경우 추가 보너스
   if (movie.vote_average >= 7.5 && movie.popularity > 100) {
     score += 5;
   }
 
+  // 최종 점수는 0~100 사이 정수로 보정
   const finalScore = Math.round(Math.min(score, 100));
   return Number.isFinite(finalScore) ? finalScore : 0;
 }
+
+// =========================
+// TMDB 인기/상영중/평점순 API
+// =========================
 
 // 인기 영화 가져오기
 export async function getPopularMovies(page: number = 1): Promise<TMDBMovie[]> {
@@ -425,7 +492,11 @@ export async function getNowPlayingMovies(
   }
 }
 
-// TV 프로그램 상세 정보 가져오기
+// =========================
+// TV 상세 + 공통 상세 래퍼 + TV 정규화
+// =========================
+
+// TV 프로그램 상세 정보 가져오기 (영화와 동일하게 credits, similar까지 포함)
 export async function getTVDetails(tvId: number): Promise<TVDetails | null> {
   try {
     const tvResponse = await fetch(
@@ -468,7 +539,7 @@ export async function getTVDetails(tvId: number): Promise<TVDetails | null> {
   }
 }
 
-// 통합 콘텐츠 상세 정보 가져오기 (영화 또는 TV)
+// 통합 콘텐츠 상세 정보 가져오기 (영화 또는 TV를 구분해서 호출)
 export async function getContentDetails(
   contentId: number,
   mediaType: "movie" | "tv"
@@ -479,11 +550,12 @@ export async function getContentDetails(
   return getMovieDetails(contentId);
 }
 
-// TV 데이터를 영화 형식으로 정규화
+// TV 데이터를 영화 형식(TMDBMovie)으로 정규화하는 함수
+// → 캐러셀/리스트를 영화/TV 상관없이 같은 UI로 렌더링하기 위해 사용
 export function normalizeTVToMovie(tv: any): TMDBMovie {
   return {
     id: tv.id,
-    title: tv.name || tv.title,
+    title: tv.name || tv.title, // TV는 name, 영화는 title을 사용하므로 둘 다 고려
     name: tv.name,
     overview: tv.overview || "",
     poster_path: tv.poster_path || null,

@@ -57,7 +57,7 @@ export function FavoritesCarousel({
 
   if (movies.length === 0) {
     return (
-      <div className="relative h-[500px] bg-gradient-to-b from-purple-900/20 to-transparent rounded-xl mb-10 mx-6 flex items-center justify-center border border-white/10">
+      <div className="relative h-[600px] bg-gradient-to-b from-purple-900/20 to-transparent mb-5 flex items-center justify-center">
         <div className="text-center">
           <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400 text-lg">아직 찜한 영화가 없습니다</p>
