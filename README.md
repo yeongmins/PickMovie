@@ -4,7 +4,7 @@
 TMDB API 기반 매칭 알고리즘을 통해 **가장 잘 맞는 콘텐츠를 추천해주는 영화 추천 서비스**입니다.
 
 ## 배포 링크
-https://pick-movie-psi.vercel.app/ <br /><br />
+https://pickmovie.net/ <br /><br />
 <img width="684" height="458" alt="image" src="https://github.com/user-attachments/assets/193d1e4f-9f76-4f6d-98ac-1a28545afb6e" />
 
 ## 📌 주요 기능 (Features)
