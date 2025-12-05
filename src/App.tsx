@@ -15,6 +15,16 @@ const STORAGE_KEYS = {
 const isDevelopment =
   typeof window !== "undefined" && window.location.hostname === "localhost";
 
+// ✅ 빈 UserPreferences 생성 헬퍼
+const createEmptyPreferences = (): UserPreferences => ({
+  genres: [],
+  moods: [],
+  runtime: "",
+  releaseYear: "",
+  country: "",
+  excludes: [],
+});
+
 // Favorite 아이템 타입
 export interface FavoriteItem {
   id: number;
@@ -32,16 +42,13 @@ export default function App() {
 
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
-  const [userPreferences, setUserPreferences] = useState<UserPreferences>({
-    genres: [],
-    moods: [],
-    runtime: "",
-    releaseYear: "",
-    country: "",
-    excludes: [],
-  });
+
+  // ✅ 초기값을 헬퍼로 통일
+  const [userPreferences, setUserPreferences] =
+    useState<UserPreferences>(createEmptyPreferences);
+
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // ✅ "스토리지 로딩중" 상태
 
   // 디버깅 함수 등록
   useEffect(() => {
@@ -128,15 +135,23 @@ export default function App() {
       }
 
       if (savedPreferences) {
-        setUserPreferences(JSON.parse(savedPreferences));
+        setUserPreferences(savedPreferences ? JSON.parse(savedPreferences) : createEmptyPreferences());
       }
 
       if (savedOnboardingComplete === "true" && savedPreferences) {
         setOnboardingComplete(true);
+      } else {
+        // ✅ 저장된 온보딩 정보가 없으면 무조건 미완료 상태로
+        setOnboardingComplete(false);
       }
     } catch (error) {
       console.error("Failed to load from localStorage:", error);
+      // 에러가 나도 최소한 빈 상태로 시작
+      setUserPreferences(createEmptyPreferences());
+      setFavorites([]);
+      setOnboardingComplete(false);
     } finally {
+      // ✅ 여기서부터 라우트 렌더 시작 가능
       setIsLoading(false);
     }
   }, []);
@@ -161,14 +176,7 @@ export default function App() {
   const handleReanalyze = useCallback(() => {
     setOnboardingComplete(false);
     setIsReanalyzing(true);
-    setUserPreferences({
-      genres: [],
-      moods: [],
-      runtime: "",
-      releaseYear: "",
-      country: "",
-      excludes: [],
-    });
+    setUserPreferences(createEmptyPreferences());
     // ✅ 재분석은 바로 온보딩으로 보냄
     navigate("/onboarding");
   }, [navigate]);
@@ -184,8 +192,9 @@ export default function App() {
     []
   );
 
+  // ✅ 스토리지 로딩이 끝나기 전에는 아무 라우트도 렌더하지 않기
   if (isLoading) {
-    return null;
+    return null; // 필요하면 로딩 스피너 컴포넌트로 교체 가능
   }
 
   return (
