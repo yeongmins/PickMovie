@@ -1,41 +1,45 @@
-# ---------------------------
-# Node
-# ---------------------------
+# =====================================
+# Node / Dependency
+# =====================================
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# ---------------------------
-# Build Output
-# ---------------------------
+# =====================================
+# Build Output (Frontend + Backend)
+# =====================================
 dist/
 build/
 .cache/
 .temp/
+tmp/
+temp/
+*.tmp
+*.temp
 
-# ---------------------------
+# =====================================
 # Environment Variables
-# ---------------------------
+# =====================================
 .env
 .env.*
 !.env.example
 
-# ---------------------------
+# =====================================
 # Logs
-# ---------------------------
+# =====================================
 logs/
 *.log
 *.log.*
-log.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+firebase-debug.log
 
-# ---------------------------
-# OS / Editor files
-# ---------------------------
+# =====================================
+# OS / System Files
+# =====================================
 
 # macOS
 .DS_Store
@@ -50,38 +54,46 @@ Desktop.ini
 # Linux
 *~
 
+# =====================================
+# Editor / IDE Settings
+# =====================================
+
 # VS Code
 .vscode/
 .history/
 *.code-workspace
 
-# JetBrains
+# JetBrains (WebStorm, IntelliJ)
 .idea/
 
-# ---------------------------
-# Temp Files
-# ---------------------------
-tmp/
-temp/
-*.tmp
-*.temp
+# Eclipse / Others
+.project
+.classpath
+.settings/
+.c9/
+*.launch
+*.sublime-workspace
 
-# ---------------------------
-# Local Development Files
-# ---------------------------
-*.local
-local.settings.json
-firebase-debug.log
-
-# ---------------------------
-# Coverage / Test Output
-# ---------------------------
+# =====================================
+# Test / Coverage
+# =====================================
 coverage/
 *.lcov
+.nyc_output/
+report.*.json
 
-# ---------------------------
-# Images / Cache
-# ---------------------------
+# =====================================
+# Runtime Data
+# =====================================
+pids
+*.pid
+*.pid.lock
+*.seed
+
+# =====================================
+# Images / Cache Files
+# =====================================
+# (캐시 제거용 — 실제 이미지 자산은 public/ 에 있기 때문에 안전함)
 .cache/
 *.jpg
 *.jpeg
@@ -89,12 +101,15 @@ coverage/
 *.svg
 *.webp
 
-# If you want to keep images, remove above lines.
-# 추천: public/images/ 정도는 포함시키고, 캐시 파일만 ignore
+# =====================================
+# Local Development Files
+# =====================================
+*.local
+local.settings.json
 
-# ---------------------------
+# =====================================
 # Misc
-# ---------------------------
+# =====================================
 *.swp
 *.swo
 robots.txt
