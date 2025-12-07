@@ -24,6 +24,8 @@ interface MovieRowProps {
   showMatchScore?: boolean;
 }
 
+const POSTER_SIZE = "w342";
+
 export function MovieRow({
   title,
   movies,
@@ -91,7 +93,17 @@ export function MovieRow({
             // onError로 숨기기로 한 영화라면 렌더링 스킵
             if (hiddenMovieIds.includes(movie.id)) return null;
 
-            const posterUrl = getPosterUrl(movie.poster_path as string, "w500");
+            const posterUrl = getPosterUrl(
+              movie.poster_path as string,
+              POSTER_SIZE
+            );
+
+            const year =
+              movie.release_date || movie.first_air_date
+                ? new Date(
+                    movie.release_date || movie.first_air_date || ""
+                  ).getFullYear()
+                : undefined;
 
             return (
               <div
@@ -158,14 +170,10 @@ export function MovieRow({
                     <Star className="w-3 h-3 fill-current text-yellow-400" />
                     {movie.vote_average.toFixed(1)}
                   </span>
-                  {(movie.release_date || movie.first_air_date) && (
+                  {year && (
                     <>
                       <span>·</span>
-                      <span>
-                        {new Date(
-                          movie.release_date || movie.first_air_date || ""
-                        ).getFullYear()}
-                      </span>
+                      <span>{year}</span>
                     </>
                   )}
                 </div>

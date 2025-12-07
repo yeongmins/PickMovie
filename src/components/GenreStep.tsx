@@ -1,19 +1,18 @@
-// 온보딩 1단계: 사용자가 좋아하는 장르를 선택하는 화면
-
+// GenreStep.tsx
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Button } from "./ui/button";
 import { PreferencesPreview } from "./PreferencesPreview";
 import { UserPreferences } from "./Onboarding";
 
 interface GenreStepProps {
-  onNext: () => void; // 다음 단계로 이동
-  onBack: () => void; // 이전 단계로 이동(현재는 사용 X)
-  selectedGenres: string[]; // 부모에서 내려준 현재 선택된 장르
-  onGenresChange: (genres: string[]) => void; // 선택된 장르 변경 콜백
-  currentPreferences: UserPreferences; // 프리뷰에 표시할 전체 취향 정보
+  onNext: () => void;
+  onBack: () => void;
+  selectedGenres: string[];
+  onGenresChange: (genres: string[]) => void;
+  currentPreferences: UserPreferences;
 }
 
-// 화면에 보여줄 장르 선택 옵션 (이모지 + 한글 라벨)
 const genreOptions = [
   { id: "action", label: "액션", icon: "💥" },
   { id: "comedy", label: "코미디", icon: "😂" },
@@ -32,6 +31,8 @@ const genreOptions = [
   { id: "documentary", label: "다큐멘터리", icon: "📹" },
 ];
 
+const MAX_SELECTION = 3;
+
 export function GenreStep({
   onNext,
   onBack,
@@ -39,36 +40,45 @@ export function GenreStep({
   onGenresChange,
   currentPreferences,
 }: GenreStepProps) {
-  // 로컬 상태로 선택된 장르를 관리 (부모와 즉시 동기화)
   const [localGenres, setLocalGenres] = useState<string[]>(selectedGenres);
 
-  // 장르 버튼을 클릭했을 때 선택/해제 토글
-  const toggleGenre = (genre: string) => {
-    const newGenres = localGenres.includes(genre)
-      ? localGenres.filter((g) => g !== genre) // 이미 선택되어 있으면 제거
-      : [...localGenres, genre]; // 아니면 추가
+  useEffect(() => {
+    setLocalGenres(selectedGenres);
+  }, [selectedGenres]);
 
-    setLocalGenres(newGenres); // 로컬 상태 업데이트
-    onGenresChange(newGenres); // 부모에도 변경 내용 전달
+  const isOverLimit = localGenres.length > MAX_SELECTION;
+
+  const toggleGenre = (genre: string) => {
+    const isSelected = localGenres.includes(genre);
+
+    let newGenres: string[];
+    if (isSelected) {
+      newGenres = localGenres.filter((g) => g !== genre);
+    } else {
+      // 3개 넘겨도 선택은 허용
+      newGenres = [...localGenres, genre];
+    }
+
+    setLocalGenres(newGenres);
+    onGenresChange(newGenres);
   };
 
-  // 최소 1개 이상 선택된 경우에만 다음 단계로 이동
   const handleNext = () => {
-    if (localGenres.length > 0) {
+    // 1~3개일 때만 다음 단계로 이동
+    if (localGenres.length > 0 && !isOverLimit) {
       onNext();
     }
   };
 
+  const isNextDisabled =
+    localGenres.length === 0 || localGenres.length > MAX_SELECTION;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
-      {/* 전체 온보딩 공통 배경 (영화관 느낌의 어두운 배경) */}
-      {/* <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] bg-purple-600/20 rounded-full blur-3xl pointer-events-none" /> */}
-
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* 왼쪽: 장르 선택 UI */}
         <div className="flex-1 flex flex-col max-w-2xl">
           <div className="mb-4">
-            {/* 단계 번호 + 제목 */}
             <div className="flex items-center gap-3 mb-2">
               <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                 1
@@ -77,40 +87,70 @@ export function GenreStep({
                 좋아하는 장르를 선택해주세요
               </h2>
             </div>
-            <p className="text-gray-400 text-sm">
-              최소 1개 이상 선택해주세요 (여러 개 선택 가능)
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-gray-400 text-sm">
+                최소 1개,{" "}
+                <span className="text-purple-300">최대 3개까지</span> 선택할 수
+                있어요.
+              </p>
+              <p className="text-xs text-gray-400">
+                선택 {localGenres.length} / {MAX_SELECTION}개
+              </p>
+            </div>
+            {isOverLimit && (
+              <p className="mt-1 text-xs text-red-400">
+                정확한 장르 파악을 위해{" "}
+                <span className="font-semibold">최대 3개까지만</span> 선택해 주세요.
+              </p>
+            )}
           </div>
 
           {/* 장르 카드 그리드 */}
-          <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
-            {genreOptions.map((genre) => (
-              <button
-                key={genre.id}
-                onClick={() => toggleGenre(genre.label)}
-                className={`p-3 rounded-xl border-2 transition-all text-left ${
-                  localGenres.includes(genre.label)
-                    ? // 선택된 상태: 보라색 강조 + 그림자
-                      "bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20"
-                    : // 기본 상태: 약한 테두리 + 호버 시만 밝게
-                      "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
-                }`}
-              >
-                <div className="text-xl mb-2">{genre.icon}</div>
-                <div className="text-sm text-white font-medium">
-                  {genre.label}
-                </div>
-              </button>
-            ))}
-          </div>
+          <motion.div
+            className="flex-1 grid grid-cols-3 gap-2 mb-3"
+            animate={
+              isOverLimit
+                ? { x: [-4, 4, -4, 4, 0] } // 좌우로 살짝 흔들림
+                : { x: 0 }
+            }
+            transition={{ duration: 0.3 }}
+          >
+            {genreOptions.map((genre) => {
+              const isSelected = localGenres.includes(genre.label);
+              const baseSelected =
+                "bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20";
+              const baseUnselected =
+                "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20";
 
-          {/* 하단 버튼 영역 (이전/다음) */}
+              // 3개 넘겼을 때는 전체 카드에 빨간 느낌 오버레이
+              const overLimitStyle = isOverLimit
+                ? isSelected
+                  ? "border-red-400/80 bg-red-500/20"
+                  : "border-red-400/60 bg-red-500/10"
+                : "";
+
+              return (
+                <button
+                  key={genre.id}
+                  onClick={() => toggleGenre(genre.label)}
+                  className={`p-3 rounded-xl border-2 transition-all text-left ${
+                    isSelected ? baseSelected : baseUnselected
+                  } ${overLimitStyle}`}
+                >
+                  <div className="text-xl mb-2">{genre.icon}</div>
+                  <div className="text-sm text-white font-medium">
+                    {genre.label}
+                  </div>
+                </button>
+              );
+            })}
+          </motion.div>
+
           <div className="flex gap-3">
-            {/* 이전 버튼은 UX 상 필요 없어서 주석 처리 */}
-            {/* <Button ...>이전</Button> */}
+            {/* 필요하면 onBack 살리면 됨 */}
             <Button
               onClick={handleNext}
-              disabled={localGenres.length === 0} // 하나도 선택 안했으면 비활성화
+              disabled={isNextDisabled}
               size="lg"
               className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >

@@ -1,19 +1,18 @@
-// 온보딩 2단계: 영화의 분위기(무드)를 선택하는 화면
-
-import { useState } from "react";
+// MoodStep.tsx
+import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { Button } from "./ui/button";
 import { PreferencesPreview } from "./PreferencesPreview";
 import { UserPreferences } from "./Onboarding";
 
 interface MoodStepProps {
-  onNext: () => void; // 다음 단계로 이동
-  onBack: () => void; // 이전 단계로 이동
-  selectedMoods: string[]; // 현재까지 선택된 무드
-  onMoodsChange: (moods: string[]) => void; // 무드 변경 콜백
-  currentPreferences: UserPreferences; // 프리뷰용 전체 취향 정보
+  onNext: () => void;
+  onBack: () => void;
+  selectedMoods: string[];
+  onMoodsChange: (moods: string[]) => void;
+  currentPreferences: UserPreferences;
 }
 
-// 무드 선택 옵션 목록
 const moodOptions = [
   { id: "exciting", label: "흥미진진", icon: "🔥" },
   { id: "touching", label: "감동적인", icon: "😢" },
@@ -29,6 +28,8 @@ const moodOptions = [
   { id: "intense", label: "강렬한", icon: "⚡" },
 ];
 
+const MAX_SELECTION = 3;
+
 export function MoodStep({
   onNext,
   onBack,
@@ -36,70 +37,109 @@ export function MoodStep({
   onMoodsChange,
   currentPreferences,
 }: MoodStepProps) {
-  // 현재 화면에서 선택 중인 무드 목록
   const [localMoods, setLocalMoods] = useState<string[]>(selectedMoods);
 
-  // 무드 버튼 클릭 시 토글
+  useEffect(() => {
+    setLocalMoods(selectedMoods);
+  }, [selectedMoods]);
+
+  const isOverLimit = localMoods.length > MAX_SELECTION;
+
   const toggleMood = (mood: string) => {
-    const newMoods = localMoods.includes(mood)
-      ? localMoods.filter((m) => m !== mood)
-      : [...localMoods, mood];
+    const isSelected = localMoods.includes(mood);
+
+    let newMoods: string[];
+    if (isSelected) {
+      newMoods = localMoods.filter((m) => m !== mood);
+    } else {
+      // 3개 넘겨도 선택은 허용
+      newMoods = [...localMoods, mood];
+    }
+
     setLocalMoods(newMoods);
-    onMoodsChange(newMoods); // 부모에도 변경 알림
+    onMoodsChange(newMoods);
   };
 
-  // 최소 1개 이상 선택 시 다음 단계로 이동
   const handleNext = () => {
-    if (localMoods.length > 0) {
+    if (localMoods.length > 0 && !isOverLimit) {
       onNext();
     }
   };
 
+  const isNextDisabled =
+    localMoods.length === 0 || localMoods.length > MAX_SELECTION;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
-      {/* 배경 연출용 효과 (무드 단계는 오른쪽에서 퍼지는 느낌으로 설정) */}
-      {/* <div className="absolute top-1/4 right-1/4 w-[600px] h-[600px] bg-pink-600/20 rounded-full blur-3xl pointer-events-none" /> */}
-
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* 왼쪽: 분위기 선택 UI */}
         <div className="flex-1 flex flex-col max-w-2xl">
           <div className="mb-4">
-            {/* 단계 번호 + 제목 */}
             <div className="flex items-center gap-3 mb-2">
               <div className="w-8 h-8 bg-pink-500 rounded-full flex items-center justify-center text-white text-base font-medium">
                 2
               </div>
-              <h2 className="text-white text-2xl font-medium
-              ">
+              <h2 className="text-white text-2xl font-medium">
                 어떤 분위기를 원하시나요?
               </h2>
             </div>
-            <p className="text-gray-400 text-sm">
-              최소 1개 이상 선택해주세요 (여러 개 선택 가능)
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-gray-400 text-sm">
+                최소 1개,{" "}
+                <span className="text-pink-300">최대 3개까지</span> 선택할 수
+                있어요.
+              </p>
+              <p className="text-xs text-gray-400">
+                선택 {localMoods.length} / {MAX_SELECTION}개
+              </p>
+            </div>
+            {isOverLimit && (
+              <p className="mt-1 text-xs text-red-400">
+                정확한 분위기 분석을 위해{" "}
+                <span className="font-semibold">최대 3개까지만</span> 선택해 주세요.
+              </p>
+            )}
           </div>
 
           {/* 무드 카드 그리드 */}
-          <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
-            {moodOptions.map((mood) => (
-              <button
-                key={mood.id}
-                onClick={() => toggleMood(mood.label)}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
-                  localMoods.includes(mood.label)
-                    ? // 선택 상태: 핑크 계열 하이라이트
-                      "bg-pink-500/20 border-pink-500 shadow-lg shadow-pink-500/20"
-                    : // 기본 상태
-                      "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
-                }`}
-              >
-                <div className="text-xl mb-2">{mood.icon}</div>
-                <div className="text-sm text-white font-medium">
-                  {mood.label}
-                </div>
-              </button>
-            ))}
-          </div>
+          <motion.div
+            className="flex-1 grid grid-cols-3 gap-2 mb-3"
+            animate={
+              isOverLimit
+                ? { x: [-4, 4, -4, 4, 0] } // 좌우 흔들림
+                : { x: 0 }
+            }
+            transition={{ duration: 0.3 }}
+          >
+            {moodOptions.map((mood) => {
+              const isSelected = localMoods.includes(mood.label);
+              const baseSelected =
+                "bg-pink-500/20 border-pink-500 shadow-lg shadow-pink-500/20";
+              const baseUnselected =
+                "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20";
+
+              const overLimitStyle = isOverLimit
+                ? isSelected
+                  ? "border-red-400/80 bg-red-500/20"
+                  : "border-red-400/60 bg-red-500/10"
+                : "";
+
+              return (
+                <button
+                  key={mood.id}
+                  onClick={() => toggleMood(mood.label)}
+                  className={`p-4 rounded-xl border-2 transition-all text-left ${
+                    isSelected ? baseSelected : baseUnselected
+                  } ${overLimitStyle}`}
+                >
+                  <div className="text-xl mb-2">{mood.icon}</div>
+                  <div className="text-sm text-white font-medium">
+                    {mood.label}
+                  </div>
+                </button>
+              );
+            })}
+          </motion.div>
 
           {/* 하단 이전/다음 버튼 */}
           <div className="flex gap-3">
@@ -113,7 +153,7 @@ export function MoodStep({
             </Button>
             <Button
               onClick={handleNext}
-              disabled={localMoods.length === 0}
+              disabled={isNextDisabled}
               size="lg"
               className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >

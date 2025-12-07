@@ -238,6 +238,95 @@ export function RecommendationStep({
           <p className="text-purple-300 text-xs mt-2">
             총 {movies.length}개의 영화를 찾았습니다
           </p>
+
+          {/* ✅ 사용자가 선택한 조건 요약 카드 */}
+          {(preferences.genres.length > 0 ||
+            preferences.moods.length > 0 ||
+            preferences.runtime ||
+            preferences.releaseYear ||
+            preferences.country ||
+            (preferences.excludes && preferences.excludes.length > 0)) && (
+            <div className="mt-4 max-w-2xl mx-auto bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-left space-y-3">
+              {preferences.genres.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1">
+                    🎬 선택한 장르
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {preferences.genres.map((g) => (
+                      <span
+                        key={g}
+                        className="px-2 py-1 rounded-full bg-purple-500/15 border border-purple-400/40 text-[11px] text-purple-100"
+                      >
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {preferences.moods.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1">
+                    🎭 선택한 분위기
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {preferences.moods.map((m) => (
+                      <span
+                        key={m}
+                        className="px-2 py-1 rounded-full bg-pink-500/15 border border-pink-400/40 text-[11px] text-pink-100"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(preferences.runtime ||
+                preferences.releaseYear ||
+                preferences.country) && (
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1">⏱ 추가 조건</p>
+                  <div className="flex flex-wrap gap-1">
+                    {preferences.runtime && (
+                      <span className="px-2 py-1 rounded-full bg-white/5 border border-white/15 text-[11px] text-gray-100">
+                        러닝타임: {preferences.runtime}
+                      </span>
+                    )}
+                    {preferences.releaseYear && (
+                      <span className="px-2 py-1 rounded-full bg-white/5 border border-white/15 text-[11px] text-gray-100">
+                        개봉 연도: {preferences.releaseYear}
+                      </span>
+                    )}
+                    {preferences.country && (
+                      <span className="px-2 py-1 rounded-full bg-white/5 border border-white/15 text-[11px] text-gray-100">
+                        국가: {preferences.country}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {preferences.excludes && preferences.excludes.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1">
+                    🚫 제외한 요소
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {preferences.excludes.map((e) => (
+                      <span
+                        key={e}
+                        className="px-2 py-1 rounded-full bg-red-500/10 border border-red-400/40 text-[11px] text-red-200"
+                      >
+                        {e}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Movie Grid */}

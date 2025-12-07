@@ -263,32 +263,44 @@ export function calculateMatchScore(
 ): number {
   let score = 0; // 가중치 합산용 점수
 
-  // 1. 장르 매칭 (40%)
+  // -----------------------
+  // 1. 장르 매칭 (최대 40점)
+  // -----------------------
   const selectedGenreIds = preferences.genres
     .map((g) => GENRE_IDS[g]) // 한글 장르 → TMDB 장르 ID로 변환
     .filter(Boolean);
+
   if (selectedGenreIds.length > 0) {
     const matchingGenres = movie.genre_ids.filter((gId) =>
       selectedGenreIds.includes(gId)
     );
-    const genreMatchRatio = matchingGenres.length / selectedGenreIds.length; // 사용자가 고른 장르 중 얼마나 겹치는지
+    // 사용자가 고른 장르 중 얼마나 겹치는지 비율로 계산
+    const genreMatchRatio =
+      matchingGenres.length / Math.max(selectedGenreIds.length, 1);
     const genreScore = genreMatchRatio * 40; // 최대 40점
     score += genreScore;
   } else {
-    // 장르를 선택하지 않은 경우 기본 점수 부여
-    score += 20;
+    // (이제 UI에서 최소 1개 선택을 강제하지만, 혹시 모를 상황을 위해 기본 점수)
+    score += 15;
   }
 
-  // 2. 평점/인기도 (20%)
-  const ratingScore = (movie.vote_average / 10) * 15; // 평점 비율로 최대 15점
+  // ---------------------------------
+  // 2. 기본 품질: 평점 / 인기도 (최대 20점)
+  //    → "취향"보다 비중 낮게, 품질 보정용
+  // ---------------------------------
+  // 평점: 최대 15점
+  const ratingScore = (movie.vote_average / 10) * 15;
   score += ratingScore;
 
-  // 인기(popularity)에 따른 보너스 (최대 5점)
+  // 인기: 최대 5점 (50 기준으로 선형 보정)
   const popularityBonus =
-    movie.popularity > 50 ? 5 : (movie.popularity / 50) * 5;
+    movie.popularity >= 50 ? 5 : (Math.max(movie.popularity, 0) / 50) * 5;
   score += popularityBonus;
 
-  // 3. 러닝타임 매칭 (15%) — discover에는 runtime이 없어서 장르 기반 추정
+  // ---------------------------------------
+  // 3. 러닝타임 매칭 (선호 러닝타임, 최대 15점)
+  //    discover 결과에 runtime이 없어서 장르 기반 추정 유지
+  // ---------------------------------------
   if (preferences.runtime) {
     // 사용자가 선호하는 러닝타임을 기준값 + 허용 오차로 변환
     let preferredRuntime = 120;
@@ -308,29 +320,29 @@ export function calculateMatchScore(
     // 장르 조합으로 러닝타임을 대략 추정
     let estimatedRuntime = 110;
     if (movie.genre_ids.includes(28) || movie.genre_ids.includes(878)) {
-      // 액션, SF는 대체로 긴 편
+      // 액션(28), SF(878)는 대체로 긴 편
       estimatedRuntime = 120;
     } else if (movie.genre_ids.includes(35)) {
-      // 코미디는 보통 짧은 편
+      // 코미디(35)는 보통 짧은 편
       estimatedRuntime = 100;
     } else if (
-      movie.genre_ids.includes(18) ||
-      movie.genre_ids.includes(10749)
+      movie.genre_ids.includes(18) || // 드라마
+      movie.genre_ids.includes(10749) // 로맨스
     ) {
-      // 드라마/로맨스는 중간 정도
       estimatedRuntime = 110;
     }
 
-    // 선호 러닝타임과 추정 러닝타임 차이에 따라 감점
     const runtimeDiff = Math.abs(estimatedRuntime - preferredRuntime);
     const runtimeScore = Math.max(0, 15 - (runtimeDiff / tolerance) * 15);
     score += runtimeScore;
   } else {
-    // 러닝타임 상관없음 선택 시 기본 점수
+    // 러닝타임 상관없음 → 완전 가산은 아니고 중간 정도만
     score += 10;
   }
 
-  // 4. 최신성 매칭 (15%) - 사용자가 선호하는 연대/연도와 실제 개봉년 비교
+  // -----------------------------------
+  // 4. 최신성 매칭 (개봉 연도, 최대 15점)
+  // -----------------------------------
   const currentYear = new Date().getFullYear();
   const rawReleaseYear = movie.release_date
     ? new Date(movie.release_date).getFullYear()
@@ -342,85 +354,106 @@ export function calculateMatchScore(
     : currentYear;
 
   if (preferences.releaseYear) {
-    // 특정 연도를 선택한 경우 (2024, 2023, 2022)
-    if (preferences.releaseYear === "2024년" && releaseYear === 2024) {
-      score += 15;
-    } else if (preferences.releaseYear === "2023년" && releaseYear === 2023) {
-      score += 15;
-    } else if (preferences.releaseYear === "2022년" && releaseYear === 2022) {
-      score += 15;
+    if (preferences.releaseYear === "2024년") {
+      score += releaseYear === 2024 ? 15 : 0;
+    } else if (preferences.releaseYear === "2023년") {
+      score += releaseYear === 2023 ? 15 : 0;
+    } else if (preferences.releaseYear === "2022년") {
+      score += releaseYear === 2022 ? 15 : 0;
     } else if (preferences.releaseYear === "2020년대") {
       // 2020년대 전반적으로 가깝게 줄수록 점수 높게
-      const yearDiff = Math.abs(releaseYear - currentYear);
+      const center = 2022;
+      const yearDiff = Math.abs(releaseYear - center);
       score += Math.max(0, 15 - yearDiff * 2);
     } else if (preferences.releaseYear === "2010년대") {
-      const yearDiff = Math.abs(releaseYear - 2015);
+      const center = 2015;
+      const yearDiff = Math.abs(releaseYear - center);
       score += Math.max(0, 15 - yearDiff * 1.5);
     } else if (preferences.releaseYear === "상관없음") {
-      // 상관없음이지만 너무 오래된 영화는 약간 감점
+      // 상관없음이지만 너무 오래된 영화는 약간만 감점
       const yearDiff = currentYear - releaseYear;
       score += Math.max(5, 15 - yearDiff);
     } else {
-      // 기타 범위(2000년대, 고전 등) 처리
+      // 기타 범위(2000년대, 고전 등) - 현재와의 차이 기반
       const yearDiff = Math.abs(releaseYear - currentYear);
       score += Math.max(0, 15 - yearDiff * 2);
     }
   } else {
-    // 연도 선택 안했을 경우: 최신일수록 점수 높게
+    // 연도 선택 안했을 경우: 기본적으로 최신일수록 가산
     const yearDiff = currentYear - releaseYear;
     score += Math.max(0, 15 - yearDiff);
   }
 
-  // 5. 국가/언어 매칭 (10%) - 원어(original_language) 비교
+  // --------------------------------
+  // 5. 국가 / 언어 매칭 (최대 10점)
+  // --------------------------------
   if (preferences.country && preferences.country !== "상관없음") {
     const preferredLanguage = LANGUAGE_CODES[preferences.country];
     if (preferredLanguage && movie.original_language === preferredLanguage) {
       // 사용자가 고른 국가의 언어와 일치
       score += 10;
     } else {
-      // 완전히 일치하진 않지만 기본 점수
+      // 완전히 일치하진 않아도 약간의 기본 점수
       score += 3;
     }
   } else {
-    // 국가 상관없음
+    // 국가 상관없음 → 적당한 기본 가산점
     score += 7;
   }
 
-  // 6. 제외 요소 처리 (감점 로직)
+  // ------------------------------------------
+  // 6. 제외 요소 처리 (감점 로직: 페널티 방식)
+  //    - 취향이 잘 맞아도 싫어하는 요소가 있으면 확실히 깎기
+  // ------------------------------------------
+  let penalty = 0;
+  let hardBlock = false;
+
   if (preferences.excludes && preferences.excludes.length > 0) {
-    // 폭력적 장면 제외 + 액션 장르 포함 시 감점
+    // 폭력적 장면 제외 + 액션 장르 포함 시 강한 감점
     if (
       preferences.excludes.includes("폭력적 장면") &&
-      movie.genre_ids.includes(28)
+      movie.genre_ids.includes(28) // Action
     ) {
-      score *= 0.7;
+      penalty += 20;
     }
-    // 공포 요소 제외 + 공포 장르 포함 시 감점
+
+    // 공포 요소 제외 + 공포 장르 포함 시 강한 감점
     if (
       preferences.excludes.includes("공포 요소") &&
-      movie.genre_ids.includes(27)
+      movie.genre_ids.includes(27) // Horror
     ) {
-      score *= 0.7;
+      penalty += 20;
     }
-    // 선정적 내용 제외 + 성인 영화면 바로 제외
+
+    // 선정적 내용 제외 + 성인 영화면 바로 하드 블락
     if (preferences.excludes.includes("선정적 내용") && movie.adult) {
-      score = 0;
+      hardBlock = true;
     }
-    // 슬픈 결말 제외 + 드라마 장르일 경우 약간 감점
-    if (preferences.excludes.includes("슬픈 결말")) {
-      if (movie.genre_ids.includes(18)) {
-        score *= 0.9;
-      }
+
+    // 슬픈 결말 제외 + 드라마 장르일 경우 중간 정도 감점
+    if (
+      preferences.excludes.includes("슬픈 결말") &&
+      movie.genre_ids.includes(18) // Drama
+    ) {
+      penalty += 10;
     }
   }
 
-  // 7. 품질 보너스 - 평점과 인기가 모두 높은 경우 추가 보너스
+  if (hardBlock) {
+    return 0;
+  }
+
+  score -= penalty;
+
+  // --------------------------------------
+  // 7. 품질 보너스 - 평점과 인기가 모두 매우 높으면 +5
+  // --------------------------------------
   if (movie.vote_average >= 7.5 && movie.popularity > 100) {
     score += 5;
   }
 
   // 최종 점수는 0~100 사이 정수로 보정
-  const finalScore = Math.round(Math.min(score, 100));
+  const finalScore = Math.round(Math.min(Math.max(score, 0), 100));
   return Number.isFinite(finalScore) ? finalScore : 0;
 }
 

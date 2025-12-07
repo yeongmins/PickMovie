@@ -3741,7 +3741,11 @@ body:after {
   }
 }
 
-@media (max-width: 431px) {
+.detail-gap {
+  transition: gap 0.25s ease;
+}
+
+@media (max-width: 500px) {
   .detail-gap {
     gap: calc(var(--spacing) * 2);
     transition: gap 0.25s ease;

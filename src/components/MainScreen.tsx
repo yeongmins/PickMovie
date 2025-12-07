@@ -63,6 +63,29 @@ interface MovieWithScore extends TMDBMovie {
 
 const IS_DEV = import.meta.env.DEV;
 
+// =========================
+// 헬퍼들
+// =========================
+
+// TMDB Movie + 사용자 취향 → 점수 계산
+function withMatchScore(
+  movie: TMDBMovie,
+  prefs: UserPreferences
+): MovieWithScore {
+  return {
+    ...movie,
+    matchScore: calculateMatchScore(movie, prefs),
+  };
+}
+
+// 안전한 년도 파싱
+function getYear(dateString?: string): number | undefined {
+  if (!dateString) return undefined;
+  const time = Date.parse(dateString);
+  if (Number.isNaN(time)) return undefined;
+  return new Date(time).getFullYear();
+}
+
 export function MainScreen({
   userPreferences,
   favorites,
@@ -106,7 +129,15 @@ export function MainScreen({
     }
   }, [favorites]);
 
+  // =========================
+  // 즐겨찾기 상세 로더
+  // =========================
   const loadFavoriteMoviesDetails = useCallback(async () => {
+    if (!favorites.length) {
+      setFavoriteMovies([]);
+      return;
+    }
+
     if (IS_DEV) {
       console.log(
         "[loadFavoriteMoviesDetails] CALLED with favorites:",
@@ -115,76 +146,61 @@ export function MainScreen({
     }
 
     try {
-      const movieDetailsPromises = favorites.map((item) => {
-        if (IS_DEV) {
-          console.log(`[loadFavoriteMoviesDetails] Processing item:`, item);
-        }
+      const detailPromises = favorites.map(async (item) => {
+        try {
+          if (item.mediaType === "tv") {
+            const detail = await getTVDetails(item.id);
+            if (!detail) return null;
 
-        if (item.mediaType === "tv") {
-          return getTVDetails(item.id)
-            .then((detail) => {
-              if (!detail) return null;
-              return {
-                ...detail,
-                title: detail.name,
-                release_date: detail.first_air_date,
-                runtime: detail.episode_run_time?.[0] || 120,
-                media_type: "tv" as const,
-              };
-            })
-            .catch(() => null);
-        } else {
-          return getMovieDetails(item.id)
-            .then((detail) => {
-              if (!detail) return null;
-              return {
-                ...detail,
-                media_type: "movie" as const,
-              };
-            })
-            .catch(() => null);
+            const baseMovie: TMDBMovie = {
+              id: detail.id,
+              title: detail.name,
+              overview: detail.overview || "",
+              poster_path: detail.poster_path ?? null,
+              backdrop_path: detail.backdrop_path ?? null,
+              vote_average: detail.vote_average || 0,
+              release_date: detail.first_air_date || "",
+              genre_ids: detail.genres?.map((g) => g.id) || [],
+              popularity: detail.popularity || 0,
+              adult: detail.adult || false,
+              original_language: detail.original_language || "",
+              media_type: "tv",
+            };
+
+            return withMatchScore(baseMovie, userPreferences);
+          } else {
+            const detail = await getMovieDetails(item.id);
+            if (!detail) return null;
+
+            const baseMovie: TMDBMovie = {
+              id: detail.id,
+              title: detail.title,
+              overview: detail.overview || "",
+              poster_path: detail.poster_path ?? null,
+              backdrop_path: detail.backdrop_path ?? null,
+              vote_average: detail.vote_average || 0,
+              release_date: detail.release_date || "",
+              genre_ids: detail.genres?.map((g) => g.id) || [],
+              popularity: detail.popularity || 0,
+              adult: detail.adult || false,
+              original_language: detail.original_language || "",
+              media_type: "movie",
+            };
+
+            return withMatchScore(baseMovie, userPreferences);
+          }
+        } catch (err) {
+          if (IS_DEV) {
+            console.warn("[loadFavoriteMoviesDetails] single item failed", err);
+          }
+          return null;
         }
       });
 
-      const details = await Promise.all(movieDetailsPromises);
-
-      const moviesWithScore = details
-        .filter(
-          (detail): detail is NonNullable<typeof detail> => detail !== null
-        )
-        .map((detail) => {
-          const genreIds = detail.genres?.map((g) => g.id) || [];
-
-          const baseMovie: TMDBMovie = {
-            id: detail.id,
-            title: (detail as any).title || (detail as any).name || "제목 없음",
-            overview: detail.overview || "",
-            poster_path: detail.poster_path ?? null,
-            backdrop_path: detail.backdrop_path ?? null,
-            vote_average: detail.vote_average || 0,
-            release_date:
-              (detail as any).release_date ||
-              (detail as any).first_air_date ||
-              "",
-            genre_ids: genreIds,
-            popularity: detail.popularity || 0,
-            adult: detail.adult || false,
-            original_language: detail.original_language || "",
-            media_type: detail.media_type as "movie" | "tv",
-          };
-
-          return {
-            ...baseMovie,
-            matchScore: calculateMatchScore(baseMovie, userPreferences),
-          };
-        });
-
-      if (IS_DEV) {
-        console.log(
-          "[loadFavoriteMoviesDetails] RESULT moviesWithScore:",
-          moviesWithScore
-        );
-      }
+      const settled = await Promise.all(detailPromises);
+      const moviesWithScore = settled.filter(
+        (m): m is MovieWithScore => m !== null
+      );
 
       setFavoriteMovies(moviesWithScore);
     } catch (error) {
@@ -195,75 +211,31 @@ export function MainScreen({
 
   const toggleFavorite = useCallback(
     (movieId: number, mediaType?: "movie" | "tv") => {
-      if (onToggleFavorite) {
-        onToggleFavorite(movieId, mediaType);
-      }
+      onToggleFavorite?.(movieId, mediaType);
     },
     [onToggleFavorite]
   );
-
-  // 전체 데이터 로딩
-  const loadAllData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [popular, tv, topRated, latest, recommended, genre] =
-        await Promise.all([
-          loadPopularMovies(),
-          loadPopularTVShows(),
-          loadTopRatedMovies(),
-          loadNowPlayingMovies(),
-          loadRecommendedMovies(),
-          loadGenreBasedMovies(),
-        ]);
-
-      setPopularMovies(popular);
-      setPopularTV(tv);
-      setTopRatedMovies(topRated);
-      setLatestMovies(latest);
-      setRecommendedMovies(recommended);
-      setGenreMovies(genre);
-    } catch (error) {
-      console.error("Failed to load data:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [userPreferences]);
-
-  useEffect(() => {
-    loadAllData();
-  }, [loadAllData]);
-
-  useEffect(() => {
-    if (favorites.length > 0) {
-      loadFavoriteMoviesDetails();
-    } else {
-      setFavoriteMovies([]);
-    }
-  }, [favorites, loadFavoriteMoviesDetails]);
 
   // =========================
   // 데이터 로더들
   // =========================
 
   const loadPopularMovies = async (): Promise<TMDBMovie[]> => {
+    // 모바일 메모리 부담 줄이기 위해 페이지/개수 축소
     const pages = await Promise.all([
       getPopularMovies(1),
       getPopularMovies(2),
-      getPopularMovies(3),
-      getPopularMovies(4),
     ]);
 
     const merged = pages.flat();
     const unique = Array.from(new Map(merged.map((m) => [m.id, m])).values());
-    return unique.slice(0, 80);
+    return unique.slice(0, 40);
   };
 
   const loadPopularTVShows = async (): Promise<TMDBMovie[]> => {
     const pages = await Promise.all([
       getPopularTVShows(1),
       getPopularTVShows(2),
-      getPopularTVShows(3),
-      getPopularTVShows(4),
     ]);
 
     const mergedTV = pages.flat();
@@ -271,23 +243,25 @@ export function MainScreen({
     const unique = Array.from(
       new Map(normalized.map((m) => [m.id, m])).values()
     );
-    return unique.slice(0, 80);
+    return unique.slice(0, 40);
   };
 
   const loadTopRatedMovies = async (): Promise<TMDBMovie[]> => {
     const page1 = await getTopRatedMovies(1);
-    return page1;
+    return page1.slice(0, 40);
   };
 
   const loadNowPlayingMovies = async (): Promise<TMDBMovie[]> => {
     const page1 = await getNowPlayingMovies(1);
-    return page1;
+    return page1.slice(0, 40);
   };
 
   const loadRecommendedMovies = async (): Promise<MovieWithScore[]> => {
     const genreIds = userPreferences.genres
       .map((g) => GENRE_IDS[g])
       .filter(Boolean);
+
+    if (!genreIds.length) return [];
 
     const [page1, page2] = await Promise.all([
       discoverMovies({ genres: genreIds, page: 1 }),
@@ -297,12 +271,9 @@ export function MainScreen({
     const allMovies = [...page1, ...page2];
 
     return allMovies
-      .map((movie) => ({
-        ...movie,
-        matchScore: calculateMatchScore(movie, userPreferences),
-      }))
+      .map((movie) => withMatchScore(movie, userPreferences))
       .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
-      .slice(0, 80);
+      .slice(0, 40);
   };
 
   const loadGenreBasedMovies = async (): Promise<MovieWithScore[]> => {
@@ -315,13 +286,59 @@ export function MainScreen({
     const movies = await discoverMovies({ genres: [genreId], page: 1 });
 
     return movies
-      .map((movie) => ({
-        ...movie,
-        matchScore: calculateMatchScore(movie, userPreferences),
-      }))
+      .map((movie) => withMatchScore(movie, userPreferences))
       .slice(0, 20);
   };
 
+  // =========================
+  // 전체 데이터 로딩
+  // =========================
+  const loadAllData = useCallback(async () => {
+    setLoading(true);
+
+    try {
+      const [
+        popular,
+        tv,
+        topRated,
+        latest,
+        recommended,
+        genreBasedMovies,
+      ] = await Promise.all([
+        loadPopularMovies(),
+        loadPopularTVShows(),
+        loadTopRatedMovies(),
+        loadNowPlayingMovies(),
+        loadRecommendedMovies(),
+        loadGenreBasedMovies(),
+      ]);
+
+      setPopularMovies(popular);
+      setPopularTV(tv);
+      setTopRatedMovies(topRated);
+      setLatestMovies(latest);
+      setRecommendedMovies(recommended);
+      setGenreMovies(genreBasedMovies);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [userPreferences]);
+
+  // 初로드 & 취향 바뀔 때 다시 로드
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
+  // 즐겨찾기 상세 로딩
+  useEffect(() => {
+    loadFavoriteMoviesDetails();
+  }, [loadFavoriteMoviesDetails]);
+
+  // =========================
+  // 상호작용 핸들러들
+  // =========================
   const handleMovieClick = async (movie: any) => {
     if (!movie || !movie.id) {
       console.warn("Invalid movie data:", movie);
@@ -334,6 +351,18 @@ export function MainScreen({
           ? await getTVDetails(movie.id)
           : await getMovieDetails(movie.id);
 
+      const year =
+        getYear(
+          movie.release_date ||
+            movie.first_air_date ||
+            (details as any)?.release_date ||
+            (details as any)?.first_air_date
+        ) ?? new Date().getFullYear();
+
+      const genresFromDetails = (details as any)?.genres ?? [];
+      const primaryGenreName =
+        genresFromDetails[0]?.name || userPreferences.genres[0] || "드라마";
+
       const movieData = {
         id: movie.id,
         title:
@@ -343,20 +372,12 @@ export function MainScreen({
           (details as any)?.name ||
           "제목 없음",
         poster: getPosterUrl(
-          movie.poster_path || (details as any)?.poster_path
+          movie.poster_path || (details as any)?.poster_path,
+          "w342"
         ),
         rating: movie.vote_average || (details as any)?.vote_average || 0,
-        year: new Date(
-          movie.release_date ||
-            movie.first_air_date ||
-            (details as any)?.release_date ||
-            (details as any)?.first_air_date ||
-            ""
-        ).getFullYear(),
-        genre:
-          (details as any)?.genres?.[0]?.name ||
-          userPreferences.genres[0] ||
-          "드라마",
+        year,
+        genre: primaryGenreName,
         matchScore: movie.matchScore || 50,
         runtime:
           (details as any)?.runtime ||
@@ -381,14 +402,17 @@ export function MainScreen({
       setSelectedMovie(movieData);
     } catch (error) {
       console.error("Failed to load movie details:", error);
-      const movieData = {
+
+      const year =
+        getYear(movie.release_date || movie.first_air_date) ??
+        new Date().getFullYear();
+
+      const fallbackData = {
         id: movie.id,
         title: movie.title || movie.name || "제목 없음",
-        poster: getPosterUrl(movie.poster_path),
+        poster: getPosterUrl(movie.poster_path, "w342"),
         rating: movie.vote_average || 0,
-        year: new Date(
-          movie.release_date || movie.first_air_date || ""
-        ).getFullYear(),
+        year,
         genre: userPreferences.genres[0] || "드라마",
         matchScore: movie.matchScore || 50,
         runtime: 120,
@@ -398,7 +422,7 @@ export function MainScreen({
         tmdbId: movie.id,
         mediaType: movie.media_type || "movie",
       };
-      setSelectedMovie(movieData);
+      setSelectedMovie(fallbackData);
     }
   };
 
@@ -417,11 +441,10 @@ export function MainScreen({
       new Map(allMovies.map((movie) => [movie.id, movie])).values()
     );
 
-    return uniqueMovies.filter(
-      (movie) =>
-        movie.title?.toLowerCase().includes(query) ||
-        (movie as any).name?.toLowerCase().includes(query)
-    );
+    return uniqueMovies.filter((movie) => {
+      const title = movie.title || (movie as any).name || "";
+      return title.toLowerCase().includes(query);
+    });
   }, [
     searchQuery,
     recommendedMovies,
@@ -465,7 +488,7 @@ export function MainScreen({
 
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white">
-      {/* 🔹 헤더는 항상 맨 위에서 한 번만 렌더링 (sticky/fixed는 Header.tsx에서 처리) */}
+      {/* 헤더 */}
       <Suspense
         fallback={
           <div className="h-16 flex items-center px-6 text-white/60">
@@ -481,7 +504,7 @@ export function MainScreen({
         />
       </Suspense>
 
-      {/* 🔹 홈 + 검색 중이 아닐 때만 캐러셀(히어로) 노출 */}
+      {/* 홈 + 검색 중이 아닐 때만 캐러셀(히어로) 노출 */}
       {hasHeroCarousel && (
         <section className="relative z-20">
           <Suspense
@@ -503,14 +526,15 @@ export function MainScreen({
       {/* =========================
           아래 컨텐츠 섹션
          ========================= */}
-      <main key={currentSection} className={"page-fade-in pb-20"}>
+      <main className="page-fade-in pb-20">
         {/* Search Results */}
         {filteredContent && (
           <section className="pt-20" aria-label="검색 결과">
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 px-6">
               {filteredContent.map((movie) => {
-                const title = movie.title || (movie as any).name || "제목 없음";
-                const posterUrl = getPosterUrl(movie.poster_path, "w500");
+                const title =
+                  movie.title || (movie as any).name || "제목 없음";
+                const posterUrl = getPosterUrl(movie.poster_path, "w342");
 
                 return (
                   <div
@@ -538,12 +562,7 @@ export function MainScreen({
                       )}
                     </div>
 
-                    <p
-                      className="text-sm truncate"
-                      style={{ color: "#ffffff" }}
-                    >
-                      {title}
-                    </p>
+                    <p className="text-sm truncate text-white">{title}</p>
                   </div>
                 );
               })}
@@ -551,7 +570,7 @@ export function MainScreen({
           </section>
         )}
 
-        {/* Home Section – 캐러셀 아래 나머지 섹션들 */}
+        {/* Home Section */}
         {!filteredContent && currentSection === "home" && (
           <>
             <Suspense
@@ -677,7 +696,7 @@ export function MainScreen({
                     <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                       <img
                         loading="lazy"
-                        src={getPosterUrl(movie.poster_path, "w500") || ""}
+                        src={getPosterUrl(movie.poster_path, "w342") || ""}
                         alt={movie.title}
                         className="w-full h-full object-cover"
                       />
@@ -719,7 +738,7 @@ export function MainScreen({
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
                       loading="lazy"
-                      src={getPosterUrl(movie.poster_path, "w500") || ""}
+                      src={getPosterUrl(movie.poster_path, "w342") || ""}
                       alt={movie.title}
                       className="w-full h-full object-cover"
                     />
@@ -747,7 +766,7 @@ export function MainScreen({
                   <div className="relative aspect-[2/3] rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500 transition-all">
                     <img
                       loading="lazy"
-                      src={getPosterUrl(show.poster_path, "w500") || ""}
+                      src={getPosterUrl(show.poster_path, "w342") || ""}
                       alt={show.name}
                       className="w-full h-full object-cover"
                     />
