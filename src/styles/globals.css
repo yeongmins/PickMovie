@@ -119,26 +119,47 @@ body::-webkit-scrollbar {
   }
 }
 
-/* ✅ PickMovie 기본 CTA 버튼 – Safari에서도 크기 고정 */
+/* ==========================================
+   🔰 1) PickMovie 공통 CTA 베이스 (모든 버튼 기본형)
+   ========================================== */
+/* 공통 CTA 베이스는 그대로 사용 */
 .pick-cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
 
-  /* 공통 모양 */
   border-radius: 10px;
-  border: 1px solid transparent;
+  /* border: 1px solid transparent; */
 
-  /* 고정 크기 */
   height: 2.5rem;
   padding: 0 2.5rem;
-  /* font-size: 0.9rem; */
+
   font-weight: 500;
   line-height: 1;
 
-  /* 부드러운 컬러 전환만 */
-  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+  transition: 0.2s ease, color 0.2s ease, opacity 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* 🎨 PickMovie 메인 그라데이션 버튼 */
+.pick-button-primary {
+  color: #ffffff;
+
+  /* 퍼플 → 핑크, 심플한 2색 그라데이션 */
+  background-image: linear-gradient(90deg, #7c3aed, #ec4899) !important;
+
+  /* 버튼보다 넓게 깔고 가운데만 보이게 해서 양끝 줄 제거 */
+  background-size: 220% 100%;
+  background-position: 50% 50%;
+  background-repeat: no-repeat;
+
+  transition: background-position 0.3s ease, filter 0.2s ease;
+}
+
+.pick-button-primary:hover {
+  background-position: 65% 50%;
+  filter: brightness(1.04);
 }
 
 .pick-cta-start {
@@ -148,12 +169,10 @@ body::-webkit-scrollbar {
   padding-inline: 3rem;
 }
 
-/* 🔁 더 긴 버튼(“더 많은 영화 보러가기”)용 */
 .pick-cta-wide {
   padding-inline: 3rem;
 }
 
-/* 🔁 더 더 긴 버튼(“취향 재분석하기”)용 */
 .pick-cta-more-wide {
   padding-inline: 3.5rem;
 }

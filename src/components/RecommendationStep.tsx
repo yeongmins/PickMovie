@@ -205,7 +205,7 @@ export function RecommendationStep({
           <Button
             onClick={onRestart}
             size="lg"
-            className="pick-cta pick-cta-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            className="pick-cta pick-cta-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 border-none transition-opacity"
           >
             다시 시작하기
           </Button>
@@ -409,7 +409,7 @@ export function RecommendationStep({
           <Button
             onClick={() => onComplete(preferences, favorites)}
             size="lg"
-            className="pick-cta pick-cta-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-10"
+            className="pick-cta pick-cta-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white px-10 border-none transition-opacity"
           >
             더 많은 영화 보러가기 🎬
           </Button>

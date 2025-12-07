@@ -141,7 +141,7 @@ export function ExcludeStep({
                   <Button
                     onClick={handleNext}
                     size="lg"
-                    className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
+                    className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none transition-opacity"
                   >
                     완료
                   </Button>

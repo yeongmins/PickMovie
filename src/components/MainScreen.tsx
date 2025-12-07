@@ -670,7 +670,7 @@ export function MainScreen({
                 <Button
                   onClick={onReanalyze}
                   size="lg"
-                  className="pick-cta pick-cta-more-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
+                  className="pick-cta pick-cta-more-wide bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none transition-opacity"
                 >
                   취향 재분석하기
                 </Button>

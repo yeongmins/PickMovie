@@ -155,7 +155,9 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
           viewport={{ once: true, margin: "-100px" }}
           className="max-w-4xl mx-auto text-center"
         >
-          <h2 className="text-white mb-6 text-5xl welcome-why">어떻게 작동하나요?</h2>
+          <h2 className="text-white mb-6 text-5xl welcome-why">
+            어떻게 작동하나요?
+          </h2>
           <p className="text-gray-400 mb-16 text-lg welcome-small-text">
             간단한 3단계로 당신만의 영화 추천을 받아보세요
           </p>
@@ -229,7 +231,7 @@ export function WelcomeStep({ onNext }: WelcomeStepProps) {
             <Button
               onClick={onNext}
               size="lg"
-              className="pick-cta pick-cta-start bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
+              className="pick-cta pick-cta-start bg-gradient-to-r from-purple-600 to-pink-600 hover:brightness-90 transition-all text-white border-none"
             >
               시작하기
             </Button>
