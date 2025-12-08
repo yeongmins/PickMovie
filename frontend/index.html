@@ -1,17 +1,68 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
   <head>
+    <!-- 기본 설정 -->
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+
+    <!-- 파비콘 & 앱 아이콘 -->
     <link rel="icon" href="/pickmovie-icon.png" />
     <link rel="apple-touch-icon" href="/pickmovie-icon.png" />
 
-    <link rel="preconnect" href="https://image.tmdb.org" />
+    <!-- SEO 기본 메타 -->
+    <title>PickMovie - 내 취향에 맞는 영화 추천</title>
     <meta
       name="description"
-      content="PickMovie - 알고리즘 기반 맞춤 영화 추천 서비스"
+      content="PickMovie는 간단한 취향 설문과 TMDB 데이터를 기반으로, 나에게 꼭 맞는 영화와 TV 콘텐츠를 추천해주는 맞춤형 영화 추천 서비스입니다."
     />
-    <title>PickMovie</title>
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://pickmovie.net/" />
+    <meta
+      name="keywords"
+      content="PickMovie, 픽무비, 영화 추천, 영화 찾기, OTT 추천, 취향 분석, TMDB, 넷플릭스 영화 추천"
+    />
+    <meta name="author" content="PickMovie Team" />
+
+    <!-- 성능 최적화: TMDB 이미지 도메인 프리커넥트 -->
+    <link rel="preconnect" href="https://image.tmdb.org" />
+
+    <!-- Open Graph (카카오톡, 페북, 디스코드 등 메신저 썸네일) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PickMovie" />
+    <meta property="og:title" content="PickMovie - 내 취향에 맞는 영화 추천" />
+    <meta
+      property="og:description"
+      content="장르, 분위기, 러닝타임, 국가까지 내 취향을 분석해 TMDB 데이터를 기반으로 딱 맞는 영화와 TV 콘텐츠를 추천해드립니다."
+    />
+    <meta property="og:url" content="https://pickmovie.net/" />
+    <!-- ⚠️ 이 이미지는 1200x630 정도의 배너 이미지를 public 폴더에 두고 경로만 맞춰주세요 -->
+    <meta
+      property="og:image"
+      content="https://pickmovie.net/pickmovie-og.png"
+    />
+    <meta
+      property="og:image:alt"
+      content="PickMovie 영화 추천 서비스 메인 화면"
+    />
+
+    <!-- Twitter Card (X, 트위터 공유용 썸네일) -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@pickmovie" />
+    <meta name="twitter:title" content="PickMovie - 내 취향에 맞는 영화 추천" />
+    <meta
+      name="twitter:description"
+      content="한 번의 취향 분석으로 나만을 위한 영화·TV 추천 리스트를 받아보세요."
+    />
+    <meta
+      name="twitter:image"
+      content="https://pickmovie.net/pickmovie-og.png"
+    />
+
+    <!-- 브라우저 상단 테마 색 (모바일에서 상단 바 색상) -->
+    <meta name="theme-color" content="#1a1a24" />
   </head>
 
   <body>
