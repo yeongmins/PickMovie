@@ -1,3 +1,6 @@
+/* Pretendard – 기본 폰트 */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
 /*! tailwindcss v4.1.3 | MIT License | https://tailwindcss.com */
 @tailwind base;
 @tailwind components;
@@ -354,7 +357,6 @@
   iframe,
   embed,
   object {
-    vertical-align: middle;
     display: block;
   }
 
@@ -833,6 +835,7 @@
 
   .line-clamp-3 {
     -webkit-line-clamp: 3;
+    line-clamp: 3;  
     -webkit-box-orient: vertical;
     display: -webkit-box;
     overflow: hidden;
@@ -3870,5 +3873,166 @@ body:after {
 @media (max-width: 550px) {
   .welcome-gap {
     gap: calc(var(--spacing) * 4);
+  }
+}
+
+/* 🎬 전체 바디: 영화관 느낌 배경 + 비네트 + 스캔라인 */
+@layer base {
+  body {
+    @apply text-gray-50 antialiased;
+    font-family: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
+
+    background: radial-gradient(
+      circle at top,
+      #3b1f66 0,
+      #050816 40%,
+      #02010b 100%
+    );
+
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(
+      circle,
+      transparent 0%,
+      rgba(0, 0, 0, 0.45) 100%
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.04) 2px,
+      rgba(0, 0, 0, 0.04) 4px
+    );
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  #root {
+    position: relative;
+    z-index: 2;
+  }
+
+  /* 루트 스크롤바 숨기기 (브라우저 공통 처리) */
+  html,
+  body {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE, Edge */
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  /* 모든 내부 스크롤 컨테이너까지 스크롤바 숨기기 */
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
+/* =========================
+   공통 유틸리티/컴포넌트
+   ========================= */
+@layer utilities {
+  /* 🔍 온보딩 전체 축소: 작은 화면에서 한 화면에 넣기 위한 스케일 조정 */
+  .onboarding-root {
+    @apply transform-gpu origin-top transition-transform duration-200 ease-out;
+  }
+
+  @media (max-height: 900px) {
+    .onboarding-root {
+      transform: scale(0.95);
+    }
+  }
+
+  @media (max-height: 800px) {
+    .onboarding-root {
+      transform: scale(0.9);
+    }
+  }
+
+  @media (max-height: 700px) {
+    .onboarding-root {
+      transform: scale(0.85);
+    }
+  }
+
+  /* 📱 모바일에서 우측 프리뷰 숨기기 (md 이상에서만 표시) */
+  .preview-hide-mobile {
+    @apply hidden md:block;
+  }
+
+  /* 🎠 캐러셀 제목 반응형 (text-3xl / md:text-4xl 느낌) */
+  .carousel-title {
+    @apply text-3xl md:text-4xl leading-tight md:leading-snug transition-[font-size,line-height] duration-200;
+  }
+
+  /* 🇰🇷🇺🇸🇯🇵 같은 국기 이모지를 OS 이모지 폰트로 강제 */
+  .flag-emoji {
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1;
+  }
+}
+
+@layer components {
+  /* ==========================================
+     🔰 PickMovie 공통 CTA 버튼
+     ========================================== */
+  .pick-cta {
+    @apply inline-flex items-center justify-center box-border font-medium leading-none
+      rounded-[10px] transition duration-200 ease-out;
+    /* Tailwind에 없는 height / padding-inline은 그대로 CSS로 지정 */
+    height: 2.5rem;
+    padding-inline: 2.5rem;
+  }
+
+  /* 🎨 메인 그라데이션 버튼 (보라 → 핑크) */
+  .pick-button-primary {
+    @apply text-white;
+    background-image: linear-gradient(90deg, #7c3aed, #ec4899) !important;
+    background-size: 220% 100%;
+    background-position: 50% 50%;
+    background-repeat: no-repeat;
+    transition: background-position 0.3s ease, filter 0.2s ease;
+  }
+
+  .pick-button-primary:hover {
+    background-position: 65% 50%;
+    filter: brightness(1.04);
+  }
+
+  .pick-cta-start {
+    @apply font-bold;
+    height: 3rem;
+    padding-inline: 3rem;
+  }
+
+  .pick-cta-wide {
+    padding-inline: 3rem;
+  }
+
+  .pick-cta-more-wide {
+    padding-inline: 3.5rem;
   }
 }

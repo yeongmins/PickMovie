@@ -14,7 +14,9 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "isolatedModules": true,
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "node"],
+    "baseUrl": "./src",
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src"]
 }
