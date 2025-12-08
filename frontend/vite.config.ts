@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"),
+      "@": path.resolve(__dirname, "./src"),
     },
+  },
+  // 🔽 빌드 결과물을 dist 폴더로 강제로 고정
+  build: {
+    outDir: "dist",
   },
 });
