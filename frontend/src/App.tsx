@@ -1,11 +1,16 @@
-// App.tsx (핵심 패치 예시)
-// ✅ 반드시 Hook들은 App() 함수 내부에 있어야 함
-
+// App.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  useLocation,
+  useNavigate,
+  Navigate,
+} from "react-router-dom";
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
-import { PickyPage } from "./features/picky/PickyPage";
+import { PickyPage } from "./pages/PickyPage";
+import { LoginPage } from "./pages/auth/LoginPage";
 
 export interface FavoriteItem {
   id: number;
@@ -37,7 +42,6 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ✅ Hook은 무조건 컴포넌트 내부
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(
@@ -117,6 +121,9 @@ export default function App() {
 
   return (
     <Routes>
+      {/* ✅ 로그인 라우트 추가 */}
+      <Route path="/login" element={<LoginPage />} />
+
       <Route
         path="/picky"
         element={
@@ -127,7 +134,6 @@ export default function App() {
         }
       />
 
-      {/* MainScreen 라우팅 (프로젝트 기존 라우트 유지하고 싶으면 여기만 맞춰줘) */}
       <Route
         path="/"
         element={
@@ -140,6 +146,7 @@ export default function App() {
           />
         }
       />
+
       <Route
         path="/favorites"
         element={
@@ -152,6 +159,7 @@ export default function App() {
           />
         }
       />
+
       <Route
         path="/popular-movies"
         element={
@@ -164,6 +172,7 @@ export default function App() {
           />
         }
       />
+
       <Route
         path="/popular-tv"
         element={
@@ -176,6 +185,9 @@ export default function App() {
           />
         }
       />
+
+      {/* ✅ 존재하지 않는 경로로 가면 홈으로 */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

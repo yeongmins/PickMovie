@@ -1,7 +1,7 @@
 // frontend/src/lib/apiClient.ts
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000';
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
 function buildUrl(path: string, params?: Record<string, unknown>): string {
   const url = new URL(path, API_BASE_URL);
@@ -18,9 +18,9 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
 
 async function handleResponse<T>(response: Response, path: string): Promise<T> {
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
+    const text = await response.text().catch(() => "");
     throw new Error(
-      `Request to ${path} failed with status ${response.status}. ${text}`,
+      `Request to ${path} failed with status ${response.status}. ${text}`
     );
   }
   return (await response.json()) as T;
@@ -28,12 +28,12 @@ async function handleResponse<T>(response: Response, path: string): Promise<T> {
 
 export async function apiGet<T>(
   path: string,
-  params?: Record<string, unknown>,
+  params?: Record<string, unknown>
 ): Promise<T> {
   const response = await fetch(buildUrl(path, params), {
-    method: 'GET',
+    method: "GET",
     headers: {
-      'Content-Type': 'application/json',
+      Accept: "application/json",
     },
   });
 
@@ -42,9 +42,9 @@ export async function apiGet<T>(
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(new URL(path, API_BASE_URL).toString(), {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -54,9 +54,9 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 
 export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(new URL(path, API_BASE_URL).toString(), {
-    method: 'DELETE',
+    method: "DELETE",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
   });
