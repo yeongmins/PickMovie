@@ -24,7 +24,7 @@ export class AiService {
 
     this.genAI = new GoogleGenerativeAI(apiKey);
 
-    // ✅ [수정] 2025년 12월 기준 최신 무료 모델 적용
+    // ✅ 2025년 12월 기준 최신 무료 모델 적용
     // 빠른 모드(Fast Mode)로 무제한 사용 가능한 모델입니다.
     this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   }

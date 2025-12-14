@@ -80,6 +80,37 @@ function pickRatingFromTvContentRatings(
   return rating?.trim() || undefined;
 }
 
+function extractProviderBadges(
+  regionProviders: unknown,
+  limit = 6,
+): Array<{ provider_name: string; logo_path: string | null }> {
+  const obj = safeRecord(regionProviders);
+
+  const flatrate = asUnknownArray(obj['flatrate']) ?? [];
+  const rent = asUnknownArray(obj['rent']) ?? [];
+  const buy = asUnknownArray(obj['buy']) ?? [];
+
+  const merged = [...flatrate, ...rent, ...buy];
+
+  const out: Array<{ provider_name: string; logo_path: string | null }> = [];
+  const seen = new Set<string>();
+
+  for (const p of merged) {
+    if (!isObject(p)) continue;
+
+    const name = getString(p['provider_name']);
+    const logo = getString(p['logo_path']) ?? null;
+
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    out.push({ provider_name: name, logo_path: logo });
+    if (out.length >= limit) break;
+  }
+
+  return out;
+}
+
 @Injectable()
 export class TmdbService {
   private readonly baseUrl: string;
@@ -98,7 +129,6 @@ export class TmdbService {
 
     this.apiKey = this.config.get<string>('TMDB_API_KEY') ?? '';
 
-    // ✅ 여기서 기본값 잡아두면 “전부 영어” 문제 해결됨
     this.defaultLanguage = this.config.get<string>('TMDB_LANGUAGE') ?? 'ko-KR';
     this.defaultRegion = this.config.get<string>('TMDB_REGION') ?? 'KR';
   }
@@ -256,8 +286,15 @@ export class TmdbService {
     const provResults = provObj['results'];
     if (isObject(provResults)) regionProviders = provResults[r];
 
+    // ✅ 프론트(ContentCard)가 바로 쓸 수 있는 형태로 “최상단” 필드 제공
+    const providerBadges = extractProviderBadges(regionProviders);
+    const ageRating = certification ?? '';
+
     return {
       ...details,
+      // ✅ ContentCard가 기대하는 키
+      providers: providerBadges,
+      ageRating,
       meta: {
         region: r,
         language: l,

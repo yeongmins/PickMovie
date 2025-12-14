@@ -1,3 +1,4 @@
+// backend/src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TmdbModule } from './tmdb/tmdb.module';
@@ -9,7 +10,7 @@ import { AiModule } from './ai/ai.module';
     ConfigModule.forRoot({ isGlobal: true }),
     TmdbModule,
     MoviesModule,
-    AiModule, // ✅ /ai/search 404 해결
+    AiModule,
   ],
 })
 export class AppModule {}
