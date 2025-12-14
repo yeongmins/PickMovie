@@ -3,33 +3,24 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Star, Info, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "../../../components/ui/button";
-import { getPosterUrl, getBackdropUrl } from "../../../lib/tmdb";
+import { getBackdropUrl } from "../../../lib/tmdb";
 
 interface Movie {
   id: number;
-
-  // 영화/TV 공통 제목
   title?: string;
   name?: string;
 
-  // 이미지 관련
   poster_path?: string | null;
   backdrop_path?: string | null;
 
-  // 상세 정보
   overview?: string;
 
-  // 날짜
   release_date?: string;
   first_air_date?: string;
 
-  // 평점
   vote_average?: number;
 
-  // 매칭 점수
-  matchScore?: number;
-
-  // 영화 / TV 구분
+  matchScore?: number; // 있어도 캐러셀에서는 안 씀
   media_type?: "movie" | "tv";
 }
 
@@ -38,6 +29,16 @@ interface FavoritesCarouselProps {
   onMovieClick: (movie: Movie) => void;
   onToggleFavorite: (movieId: number, mediaType?: "movie" | "tv") => void;
 }
+
+const getDisplayTitle = (movie: any) => {
+  return (
+    movie.title ||
+    movie.name ||
+    movie.original_title ||
+    movie.original_name ||
+    "제목 정보 없음"
+  );
+};
 
 export function FavoritesCarousel({
   movies,
@@ -115,7 +116,7 @@ export function FavoritesCarousel({
                 currentMovie.backdrop_path || currentMovie.poster_path || null,
                 "original"
               )}
-              alt={currentMovie.title}
+              alt={getDisplayTitle(currentMovie)}
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
@@ -130,16 +131,19 @@ export function FavoritesCarousel({
                   내 찜 목록
                 </span>
               </div>
+
               <h1 className="text-white mb-4 font-semibold carousel-title">
-                {currentMovie.title}
+                {getDisplayTitle(currentMovie)}
               </h1>
+
               <div className="flex items-center gap-4 mb-4 text-sm carousel-middle">
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
                   <span className="text-white font-semibold">
-                    {currentMovie.vote_average.toFixed(1)}
+                    {(currentMovie.vote_average ?? 0).toFixed(1)}
                   </span>
                 </div>
+
                 {(currentMovie.release_date || currentMovie.first_air_date) && (
                   <span className="text-gray-300 font-semibold">
                     {new Date(
@@ -149,11 +153,8 @@ export function FavoritesCarousel({
                     ).getFullYear()}
                   </span>
                 )}
-                {currentMovie.matchScore && (
-                  <div className="px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
-                    {currentMovie.matchScore}% 매칭
-                  </div>
-                )}
+
+                {/* ✅ 매칭% 배지는 Picky에서만 사용 -> 여기서는 제거 */}
               </div>
 
               {currentMovie.overview && (

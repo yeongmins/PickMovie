@@ -1,8 +1,10 @@
-// 영화/TV 상세 정보 모달
-// - TMDB에서 상세 정보를 가져와서 모달로 보여줌
-// - 비슷한 콘텐츠 리스트 + 취향 기반 매칭 점수까지 계산
+// frontend/src/features/movies/components/MovieDetailModal.tsx
+// ✅ Fix:
+// 1) movie.rating / similar.vote_average 같은 값이 undefined일 때 toFixed 크래시 방지
+// 2) getPosterUrl size "w200" -> (TMDBImageSize 허용) "w185" 로 변경
+// 3) movie.genre 필수 -> optional로 변경 (Picky/MainScreen에서 genre 누락 타입 에러 제거)
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { X, Star, Heart, User } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -11,30 +13,33 @@ import {
   calculateMatchScore,
   type MovieDetails,
   type TVDetails,
-} from "../../../lib/tmdb"; // ⬅️ lib 위치 기준 경로
+} from "../../../lib/tmdb";
 
-interface Movie {
+type MediaType = "movie" | "tv";
+
+export interface ModalMovie {
   id: number;
-  title: string;
-  poster: string;
-  rating: number;
-  year: number;
-  genre: string;
-  matchScore: number;
+  title?: string;
+  poster?: string; // full url 가능
+  poster_path?: string | null; // TMDB path 가능
+  rating?: number; // vote_average 대응
+  vote_average?: number; // TMDB raw
+  year?: number;
+  genre?: string; // ✅ optional
+  matchScore?: number;
   description?: string;
   runtime?: number;
-  director?: string;
-  cast?: string[];
   tmdbId?: number;
-  mediaType?: "movie" | "tv";
+  mediaType?: MediaType;
+  media_type?: MediaType;
 }
 
 interface MovieDetailModalProps {
-  movie: Movie;
+  movie: ModalMovie;
   onClose: () => void;
   isFavorite: boolean;
   onToggleFavorite: () => void;
-  onMovieChange?: (movie: Movie) => void; // 비슷한 콘텐츠 클릭 시 상세 모달 내용 교체
+  onMovieChange?: (movie: ModalMovie) => void;
   userPreferences?: {
     genres: string[];
     runtime?: string;
@@ -42,6 +47,28 @@ interface MovieDetailModalProps {
     country?: string;
     excludes: string[];
   };
+}
+
+function safeNum(v: unknown, fallback = 0) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function safeYearFromDates(date?: string) {
+  if (!date) return undefined;
+  const d = new Date(date);
+  const y = d.getFullYear();
+  return Number.isFinite(y) ? y : undefined;
+}
+
+function ensurePosterUrl(poster?: string, poster_path?: string | null) {
+  if (poster && typeof poster === "string") {
+    if (/^https?:\/\//.test(poster)) return poster;
+    // 혹시 path가 들어온 경우도 처리
+    return getPosterUrl(poster, "w500") || "";
+  }
+  if (poster_path) return getPosterUrl(poster_path, "w500") || "";
+  return "";
 }
 
 export function MovieDetailModal({
@@ -52,20 +79,31 @@ export function MovieDetailModal({
   onMovieChange,
   userPreferences,
 }: MovieDetailModalProps) {
-  // TMDB에서 가져온 상세 정보 (영화/TV 둘 다 가능)
   const [details, setDetails] = useState<MovieDetails | TVDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const modalContentRef = useRef<HTMLDivElement>(null);
 
-  // 모달이 열려 있는 동안 body 스크롤 잠금
+  const mediaType: MediaType = movie.mediaType || movie.media_type || "movie";
+
+  // 모달 열려있는 동안 body 스크롤 잠금
   useEffect(() => {
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "unset";
+      document.body.style.overflow = prev || "unset";
     };
   }, []);
 
-  // 선택된 영화가 바뀔 때마다 TMDB 상세 정보 재요청
+  // ESC 닫기
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  // 선택된 컨텐츠 바뀔 때 상세 재요청
   useEffect(() => {
     const loadDetails = async () => {
       const tmdbId = movie.tmdbId || movie.id;
@@ -73,176 +111,219 @@ export function MovieDetailModal({
 
       setLoading(true);
       try {
-        const contentDetails = await getContentDetails(
-          tmdbId,
-          movie.mediaType || "movie"
-        );
+        const contentDetails = await getContentDetails(tmdbId, mediaType);
         setDetails(contentDetails);
+      } catch (e) {
+        console.error(e);
+        setDetails(null);
       } finally {
         setLoading(false);
       }
     };
 
     loadDetails();
-  }, [movie.id, movie.tmdbId, movie.mediaType]);
+  }, [movie.id, movie.tmdbId, mediaType]);
 
-  // 영화가 변경될 때마다 모달 스크롤을 맨 위로 초기화
+  // 영화 변경 시 스크롤 맨 위
   useEffect(() => {
-    const modalContent = modalContentRef.current;
-    if (modalContent) {
-      modalContent.scrollTop = 0;
-    }
+    const el = modalContentRef.current;
+    if (el) el.scrollTop = 0;
   }, [movie.id]);
 
-  // 장르 이름 문자열 (상세 정보가 있으면 그 값 사용)
+  const posterUrl = useMemo(
+    () => ensurePosterUrl(movie.poster, movie.poster_path),
+    [movie.poster, movie.poster_path]
+  );
+
+  const title = useMemo(
+    () =>
+      movie.title ||
+      (details as any)?.title ||
+      (details as any)?.name ||
+      "제목 없음",
+    [movie.title, details]
+  );
+
+  const rating = useMemo(() => {
+    // ✅ undefined 방지
+    return safeNum(
+      movie.rating ?? movie.vote_average ?? (details as any)?.vote_average,
+      0
+    );
+  }, [movie.rating, movie.vote_average, details]);
+
+  const year = useMemo(() => {
+    const y = safeNum(movie.year, NaN);
+    if (Number.isFinite(y) && y > 0) return y;
+
+    const release =
+      (details as any)?.release_date ||
+      (details as any)?.first_air_date ||
+      (details as any)?.air_date ||
+      undefined;
+
+    return safeYearFromDates(release);
+  }, [movie.year, details]);
+
+  const matchScore = useMemo(
+    () => Math.round(safeNum(movie.matchScore, 0)),
+    [movie.matchScore]
+  );
+
   const genreNames =
-    details?.genres?.map((g) => g.name).join(", ") || movie.genre;
+    (details as any)?.genres
+      ?.map((g: any) => g?.name)
+      .filter(Boolean)
+      .join(", ") ||
+    movie.genre ||
+    "정보 없음";
 
-  // 감독 정보 (현재 UI에서는 사용 X, 필요 시 확장용)
-  const director =
-    (details as any)?.credits?.crew?.find((p: any) => p.job === "Director")
-      ?.name || "정보 없음";
-
-  // 출연진(캐스트) 상위 8명만 사용
-  const cast = (details as any)?.credits?.cast?.slice(0, 8) ?? [];
-
-  // 러닝타임(영화 or TV 에피소드 길이 중 하나 선택)
   const runtime =
-    (details as any)?.runtime ??
-    (details as any)?.episode_run_time?.[0] ??
-    movie.runtime ??
+    safeNum((details as any)?.runtime, 0) ||
+    safeNum((details as any)?.episode_run_time?.[0], 0) ||
+    safeNum(movie.runtime, 0) ||
     120;
 
-  // TMDB에서 전달된 비슷한 콘텐츠 원본 리스트
-  const similarMoviesRaw =
-    (details as any)?.similar?.results?.slice(0, 8) ?? [];
+  const cast = ((details as any)?.credits?.cast || []).slice(0, 8);
 
-  // 비슷한 콘텐츠 정제:
-  // 1) id 기준 중복 제거
-  // 2) poster_path 없는 항목 제거
+  const similarMoviesRaw = ((details as any)?.similar?.results || []).slice(
+    0,
+    8
+  );
+
   const similarMovies = similarMoviesRaw
     .filter((m: any) => m && m.id)
     .filter(
-      (m: any, index: number, self: any[]) =>
-        index === self.findIndex((x) => x.id === m.id)
+      (m: any, idx: number, self: any[]) =>
+        idx === self.findIndex((x) => x.id === m.id)
     )
     .filter((m: any) => !!m.poster_path);
 
-  // 비슷한 콘텐츠에 매칭 점수 붙이기
   const similarMoviesWithScore = similarMovies.map((similar: any) => {
-    let matchScore = 0;
+    let ms = 0;
     if (userPreferences) {
-      const rawScore = calculateMatchScore(similar, userPreferences);
-      matchScore = Number.isFinite(rawScore) ? rawScore : 0;
+      const raw = calculateMatchScore(similar, userPreferences);
+      ms = Number.isFinite(raw) ? raw : 0;
     }
-    return { ...similar, matchScore };
+    return { ...similar, matchScore: ms };
   });
 
-  // "비슷한 콘텐츠" 카드 클릭 시 모달 내 영화 정보를 해당 작품으로 변경
   const handleSimilarMovieClick = (similar: any) => {
-    if (!similar || !similar.id) {
-      console.warn("Invalid similar movie data:", similar);
-      return;
-    }
+    if (!similar?.id) return;
 
-    if (onMovieChange) {
-      const safeMatchScore = userPreferences
-        ? calculateMatchScore(similar, userPreferences)
-        : 50;
+    const newTitle = similar.title || similar.name || "제목 없음";
+    const newPoster = getPosterUrl(similar.poster_path, "w500") || "";
+    const newYear =
+      safeYearFromDates(similar.release_date || similar.first_air_date) ??
+      undefined;
 
-      const newMovie: Movie = {
-        id: similar.id,
-        title: similar.title || similar.name || "제목 없음",
-        poster: getPosterUrl(similar.poster_path),
-        rating: similar.vote_average || 0,
-        year: new Date(
-          similar.release_date || similar.first_air_date || ""
-        ).getFullYear(),
-        genre: details?.genres?.[0]?.name || movie.genre,
-        matchScore: safeMatchScore,
-        description: similar.overview || "",
-        runtime: runtime,
-        tmdbId: similar.id,
-        mediaType: similar.media_type || movie.mediaType || "movie",
-      };
-      onMovieChange(newMovie);
-    }
+    const newRating = safeNum(similar.vote_average, 0);
+
+    const safeMs = userPreferences
+      ? safeNum(calculateMatchScore(similar, userPreferences), 0)
+      : safeNum(similar.matchScore, 0);
+
+    const next: ModalMovie = {
+      id: similar.id,
+      tmdbId: similar.id,
+      title: newTitle,
+      poster: newPoster,
+      poster_path: similar.poster_path,
+      rating: newRating,
+      vote_average: newRating,
+      year: newYear,
+      genre: (details as any)?.genres?.[0]?.name || movie.genre || "",
+      matchScore: safeMs,
+      description: similar.overview || "",
+      runtime,
+      mediaType: (similar.media_type as MediaType) || mediaType,
+      media_type: (similar.media_type as MediaType) || mediaType,
+    };
+
+    onMovieChange?.(next);
   };
 
   return (
     <motion.div
-      // 모달 전체 배경 페이드인/아웃
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="콘텐츠 상세"
     >
       <motion.div
         ref={modalContentRef}
-        // 모달 카드의 등장 애니메이션
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.98 }}
         transition={{ duration: 0.2 }}
         className="relative bg-[#1a1a24] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()} // 배경 클릭만 닫히도록 버블링 방지
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* 닫기 버튼 */}
+        {/* 닫기 */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center transition-colors duration-200"
-          aria-label="영화 상세 닫기"
+          aria-label="닫기"
         >
           <X className="w-5 h-5 text-white" />
         </button>
 
-        {/* 상단 히어로 영역 (블러 처리된 포스터 + 기본 정보) */}
+        {/* Hero */}
         <div className="relative h-72 bg-gradient-to-b from-gray-900 to-[#1a1a24] overflow-hidden">
-          <img
-            src={movie.poster}
-            alt={movie.title}
-            className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm"
-            loading="lazy"
-          />
+          {posterUrl ? (
+            <img
+              src={posterUrl}
+              alt={title}
+              className="absolute inset-0 w-full h-full object-cover opacity-30 blur-sm"
+              loading="lazy"
+            />
+          ) : (
+            <div className="absolute inset-0 w-full h-full bg-black/30" />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a24] via-[#1a1a24]/80 to-transparent" />
 
-          {/* 포스터 + 타이틀 오버레이 */}
-          <div className="absolute bottom-0 left-0 right-0 p-8 flex gap-6 detail-padding">
-            {/* 왼쪽 포스터 */}
-            <div className="w-32 h-48 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block">
-              <img
-                src={movie.poster}
-                alt={movie.title}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
+          <div className="absolute bottom-0 left-0 right-0 p-8 flex gap-6">
+            <div className="w-32 h-48 rounded-lg overflow-hidden flex-shrink-0 hidden sm:block bg-white/5">
+              {posterUrl ? (
+                <img
+                  src={posterUrl}
+                  alt={title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              ) : null}
             </div>
 
-            {/* 오른쪽 타이틀/메타 정보 */}
             <div className="flex-1 flex flex-col justify-end">
-              <h2 className="text-white mb-3 text-3xl font-semibold detail-title">
-                {movie.title}
+              <h2 className="text-white mb-3 text-3xl font-semibold">
+                {title}
               </h2>
 
-              {/* 매칭 점수, 평점, 연도, 장르, 러닝타임 배지 */}
-              <div className="flex flex-wrap items-center gap-3 mb-3 detail-gap">
+              <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="px-3 py-1 bg-green-600/80 backdrop-blur-sm rounded text-white text-sm font-semibold">
-                  {movie.matchScore}% 매칭
+                  {matchScore}% 매칭
                 </div>
+
                 <div className="flex items-center gap-1.5 text-gray-300 text-sm">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
-                  <span className="font-semibold">
-                    {movie.rating.toFixed(1)}
-                  </span>
+                  <span className="font-semibold">{rating.toFixed(1)}</span>
                 </div>
-                <span className="text-gray-400 text-sm">{movie.year}년</span>
+
+                {year ? (
+                  <span className="text-gray-400 text-sm">{year}년</span>
+                ) : (
+                  <span className="text-gray-500 text-sm">연도 정보 없음</span>
+                )}
+
                 <span className="text-gray-400 text-sm">{genreNames}</span>
                 <span className="text-gray-400 text-sm">{runtime}분</span>
               </div>
 
-              {/* 찜 버튼 */}
               <div className="flex gap-3">
                 <button
                   onClick={onToggleFavorite}
@@ -251,6 +332,7 @@ export function MovieDetailModal({
                       ? "border-red-500 bg-red-500/10 hover:bg-red-500/20"
                       : "border-white/20 bg-white/5 hover:bg-white/10"
                   }`}
+                  aria-label={isFavorite ? "찜 해제" : "찜 하기"}
                 >
                   <Heart
                     className={`w-4 h-4 ${
@@ -266,19 +348,17 @@ export function MovieDetailModal({
           </div>
         </div>
 
-        {/* 하단 내용 영역 */}
-        <div className="p-8 detail-padding">
-          {/* 줄거리 섹션 */}
+        {/* Content */}
+        <div className="p-8">
           <div className="mb-8">
             <h3 className="text-white mb-3 text-lg font-semibold">줄거리</h3>
             <p className="text-gray-300 leading-relaxed text-sm">
-              {details?.overview ||
+              {(details as any)?.overview ||
                 movie.description ||
-                "이 영화는 당신의 취향에 맞춰 추천된 작품입니다. 흥미진진한 스토리와 뛰어난 연출로 많은 관객들의 사랑을 받은 명작입니다."}
+                "이 콘텐츠는 당신의 취향에 맞춰 추천된 작품입니다."}
             </p>
           </div>
 
-          {/* 메타데이터 (장르/개봉/러닝타임/출연진 텍스트) */}
           <div className="space-y-4 mb-8 text-sm">
             <div className="flex gap-4">
               <span className="text-gray-500 w-24 flex-shrink-0">장르</span>
@@ -287,13 +367,13 @@ export function MovieDetailModal({
 
             <div className="flex gap-4">
               <span className="text-gray-500 w-24 flex-shrink-0">개봉</span>
-              <span className="text-gray-300">{movie.year}년</span>
+              <span className="text-gray-300">
+                {year ? `${year}년` : "정보 없음"}
+              </span>
             </div>
 
             <div className="flex gap-4">
-              <span className="text-gray-500 w-24 flex-shrink-0">
-                러닝타임
-              </span>
+              <span className="text-gray-500 w-24 flex-shrink-0">러닝타임</span>
               <span className="text-gray-300">{runtime}분</span>
             </div>
 
@@ -301,25 +381,28 @@ export function MovieDetailModal({
               <div className="flex gap-4">
                 <span className="text-gray-500 w-24 flex-shrink-0">출연</span>
                 <span className="text-gray-300">
-                  {cast.map((c: any) => c.name).join(", ")}
+                  {cast
+                    .map((c: any) => c?.name)
+                    .filter(Boolean)
+                    .join(", ")}
                 </span>
               </div>
             )}
           </div>
 
-          {/* 출연진 썸네일 그리드 */}
           {cast.length > 0 && (
             <div className="mb-8">
               <h3 className="text-white mb-4 text-lg font-semibold">
                 주요 출연진
               </h3>
-              <div className="grid grid-cols-4 gap-4 detail-gap">
+
+              <div className="grid grid-cols-4 gap-4">
                 {cast.map((actor: any) => (
                   <div key={actor.id} className="text-center">
                     <div className="w-full aspect-square bg-white/5 rounded-lg mb-2 overflow-hidden">
                       {actor.profile_path ? (
                         <img
-                          src={`https://image.tmdb.org/t/p/w200${actor.profile_path}`}
+                          src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`}
                           alt={actor.name}
                           className="w-full h-full object-cover"
                           loading="lazy"
@@ -342,48 +425,57 @@ export function MovieDetailModal({
             </div>
           )}
 
-          {/* 비슷한 콘텐츠 리스트 */}
           {similarMoviesWithScore.length > 0 && (
             <div>
               <h3 className="text-white mb-4 text-lg font-semibold">
                 비슷한 콘텐츠
               </h3>
-              <div className="grid grid-cols-4 gap-4 detail-gap">
-                {similarMoviesWithScore.map((similar: any) => {
-                  const posterUrl = getPosterUrl(similar.poster_path, "w200");
 
-                  // posterUrl이 없으면 카드 자체 렌더링 X
-                  if (!posterUrl) return null;
+              <div className="grid grid-cols-4 gap-4">
+                {similarMoviesWithScore.map((similar: any) => {
+                  // ✅ "w200" -> "w185"
+                  const poster = getPosterUrl(similar.poster_path, "w185");
+                  if (!poster) return null;
+
+                  const simRating = safeNum(similar.vote_average, 0);
 
                   return (
                     <div
                       key={similar.id}
                       className="group cursor-pointer"
                       onClick={() => handleSimilarMovieClick(similar)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          handleSimilarMovieClick(similar);
+                        }
+                      }}
+                      aria-label={`${similar.title || similar.name} 상세 보기`}
                     >
                       <div className="relative aspect-[2/3] bg-white/5 rounded-lg overflow-hidden mb-2 border-2 border-transparent group-hover:border-purple-500/50 transition-all">
                         <img
-                          src={posterUrl}
+                          src={poster}
                           alt={similar.title || similar.name}
                           loading="lazy"
                           className="w-full h-full object-cover transition-opacity group-hover:opacity-80"
                           onError={(e) => {
-                            // 이미지가 깨지면 해당 카드만 안 보이도록 처리
                             (
                               e.currentTarget.parentElement as HTMLElement
                             ).style.display = "none";
                           }}
                         />
                         <div className="absolute top-2 left-2 px-2 py-0.5 bg-purple-600/90 backdrop-blur-sm rounded text-white text-xs font-semibold">
-                          {similar.matchScore}%
+                          {Math.round(safeNum(similar.matchScore, 0))}%
                         </div>
                       </div>
+
                       <p className="text-gray-300 text-xs truncate font-medium">
                         {similar.title || similar.name}
                       </p>
                       <div className="flex items-center gap-1 text-xs text-gray-500">
                         <Star className="w-3 h-3 fill-current text-yellow-400" />
-                        {similar.vote_average.toFixed(1)}
+                        {simRating.toFixed(1)}
                       </div>
                     </div>
                   );
@@ -392,11 +484,14 @@ export function MovieDetailModal({
             </div>
           )}
 
-          {/* 로딩만 남았을 때 보여주는 인디케이터 */}
           {loading &&
             cast.length === 0 &&
             similarMoviesWithScore.length === 0 && (
-              <div className="text-center py-8">
+              <div
+                className="text-center py-8"
+                role="status"
+                aria-live="polite"
+              >
                 <div className="inline-block w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
                 <p className="text-gray-400 text-sm mt-2">
                   상세 정보를 불러오는 중...

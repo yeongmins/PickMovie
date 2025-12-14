@@ -1,34 +1,46 @@
-// backend/src/tmdb/tmdb.types.ts
+export type MediaType = 'movie' | 'tv';
 
-export interface TMDBMovie {
+export type ProviderBadge = {
+  provider_name: string;
+  logo_path?: string | null;
+};
+
+export type WatchProvider = {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string | null;
+  display_priority?: number;
+};
+
+export type WatchProvidersRegion = {
+  link?: string;
+  flatrate?: WatchProvider[];
+  rent?: WatchProvider[];
+  buy?: WatchProvider[];
+};
+
+export type WatchProvidersResponse = {
   id: number;
-  title?: string;
-  name?: string; // TV용
-  overview: string;
-  poster_path: string | null;
-  backdrop_path: string | null;
-  vote_average: number;
-  release_date?: string;
-  first_air_date?: string;
-  genre_ids?: number[];
-  media_type?: 'movie' | 'tv';
-}
+  results: Record<string, WatchProvidersRegion | undefined>;
+};
 
-export interface TMDBPaginatedResponse<T> {
-  page: number;
-  results: T[];
-  total_pages: number;
-  total_results: number;
-}
-
-export interface TMDBMovieDetails extends Record<string, unknown> {
+export type MovieReleaseDatesResponse = {
   id: number;
-  title?: string;
-  name?: string;
-  overview?: string;
-  poster_path?: string | null;
-  backdrop_path?: string | null;
-  vote_average?: number;
-  release_date?: string;
-  first_air_date?: string;
-}
+  results: Array<{
+    iso_3166_1: string;
+    release_dates: Array<{
+      certification: string;
+      type: number;
+      release_date: string;
+      note: string;
+    }>;
+  }>;
+};
+
+export type TvContentRatingsResponse = {
+  id: number;
+  results: Array<{
+    iso_3166_1: string;
+    rating: string;
+  }>;
+};

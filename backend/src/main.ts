@@ -1,22 +1,19 @@
-// backend/src/main.ts
-
-import 'dotenv/config'; // ✅ .env 자동 로드 (가장 위쪽에)
-
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
-async function bootstrap(): Promise<void> {
+async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({
-    origin: ['http://localhost:5173'], // Vite 프론트 주소
-    credentials: true,
-  });
+  app.enableCors({ origin: true, credentials: true });
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   await app.listen(port);
 
-  console.log(`✅ Backend running on http://localhost:${port}`);
+  new Logger('Bootstrap').log(`Backend running on http://localhost:${port}`);
 }
 
-void bootstrap();
+// ✅ Promise 처리 (catch) => no-floating-promises 해결 :contentReference[oaicite:8]{index=8}
+bootstrap().catch((err) => {
+  new Logger('Bootstrap').error(err);
+});

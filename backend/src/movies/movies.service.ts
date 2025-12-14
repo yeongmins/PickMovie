@@ -1,31 +1,35 @@
-// backend/src/movies/movies.service.ts
-
 import { Injectable } from '@nestjs/common';
-import { TmdbService } from '../tmdb/tmdb.service';
+import { TmdbService, type TmdbQuery } from '../tmdb/tmdb.service';
+
+type MediaType = 'movie' | 'tv';
 
 @Injectable()
 export class MoviesService {
-  constructor(private readonly tmdbService: TmdbService) {}
+  constructor(private readonly tmdb: TmdbService) {}
 
-  getPopular() {
-    return this.tmdbService.getPopularMovies();
+  getPopular(page = 1): Promise<unknown> {
+    return this.tmdb.getPopularMovies(page);
   }
 
-  discoverMovies(params: {
-    genre?: string;
-    sort_by?: string;
-    page?: number;
-    languageCode?: string;
-  }) {
-    return this.tmdbService.discoverMovies({
-      with_genres: params.genre,
-      sort_by: params.sort_by,
-      page: params.page,
-      with_original_language: params.languageCode,
-    });
+  getTopRated(page = 1): Promise<unknown> {
+    return this.tmdb.getTopRatedMovies(page);
   }
 
-  getDetails(id: number) {
-    return this.tmdbService.getMovieDetails(id);
+  getNowPlaying(page = 1): Promise<unknown> {
+    return this.tmdb.getNowPlayingMovies(page);
+  }
+
+  getPopularTV(page = 1): Promise<unknown> {
+    return this.tmdb.getPopularTVShows(page);
+  }
+
+  discover(query: TmdbQuery): Promise<unknown> {
+    return this.tmdb.discoverMovies(query);
+  }
+
+  getDetails(id: number, type: MediaType = 'movie'): Promise<unknown> {
+    return type === 'tv'
+      ? this.tmdb.getTVDetails(id)
+      : this.tmdb.getMovieDetails(id);
   }
 }
