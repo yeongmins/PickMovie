@@ -1,16 +1,10 @@
-// backend/src/app.module.ts
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { AiModule } from './ai/ai.module';
+import { PickyModule } from './picky/picky.module';
 import { TmdbModule } from './tmdb/tmdb.module';
 import { MoviesModule } from './movies/movies.module';
-import { AiModule } from './ai/ai.module';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    TmdbModule,
-    MoviesModule,
-    AiModule,
-  ],
+  imports: [TmdbModule, AiModule, PickyModule, MoviesModule],
 })
 export class AppModule {}

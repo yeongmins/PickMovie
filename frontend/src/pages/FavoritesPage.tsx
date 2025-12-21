@@ -1,5 +1,5 @@
-// src/pages/FavoritesPage.tsx
-import React, {
+// frontend/src/pages/FavoritesPage.tsx
+import {
   useEffect,
   useMemo,
   useState,
@@ -9,7 +9,6 @@ import React, {
   memo,
   useRef,
 } from "react";
-import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { Trash2, ListMusic, X, Loader2 } from "lucide-react";
 
@@ -53,8 +52,7 @@ type MediaItem = {
   first_air_date?: string;
   media_type?: MediaType;
 
-  // 애니 판별(가능한 경우)
-  genre_ids?: number[]; // 예: [16, ...]
+  genre_ids?: number[];
 };
 
 type PlaylistItem = {
@@ -93,7 +91,6 @@ function toKey(id: number, mediaType?: MediaType): FavoriteKey {
   return mediaType ? `${mediaType}:${id}` : String(id);
 }
 
-/** 깨진 데이터 방어 */
 function parseKeySafe(key: unknown): { id: number; mediaType?: MediaType } {
   if (typeof key !== "string") return { id: NaN };
   if (key.includes(":")) {
@@ -105,7 +102,6 @@ function parseKeySafe(key: unknown): { id: number; mediaType?: MediaType } {
   return { id: Number(key) };
 }
 
-/** 로컬스토리지 정규화 */
 function normalizePlaylistItem(input: any): PlaylistItem | null {
   const now = Date.now();
 
@@ -174,7 +170,7 @@ function savePlaylists(playlists: Playlist[]) {
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ 플레이리스트 Row: 버튼 중첩 제거(경고 방지) */
+/* PlaylistRow */
 /* ------------------------------------------------------------------ */
 
 type PlaylistRowProps = {
@@ -233,20 +229,22 @@ const PlaylistRow = memo(function PlaylistRow({
 });
 
 /* ------------------------------------------------------------------ */
-/* ✅ Section */
+/* FavoritesPlaylistsSection */
 /* ------------------------------------------------------------------ */
 
 type FavoritesPlaylistsSectionProps = {
-  favorites: Array<number | string>;
-  favoriteItems: MediaItem[];
+  favorites: string[]; // "movie:1"
+  favoriteItems: MediaItem[]; // 전체(플레이리스트 매칭용)
+  searchQuery: string; // 내 찜 탭에서만 필터링
   onToggleFavorite: (id: number, mediaType?: MediaType) => void;
   onOpenDetail: (item: MediaItem) => void;
   onResetFavorites: () => void;
 };
 
-export function FavoritesPlaylistsSection({
+function FavoritesPlaylistsSection({
   favorites,
   favoriteItems,
+  searchQuery,
   onToggleFavorite,
   onOpenDetail,
   onResetFavorites,
@@ -257,13 +255,11 @@ export function FavoritesPlaylistsSection({
   const [newName, setNewName] = useState("");
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
 
-  const favoriteKeySet = useMemo(() => {
-    const keys = new Set<FavoriteKey>();
-    for (const f of favorites) keys.add(String(f));
-    return keys;
-  }, [favorites]);
+  const favoriteKeySet = useMemo(
+    () => new Set<FavoriteKey>(favorites),
+    [favorites]
+  );
 
-  // favorites에 있는 MediaItem들로 lookup map 구성 (playlist는 “찜한 것” 기반이므로 여기서 매칭됨)
   const favoriteByKey = useMemo(() => {
     const map = new Map<FavoriteKey, MediaItem>();
     for (const item of favoriteItems) {
@@ -272,6 +268,14 @@ export function FavoritesPlaylistsSection({
     }
     return map;
   }, [favoriteItems]);
+
+  const visibleFavorites = useMemo(() => {
+    if (!searchQuery) return favoriteItems;
+    const q = searchQuery.toLowerCase();
+    return favoriteItems.filter((m) =>
+      (m.title || m.name || "").toLowerCase().includes(q)
+    );
+  }, [favoriteItems, searchQuery]);
 
   useEffect(() => {
     setPlaylists(loadPlaylists());
@@ -338,9 +342,14 @@ export function FavoritesPlaylistsSection({
     onResetFavorites();
   };
 
+  // ✅ (개선 2.1) 중앙 몰림 방지: justify-center 제거 → justify-start + w-full
+  const cardsGridClass =
+    "w-full grid gap-4 justify-start content-start [grid-template-columns:repeat(auto-fit,minmax(160px,240px))]";
+  const playlistCardsGridClass =
+    "w-full grid gap-4 justify-start content-start [grid-template-columns:repeat(auto-fit,minmax(150px,220px))]";
+
   return (
     <section className="w-full">
-      {/* 상단 탭 + 초기화 + 생성폼 (반응형 wrap) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1 w-fit">
@@ -368,7 +377,6 @@ export function FavoritesPlaylistsSection({
             </button>
           </div>
 
-          {/* ✅ (1) 찜 초기화 버튼 */}
           <button
             type="button"
             className="h-10 px-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm text-white/80 flex items-center gap-2"
@@ -380,35 +388,37 @@ export function FavoritesPlaylistsSection({
           </button>
         </div>
 
-        {/* 플레이리스트 생성 폼 */}
-        <form
-          className="flex w-full sm:w-auto items-center gap-2 min-w-0"
-          onSubmit={(e) => {
-            e.preventDefault();
-            createPlaylist();
-          }}
-        >
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="플레이리스트 이름"
-            className="h-10 flex-1 sm:w-52 min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20"
-          />
-          <Button type="submit" className="h-10 rounded-xl shrink-0">
-            저장하기
-          </Button>
-        </form>
+        {/* ✅ (개선 2) 내 찜 탭에서는 플레이리스트명/저장하기 숨김 */}
+        {tab === "playlists" && (
+          <form
+            className="flex w-full sm:w-auto items-center gap-2 min-w-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createPlaylist();
+            }}
+          >
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="플레이리스트 이름"
+              className="h-10 flex-1 sm:w-52 min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20"
+            />
+            <Button type="submit" className="h-10 rounded-xl shrink-0">
+              저장하기
+            </Button>
+          </form>
+        )}
       </div>
 
       {tab === "favorites" ? (
         <>
-          {favoriteItems.length === 0 ? (
+          {visibleFavorites.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center text-white/60">
               아직 찜한 콘텐츠가 없어.
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-              {favoriteItems.map((item) => {
+            <div className={cardsGridClass}>
+              {visibleFavorites.map((item) => {
                 const k = toKey(item.id, item.media_type);
                 const isFav =
                   favoriteKeySet.has(k) || favoriteKeySet.has(String(item.id));
@@ -430,9 +440,7 @@ export function FavoritesPlaylistsSection({
           )}
         </>
       ) : (
-        /* ✅ (6) vh 적용 + 내부 스크롤 */
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* 좌: 플레이리스트 목록 */}
           <div className="md:col-span-1 rounded-2xl border border-white/10 bg-white/5 p-3 h-[72vh] overflow-y-auto">
             <div className="text-sm font-semibold text-white mb-2">
               내 플레이리스트
@@ -457,7 +465,6 @@ export function FavoritesPlaylistsSection({
             )}
           </div>
 
-          {/* 우: 플레이리스트 상세 */}
           <div className="md:col-span-2 rounded-2xl border border-white/10 bg-white/5 p-4 h-[72vh] flex flex-col">
             {!activePlaylist ? (
               <div className="text-white/60 flex items-center gap-2">
@@ -486,18 +493,16 @@ export function FavoritesPlaylistsSection({
                   </button>
                 </div>
 
-                {/* ✅ 내부 스크롤 영역 */}
                 <div className="flex-1 overflow-y-auto">
                   {activePlaylist.items.length === 0 ? (
                     <div className="text-white/60">아직 담긴 항목이 없어.</div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    <div className={playlistCardsGridClass}>
                       {activePlaylist.items
                         .filter((it) => it && typeof it.key === "string")
                         .map((it) => {
                           const item = favoriteByKey.get(it.key);
 
-                          // playlist에 있는데 favorites 쪽 상세 데이터가 아직 없는 경우(깨진 키 등)
                           if (!item) {
                             const { id, mediaType } = parseKeySafe(it.key);
                             const label =
@@ -567,16 +572,13 @@ export function FavoritesPlaylistsSection({
 }
 
 /* ------------------------------------------------------------------ */
-/* ✅ FavoritesPage */
+/* FavoritesPage */
 /* ------------------------------------------------------------------ */
 
 type FavoritesPageProps = {
   userPreferences: UserPreferences;
   favorites: FavoriteItem[];
-  onReanalyze?: () => void;
   onToggleFavorite: (movieId: number, mediaType?: "movie" | "tv") => void;
-
-  // ✅ (1) 찜 초기화용
   onResetFavorites: () => void;
 };
 
@@ -594,28 +596,22 @@ function buildGenreString(details: any): string {
 export default function FavoritesPage({
   userPreferences,
   favorites,
-  onReanalyze,
   onToggleFavorite,
   onResetFavorites,
 }: FavoritesPageProps) {
-  const navigate = useNavigate();
-
-  const [currentSection, setCurrentSection] = useState<
-    "home" | "favorites" | "popular-movies" | "popular-tv"
-  >("favorites");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [favoriteItems, setFavoriteItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
 
-  // ✅ 불필요한 “전체 로딩 화면” 방지:
-  // - 최초 1회만 loading=true로 전체 로더
-  // - 이후 favorites 변경(찜 토글 등)에서는 화면 유지한 채로 누락된 것만 백그라운드로 채움
   const hasLoadedOnceRef = useRef(false);
-
-  // ✅ 상세 캐시: favorites 토글/탭 이동 시에도 기존 아이템 객체를 재사용 → 이미지 리로드 최소화
   const itemCacheRef = useRef<Map<string, MediaItem>>(new Map());
+
+  const favoriteKeys = useMemo(
+    () => favorites.map((f) => `${f.mediaType}:${f.id}`),
+    [favorites]
+  );
 
   const loadFavoriteItems = useCallback(async () => {
     if (!favorites.length) {
@@ -625,25 +621,19 @@ export default function FavoritesPage({
       return;
     }
 
-    // 최초만 전체 로딩
     if (!hasLoadedOnceRef.current) setLoading(true);
 
     const wantedKeys = favorites.map((f) => toKey(f.id, f.mediaType));
     const cache = itemCacheRef.current;
 
-    // 이미 캐시에 있는 건 바로 사용
-    const immediate: Array<MediaItem | null> = wantedKeys.map(
-      (k) => cache.get(k) ?? null
-    );
-
-    // 캐시에 없는 것만 fetch
     const missing = favorites
-      .map((f, idx) => ({ f, key: wantedKeys[idx], idx }))
+      .map((f, idx) => ({ f, key: wantedKeys[idx] }))
       .filter(({ key }) => !cache.has(key));
 
     if (missing.length === 0) {
-      // 전부 캐시에 있으면 그대로 렌더 유지
-      setFavoriteItems(immediate.filter(Boolean) as MediaItem[]);
+      setFavoriteItems(
+        wantedKeys.map((k) => cache.get(k)!).filter(Boolean) as MediaItem[]
+      );
       setLoading(false);
       hasLoadedOnceRef.current = true;
       return;
@@ -701,12 +691,10 @@ export default function FavoritesPage({
         })
       );
 
-      // 캐시 채우기
       for (const r of fetched) {
         if (r.item) cache.set(r.key, r.item);
       }
 
-      // 최종 리스트 구성(순서 유지)
       const finalList = wantedKeys
         .map((k) => cache.get(k) ?? null)
         .filter(Boolean) as MediaItem[];
@@ -721,26 +709,6 @@ export default function FavoritesPage({
   useEffect(() => {
     loadFavoriteItems();
   }, [loadFavoriteItems]);
-
-  const handleNavigate = useCallback(
-    (section: string) => {
-      const s = section as
-        | "home"
-        | "favorites"
-        | "popular-movies"
-        | "popular-tv"
-        | "picky";
-
-      if (s === "picky") {
-        navigate("/picky");
-        return;
-      }
-
-      setCurrentSection(s === "home" ? "home" : (s as any));
-      navigate(s === "home" ? "/" : `/${s}`);
-    },
-    [navigate]
-  );
 
   const handleOpenDetail = useCallback(
     async (item: MediaItem) => {
@@ -773,15 +741,6 @@ export default function FavoritesPage({
     [userPreferences]
   );
 
-  const filteredFavoriteItems = useMemo(() => {
-    if (!searchQuery) return favoriteItems;
-    const q = searchQuery.toLowerCase();
-    return favoriteItems.filter((m) =>
-      (m.title || m.name || "").toLowerCase().includes(q)
-    );
-  }, [favoriteItems, searchQuery]);
-
-  // ✅ 최초 진입시에만 전체 로딩 화면
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="min-h-screen bg-[#1a1a24] flex items-center justify-center">
@@ -790,21 +749,19 @@ export default function FavoritesPage({
     );
   }
 
+  const shellClass = "mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10";
+
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden">
       <Suspense fallback={<div className="h-16" />}>
-        <Header
-          currentSection={currentSection}
-          onNavigate={handleNavigate}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-        />
+        <Header searchQuery={searchQuery} onSearchChange={setSearchQuery} />
       </Suspense>
 
-      <main className="page-fade-in pt-24 px-6 pb-20">
+      <main className={`page-fade-in pt-24 pb-20 ${shellClass}`}>
         <FavoritesPlaylistsSection
-          favorites={favorites.map((f) => `${f.mediaType}:${f.id}`)}
-          favoriteItems={filteredFavoriteItems}
+          favorites={favoriteKeys}
+          favoriteItems={favoriteItems}
+          searchQuery={searchQuery}
           onToggleFavorite={(id, type) =>
             onToggleFavorite(id, (type ?? "movie") as "movie" | "tv")
           }
@@ -819,7 +776,9 @@ export default function FavoritesPage({
             <MovieDetailModal
               movie={selectedMovie}
               onClose={() => setSelectedMovie(null)}
-              isFavorite={favorites.some((f) => f.id === selectedMovie.id)}
+              isFavorite={favoriteKeys.includes(
+                `${selectedMovie.mediaType}:${selectedMovie.id}`
+              )}
               onToggleFavorite={() =>
                 onToggleFavorite(selectedMovie.id, selectedMovie.mediaType)
               }

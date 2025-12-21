@@ -1,17 +1,27 @@
 // frontend/src/components/layout/Header.tsx
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, Sparkles, User } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
-import { useNavigate } from "react-router-dom";
 
 export interface HeaderProps {
-  onNavigate: (section: string) => void;
-  currentSection: string;
+  // ✅ 기존 코드 호환용(있어도 되고 없어도 됨)
+  onNavigate?: (section: string) => void;
+  currentSection?: string;
+
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onOpenAI?: () => void;
+}
+
+function getActiveSection(pathname: string) {
+  // ✅ Header 메뉴는 홈/찜/피키만 있으므로
+  // 인기 영화/TV 페이지도 "홈" 활성으로 취급 (디자인 유지 + UX 자연스러움)
+  if (pathname.startsWith("/favorites")) return "favorites";
+  if (pathname.startsWith("/picky")) return "picky";
+  return "home";
 }
 
 export function Header({
@@ -22,6 +32,12 @@ export function Header({
 }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const activeSection = useMemo(
+    () => getActiveSection(location.pathname),
+    [location.pathname]
+  );
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
@@ -29,6 +45,18 @@ export function Header({
     handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  const go = (section: string) => {
+    // ✅ Header가 라우팅 담당
+    if (section === "home") return navigate("/");
+    if (section === "favorites") return navigate("/favorites");
+    if (section === "picky") return navigate("/picky");
+
+    // 혹시 다른 메뉴가 추가됐을 때만 fallback
+    onNavigate?.(section);
+  };
+
+  const active = currentSection ?? activeSection;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full">
@@ -49,27 +77,24 @@ export function Header({
         <div className="relative z-10 w-full flex items-center justify-between">
           {/* 좌측 */}
           <div className="flex items-center gap-8 h-full">
-            <button
-              onClick={() => onNavigate("home")}
-              className="flex-shrink-0"
-            >
+            <button onClick={() => go("home")} className="flex-shrink-0">
               <Logo size="sm" />
             </button>
 
             <nav className="hidden md:flex items-center gap-1 h-full">
               <NavItem
                 label="홈"
-                isActive={currentSection === "home"}
-                onClick={() => onNavigate("home")}
+                isActive={active === "home"}
+                onClick={() => go("home")}
               />
               <NavItem
                 label="찜/플레이리스트"
-                isActive={currentSection === "favorites"}
-                onClick={() => onNavigate("favorites")}
+                isActive={active === "favorites"}
+                onClick={() => go("favorites")}
               />
 
               <button
-                onClick={() => onNavigate("picky")}
+                onClick={() => go("picky")}
                 className="flex items-center gap-1.5 px-3 py-1.5 ml-2 rounded-full bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 text-sm font-medium text-purple-300 hover:text-white hover:border-purple-500/40 transition-all"
               >
                 <Sparkles className="w-3.5 h-3.5" />

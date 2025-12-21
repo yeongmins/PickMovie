@@ -11,7 +11,7 @@ import { TmdbService, type TmdbQuery } from './tmdb.service';
 type RawQuery = Record<string, string | string[] | undefined>;
 
 function toTmdbQuery(raw: RawQuery): TmdbQuery {
-  const out: TmdbQuery = {};
+  const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {
     if (v === undefined) continue;
     out[k] = Array.isArray(v) ? v.join(',') : v;
@@ -23,23 +23,21 @@ function toTmdbQuery(raw: RawQuery): TmdbQuery {
 export class TmdbController {
   constructor(private readonly tmdb: TmdbService) {}
 
-  // ✅ 프론트가 /tmdb/meta/movie/:id?region=KR 호출함
   @Get('meta/:type/:id')
   meta(
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query('region') region?: string,
     @Query('language') language?: string,
-  ) {
+  ): Promise<unknown> {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
     return this.tmdb.getMeta(type, id, region, language);
   }
 
-  // ✅ Nest v11 wildcard
   @Get('proxy/*path')
-  proxy(@Param('path') path: string, @Query() raw: RawQuery) {
+  proxy(@Param('path') path: string, @Query() raw: RawQuery): Promise<unknown> {
     return this.tmdb.proxy(path, toTmdbQuery(raw));
   }
 }

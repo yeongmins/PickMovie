@@ -1,8 +1,4 @@
-// 온보딩 전체 마법사(Wizard) 컨테이너
-// - Welcome → Genre → Mood → Preferences → Exclude → Recommendation
-//   순서대로 스텝을 관리
-// - 각 단계에서 선택한 값들을 하나의 UserPreferences 상태로 통합 관리
-
+// src/features/onboarding/Onboarding.tsx
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 

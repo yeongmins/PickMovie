@@ -51,6 +51,9 @@ export type ContentCardProps = {
   onRemove?: () => void;
   context?: "default" | "picky";
   onPosterError?: () => void;
+
+  // ✅ 확장(그리드/캐러셀에서 w-full 등 강제할 때)
+  className?: string;
 };
 
 // ✅ 고화질 OTT 로고: w92 + srcSet(w185)
@@ -137,8 +140,7 @@ function AgeBadge({ value }: { value: string }) {
   return (
     <div
       className={[
-        // ✅ 요청: 20x20, radius 5px, border 없음
-        "w-[20px] h-[20px] rounded-[5px]",
+        "w-[22px] h-[22px] rounded-[4px]",
         "flex items-center justify-center",
         "text-white font-extrabold",
         "shadow-sm",
@@ -147,7 +149,7 @@ function AgeBadge({ value }: { value: string }) {
       aria-label={`연령등급 ${v}`}
       title={`연령등급 ${v}`}
     >
-      <span className={v === "ALL" ? "text-[9px]" : "text-[11px]"}>{v}</span>
+      <span className={v === "ALL" ? "text-[9px]" : "text-[12px]"}>{v}</span>
     </div>
   );
 }
@@ -187,7 +189,7 @@ function Chip({
 }) {
   const base =
     "inline-flex items-center h-[20px] rounded-[5px] text-[10px] font-bold leading-none " +
-    "px-[8px] shadow-sm backdrop-blur-sm"; // ✅ 세로패딩 제거하고 h로 맞춤
+    "px-[8px] shadow-sm backdrop-blur-sm";
 
   const cls =
     tone === "green"
@@ -207,6 +209,7 @@ export function ContentCard({
   onRemove,
   context = "default",
   onPosterError,
+  className,
 }: ContentCardProps) {
   const title = getDisplayTitle(item);
   const rating =
@@ -300,8 +303,8 @@ export function ContentCard({
     })
     .filter((x) => !!x.name && !!x.path);
 
-  // ✅ OTT 한 줄 고정: 최대 4개 + 나머지 +N
-  const MAX_PROVIDER_BADGES = 4;
+  // ✅ OTT 한 줄 고정: 최대 3개 + 나머지 +N
+  const MAX_PROVIDER_BADGES = 3;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER_BADGES);
   const hiddenCount = Math.max(
     0,
@@ -319,10 +322,9 @@ export function ContentCard({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}
-      className="group cursor-pointer select-none"
+      className={`group cursor-pointer select-none w-full ${className ?? ""}`}
       aria-label={`${title} 상세 보기`}
     >
-      {/* ✅ border 제거, radius 5px */}
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
         {posterUrl ? (
           <img
@@ -342,7 +344,7 @@ export function ContentCard({
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/15" />
 
-        {/* ✅ 좌상단: 타입/상영중/매칭 (폭 따라가지 않게 items-start + self-start) */}
+        {/* 좌상단 */}
         <div className="absolute top-2 left-2 z-20 flex flex-col items-start">
           {onRemove && (
             <button
@@ -358,19 +360,16 @@ export function ContentCard({
             </button>
           )}
 
-          {/* 타입 */}
           <div className="self-start">
             <Chip tone="dark">{typeText}</Chip>
           </div>
 
-          {/* 상영중 */}
           {showNowPlaying && (
             <div className="self-start">
               <Chip tone="green">상영중</Chip>
             </div>
           )}
 
-          {/* ✅ 상영중이면 아래 / 아니면 상영중 자리(타입 아래)에 자연스럽게 */}
           {showMatch && (
             <div className="self-start">
               <Chip tone="purple">{Math.round(item.matchScore!)}% 매칭</Chip>
@@ -378,7 +377,7 @@ export function ContentCard({
           )}
         </div>
 
-        {/* ✅ 우상단 하트: 30x30 */}
+        {/* 우상단 하트 */}
         <div className="absolute top-2 right-2 z-20">
           <button
             type="button"
@@ -397,7 +396,7 @@ export function ContentCard({
           </button>
         </div>
 
-        {/* ✅ 우하단: OTT 한 줄(20x20) / 연령은 OTT 위, 플랫폼 없으면 OTT 자리에 */}
+        {/* 우하단 */}
         {(hasProviders || hasAge) && (
           <div className="absolute bottom-2 right-2 z-20 flex flex-col items-end gap-1">
             {hasProviders && hasAge && <AgeBadge value={ageValue} />}
@@ -407,7 +406,7 @@ export function ContentCard({
                 {visibleProviders.map((p) => (
                   <div
                     key={p.name}
-                    className="w-[20px] h-[20px] rounded-[5px] bg-black/45 backdrop-blur-sm overflow-hidden flex items-center justify-center shadow-sm"
+                    className="w-[22px] h-[22px] rounded-[4px] bg-black/45 backdrop-blur-sm overflow-hidden flex items-center justify-center shadow-sm"
                     title={p.name}
                     aria-label={p.name}
                   >
@@ -426,7 +425,7 @@ export function ContentCard({
                 ))}
 
                 {hiddenCount > 0 && (
-                  <span className="h-[20px] rounded-[5px] bg-black/45 backdrop-blur-sm px-[6px] text-[10px] font-semibold text-white/90 flex items-center shadow-sm">
+                  <span className="w-[30px] h-[30px] rounded-[5px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
                     +{hiddenCount}
                   </span>
                 )}
@@ -438,7 +437,7 @@ export function ContentCard({
         )}
       </div>
 
-      {/* ✅ 제목/별점/년도는 이미지 아래 유지 */}
+      {/* 텍스트 */}
       <div className="mt-3 px-1">
         <div className="text-sm font-semibold text-white line-clamp-1">
           {title}

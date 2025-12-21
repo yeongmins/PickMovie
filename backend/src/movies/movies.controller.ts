@@ -1,3 +1,4 @@
+// backend/src/movies/movies.controller.ts
 import {
   BadRequestException,
   Controller,
@@ -7,7 +8,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { MoviesService } from './movies.service';
+import { TmdbService } from '../tmdb/tmdb.service'; // ✅ 여기로 변경!
 import type { TmdbQuery } from '../tmdb/tmdb.service';
+import type { MediaType } from '../ai/dto/analyze.dto';
 
 type RawQuery = Record<string, string | string[] | undefined>;
 
@@ -22,26 +25,26 @@ function toTmdbQuery(raw: RawQuery): TmdbQuery {
 
 @Controller('movies')
 export class MoviesController {
-  constructor(private readonly movies: MoviesService) {}
+  constructor(
+    private readonly movies: MoviesService,
+    private readonly tmdb: TmdbService, // ✅ 주입 추가!
+  ) {}
 
   @Get('popular')
   getPopular(@Query('page') page?: string) {
     return this.movies.getPopular(page ? Number(page) : 1);
   }
 
-  // ✅ 프론트가 top_rated로 호출함(언더스코어)
   @Get('top_rated')
   getTopRatedUnderscore(@Query('page') page?: string) {
     return this.movies.getTopRated(page ? Number(page) : 1);
   }
 
-  // (혹시 기존 하이픈 경로도 쓰면 같이 지원)
   @Get('top-rated')
   getTopRatedHyphen(@Query('page') page?: string) {
     return this.movies.getTopRated(page ? Number(page) : 1);
   }
 
-  // ✅ 프론트가 now_playing로 호출함(언더스코어)
   @Get('now_playing')
   getNowPlayingUnderscore(@Query('page') page?: string) {
     return this.movies.getNowPlaying(page ? Number(page) : 1);
@@ -52,13 +55,11 @@ export class MoviesController {
     return this.movies.getNowPlaying(page ? Number(page) : 1);
   }
 
-  // ✅ 프론트가 /movies/tv/popular 호출함
   @Get('tv/popular')
   getPopularTV(@Query('page') page?: string) {
     return this.movies.getPopularTV(page ? Number(page) : 1);
   }
 
-  // (기존 popular-tv도 같이 지원)
   @Get('popular-tv')
   getPopularTVLegacy(@Query('page') page?: string) {
     return this.movies.getPopularTV(page ? Number(page) : 1);
@@ -75,7 +76,43 @@ export class MoviesController {
     return this.movies.discover(query);
   }
 
-  // ✅ 프론트가 /movies/:id?type=movie|tv 호출함
+  // ✅✅✅ 반드시 :id 보다 위에 있어야 함
+  @Get('search/multi')
+  searchMulti(
+    @Query('query') query: string,
+    @Query('page') page?: string,
+    @Query('language') language?: string,
+    @Query('includeAdult') includeAdult?: string,
+  ) {
+    return this.tmdb.searchMulti({
+      query,
+      page: page ? Number(page) : 1,
+      language: language || 'ko-KR',
+      includeAdult: includeAdult === 'true',
+    });
+  }
+
+  // ✅✅✅ 반드시 :id 보다 위에 있어야 함
+  @Get(':id/similar')
+  similar(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('type') type: MediaType,
+    @Query('page') page?: string,
+    @Query('language') language?: string,
+  ) {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+
+    return this.tmdb.getSimilar(
+      type,
+      id,
+      page ? Number(page) : 1,
+      language || 'ko-KR',
+    );
+  }
+
+  // ✅ 맨 마지막에 두기 (search/multi 잡아먹는 문제 방지)
   @Get(':id')
   getDetails(
     @Param('id', ParseIntPipe) id: number,

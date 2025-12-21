@@ -1,20 +1,20 @@
 // backend/src/main.ts
-import { Logger } from '@nestjs/common';
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({ origin: true, credentials: true });
+  app.enableCors({
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
 
-  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
-
-  new Logger('Bootstrap').log(`Backend running on http://localhost:${port}`);
 }
 
-// ✅ Promise 처리 (catch) => no-floating-promises 해결 :contentReference[oaicite:8]{index=8}
-bootstrap().catch((err) => {
-  new Logger('Bootstrap').error(err);
-});
+void bootstrap();

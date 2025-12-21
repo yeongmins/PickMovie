@@ -1,14 +1,11 @@
-// App.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Routes,
-  Route,
-  useLocation,
-  useNavigate,
-  Navigate,
-} from "react-router-dom";
+// frontend/src/App.tsx
+
+import { useCallback, useEffect, useState } from "react";
+import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
+
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
+import FavoritesPage from "./pages/FavoritesPage";
 import { PickyPage } from "./pages/PickyPage";
 import { LoginPage } from "./pages/auth/LoginPage";
 
@@ -31,16 +28,8 @@ const createEmptyPreferences = (): UserPreferences => ({
   excludes: [],
 });
 
-function getInitialSection(pathname: string) {
-  if (pathname.startsWith("/favorites")) return "favorites";
-  if (pathname.startsWith("/popular-movies")) return "popular-movies";
-  if (pathname.startsWith("/popular-tv")) return "popular-tv";
-  return "home";
-}
-
 export default function App() {
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,20 +37,21 @@ export default function App() {
     createEmptyPreferences
   );
 
-  const initialSection = useMemo(
-    () => getInitialSection(location.pathname) as any,
-    [location.pathname]
-  );
-
   const handleResetFavorites = useCallback(() => {
     setFavorites([]);
   }, []);
 
+  // ✅ id만 비교하면 movie/tv가 같은 id일 때 충돌 가능 → mediaType까지 같이 비교
   const handleToggleFavorite = useCallback(
     (id: number, mediaType: "movie" | "tv" = "movie") => {
       setFavorites((prev) => {
-        const exists = prev.some((f) => f.id === id);
-        if (exists) return prev.filter((f) => f.id !== id);
+        const exists = prev.some(
+          (f) => f.id === id && f.mediaType === mediaType
+        );
+        if (exists)
+          return prev.filter(
+            (f) => !(f.id === id && f.mediaType === mediaType)
+          );
         return [{ id, mediaType }, ...prev];
       });
     },
@@ -93,11 +83,13 @@ export default function App() {
             JSON.stringify(migrated)
           );
         } else {
-          setFavorites(parsed || []);
+          setFavorites(Array.isArray(parsed) ? parsed : []);
         }
       }
 
-      if (savedPreferences) setUserPreferences(JSON.parse(savedPreferences));
+      if (savedPreferences) {
+        setUserPreferences(JSON.parse(savedPreferences));
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -107,21 +99,22 @@ export default function App() {
 
   // 자동 저장
   useEffect(() => {
-    if (!isLoading)
+    if (!isLoading) {
       localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+    }
   }, [favorites, isLoading]);
 
   useEffect(() => {
-    if (!isLoading)
+    if (!isLoading) {
       localStorage.setItem(
         STORAGE_KEYS.PREFERENCES,
         JSON.stringify(userPreferences)
       );
+    }
   }, [userPreferences, isLoading]);
 
   return (
     <Routes>
-      {/* ✅ 로그인 라우트 추가 */}
       <Route path="/login" element={<LoginPage />} />
 
       <Route
@@ -134,6 +127,7 @@ export default function App() {
         }
       />
 
+      {/* ✅ 홈 */}
       <Route
         path="/"
         element={
@@ -142,20 +136,20 @@ export default function App() {
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
-            initialSection={initialSection}
+            initialSection="home"
           />
         }
       />
 
+      {/* ✅ 찜/플레이리스트는 FavoritesPage로 */}
       <Route
         path="/favorites"
         element={
-          <MainScreen
+          <FavoritesPage
             userPreferences={userPreferences}
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
-            onReanalyze={() => navigate("/")}
-            initialSection={"favorites"}
+            onResetFavorites={handleResetFavorites}
           />
         }
       />
@@ -168,7 +162,7 @@ export default function App() {
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
-            initialSection={"popular-movies"}
+            initialSection="popular-movies"
           />
         }
       />
@@ -181,12 +175,11 @@ export default function App() {
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
-            initialSection={"popular-tv"}
+            initialSection="popular-tv"
           />
         }
       />
 
-      {/* ✅ 존재하지 않는 경로로 가면 홈으로 */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

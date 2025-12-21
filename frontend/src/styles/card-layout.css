@@ -1,0 +1,50 @@
+:root {
+  --pm-card-w: 160px;
+  --pm-card-ratio: 2 / 3;
+  --pm-gap: 16px;
+}
+
+@media (min-width: 640px) {
+  :root { --pm-card-w: 176px; --pm-gap: 18px; }
+}
+@media (min-width: 768px) {
+  :root { --pm-card-w: 192px; --pm-gap: 20px; }
+}
+@media (min-width: 1024px) {
+  :root { --pm-card-w: 208px; --pm-gap: 22px; }
+}
+@media (min-width: 1280px) {
+  :root { --pm-card-w: 224px; --pm-gap: 24px; }
+}
+
+/* ✅ 카드: 어디서 쓰든 크기 고정 */
+.pm-card {
+  width: var(--pm-card-w);
+  aspect-ratio: var(--pm-card-ratio);
+  flex: 0 0 auto; /* row(캐러셀)에서 절대 줄지 않게 */
+}
+
+/* ✅ Grid: “카드 폭”만큼 칸을 찍고 가운데 정렬 */
+.pm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--pm-card-w));
+  gap: var(--pm-gap);
+  justify-content: center;
+}
+
+/* ✅ Row(캐러셀): 고정 카드 + 가로 스크롤 */
+.pm-row {
+  display: flex;
+  gap: var(--pm-gap);
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pm-row > * {
+  scroll-snap-align: start;
+}
+
+/* 스크롤바 숨김(선택) */
+.pm-row::-webkit-scrollbar { height: 0px; }

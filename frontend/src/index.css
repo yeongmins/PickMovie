@@ -6,6 +6,38 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  /* 모든 페이지 공통 좌우 패딩 + 최대 폭 */
+  .page-shell {
+    width: 100%;
+    max-width: 1600px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  @media (min-width: 640px) {
+    .page-shell {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .page-shell {
+      padding-left: 40px;
+      padding-right: 40px;
+    }
+  }
+
+  /* 카드 그리드: 화면 폭에 맞게 “가능한 만큼” 채움 + 카드 폭 상한선으로 비율 보호 */
+  .cards-grid {
+    display: grid;
+    gap: 16px;
+    justify-content: center; /* 남는 공간이 있으면 좌우 균형 */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 240px));
+  }
+}
+
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or
     ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
@@ -835,7 +867,7 @@
 
   .line-clamp-3 {
     -webkit-line-clamp: 3;
-    line-clamp: 3;  
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     display: -webkit-box;
     overflow: hidden;

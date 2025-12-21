@@ -1,18 +1,18 @@
+// backend/src/tmdb/tmdb.module.ts
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
-import { CacheModule } from '@nestjs/cache-manager';
-import { ConfigModule } from '@nestjs/config';
-
-import { TmdbController } from './tmdb.controller';
 import { TmdbService } from './tmdb.service';
+import { TmdbController } from './tmdb.controller';
 
 @Module({
   imports: [
-    ConfigModule,
-    HttpModule,
-    CacheModule.register({
-      ttl: 60,
-      max: 500,
+    HttpModule.register({
+      baseURL: process.env.TMDB_BASE_URL ?? 'https://api.themoviedb.org/3',
+      timeout: 12_000,
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+        Accept: 'application/json',
+      },
     }),
   ],
   controllers: [TmdbController],

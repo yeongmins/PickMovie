@@ -1,0 +1,74 @@
+:root {
+  /* ✅ 데스크탑/태블릿: 고정 카드 폭(메인 캐러셀 느낌) */
+  --pm-card-w: 200px;
+  --pm-row-card-w: 200px;
+  --pm-gap: 16px;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --pm-card-w: 208px;
+    --pm-row-card-w: 208px;
+    --pm-gap: 18px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --pm-card-w: 216px;
+    --pm-row-card-w: 216px;
+    --pm-gap: 20px;
+  }
+}
+
+/* 공통 카드 래퍼 */
+.pm-card {
+  width: var(--pm-card-w);
+  flex: 0 0 auto;
+}
+
+/* ✅ Grid: 기본은 고정폭 컬럼 */
+.pm-grid {
+  display: grid;
+  gap: var(--pm-gap);
+  justify-content: start;
+  grid-template-columns: repeat(auto-fill, var(--pm-card-w));
+}
+
+/* ✅ 모바일: 무조건 2열(여백 제거) + 카드 폭은 칸에 맞춰 100% */
+@media (max-width: 639px) {
+  .pm-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .pm-grid .pm-card {
+    width: 100%;
+  }
+}
+
+/* ✅ Row(캐러셀): 고정 카드 + 가로 스크롤 */
+.pm-row {
+  display: flex;
+  gap: var(--pm-gap);
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 6px;
+
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pm-row::-webkit-scrollbar {
+  height: 0px;
+}
+.pm-row > * {
+  scroll-snap-align: start;
+}
+
+/* 캐러셀 카드 폭은 row 전용으로 고정 */
+.pm-row .pm-card {
+  width: var(--pm-row-card-w);
+}

@@ -1,9 +1,11 @@
+// backend/src/ai/ai.module.ts
 import { Module } from '@nestjs/common';
 import { AiController } from './ai.controller';
-import { TmdbModule } from '../tmdb/tmdb.module';
+import { AiService } from './ai.service';
 
 @Module({
-  imports: [TmdbModule],
   controllers: [AiController],
+  providers: [AiService],
+  exports: [AiService],
 })
 export class AiModule {}

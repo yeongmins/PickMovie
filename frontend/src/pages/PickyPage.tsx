@@ -1,3 +1,4 @@
+// frontend/src/pages/PickyPage.tsx
 import React, {
   useEffect,
   useMemo,
@@ -7,7 +8,7 @@ import React, {
   Suspense,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowUp, User, Star, X, Sparkles, RefreshCcw } from "lucide-react";
+import { ArrowUp, User, X, Sparkles, RefreshCcw } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
 import type { FavoriteItem } from "../App";
@@ -16,7 +17,6 @@ import { getPosterUrl } from "../lib/tmdb";
 
 import { ContentCard } from "../components/content/ContentCard";
 
-// ✅ keyword/algorithm/storage는 features/picky 아래에 있으니까 경로 수정
 import { pickRandomKeywords } from "../features/picky/data/keywordPool";
 import {
   runPickySearch,
@@ -38,11 +38,12 @@ const MovieDetailModal = lazy(() =>
   }))
 );
 
-
 export type PickyPageProps = {
   favorites: FavoriteItem[];
   onToggleFavorite: (movieId: number, mediaType?: MediaType) => void;
 };
+
+type FavoriteKey = `${MediaType}:${number}`;
 
 function safeNum(v: unknown, fallback = 0) {
   const n = typeof v === "number" ? v : Number(v);
@@ -57,6 +58,43 @@ function yearFromItem(item: {
   if (!date) return undefined;
   const y = new Date(date).getFullYear();
   return Number.isFinite(y) ? y : undefined;
+}
+
+function toKey(id: number, mediaType?: MediaType): FavoriteKey {
+  const mt: MediaType = mediaType === "tv" ? "tv" : "movie";
+  return `${mt}:${id}`;
+
+  // 예시: PickyPage 상단 (원하는 파일에 적용)
+  function AiInsight({
+    aiSummary,
+    analysis,
+  }: {
+    aiSummary: string;
+    analysis: any;
+  }) {
+    if (!analysis) return null;
+    return (
+      <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="text-sm opacity-80">Picky AI 분석</div>
+        <div className="mt-1 text-base">{aiSummary}</div>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
+          <span className="rounded-full bg-white/10 px-2 py-1">
+            신뢰도 {Math.round((analysis.confidence ?? 0.5) * 100)}%
+          </span>
+          {analysis.yearFrom && analysis.yearTo ? (
+            <span className="rounded-full bg-white/10 px-2 py-1">
+              {analysis.yearFrom}~{analysis.yearTo}
+            </span>
+          ) : null}
+          {(analysis.includeKeywords || []).slice(0, 5).map((k: string) => (
+            <span key={k} className="rounded-full bg-white/10 px-2 py-1">
+              {k}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
 }
 
 export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
@@ -81,10 +119,10 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
   // 모달
   const [selectedMovie, setSelectedMovie] = useState<ModalMovie | null>(null);
 
-  // 세션 찜(이번 검색에서 찜한 것들)
-  const [sessionPicked, setSessionPicked] = useState<Map<number, MediaType>>(
-    () => new Map()
-  );
+  // 세션 찜(이번 검색에서 찜한 것들) - movie/tv 충돌 방지 위해 key 사용
+  const [sessionPicked, setSessionPicked] = useState<
+    Map<FavoriteKey, MediaType>
+  >(() => new Map());
 
   // 플레이리스트 모달
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
@@ -92,32 +130,43 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
   const [toast, setToast] = useState<string | null>(null);
   const playlistInputRef = useRef<HTMLInputElement>(null);
 
-  // favorites set
-  const favoriteSet = useMemo(
-    () => new Set(favorites.map((f) => f.id)),
-    [favorites]
-  );
+  // favorites key set
+  const favoriteKeySet = useMemo(() => {
+    const set = new Set<FavoriteKey>();
+    favorites.forEach((f) => {
+      const mt = (f as any)?.mediaType === "tv" ? "tv" : "movie";
+      set.add(`${mt}:${f.id}` as FavoriteKey);
+    });
+    return set;
+  }, [favorites]);
 
   // userPrefs(모달에 전달용)
   const userPrefs = useMemo(() => readUserPreferences(), []);
 
   const refreshKeywords = () => setDisplayedKeywords(pickRandomKeywords(8));
 
-  const togglePick = (id: number, mediaType: MediaType) => {
-    onToggleFavorite(id, mediaType);
+  const togglePick = (id: number, mediaType?: MediaType) => {
+    const mt: MediaType = mediaType === "tv" ? "tv" : "movie";
+    const key = toKey(id, mt);
+
+    onToggleFavorite(id, mt);
 
     setSessionPicked((prev) => {
       const next = new Map(prev);
-      if (next.has(id)) next.delete(id);
-      else next.set(id, mediaType);
+      if (next.has(key)) next.delete(key);
+      else next.set(key, mt);
       return next;
     });
   };
 
   const clearSessionPicks = () => {
     setSessionPicked((prev) => {
-      prev.forEach((mt, id) => {
-        if (favoriteSet.has(id)) onToggleFavorite(id, mt);
+      prev.forEach((mt, key) => {
+        // 현재 즐겨찾기(찜)에 들어있는 것만 다시 토글해서 제거
+        if (favoriteKeySet.has(key)) {
+          const id = Number(String(key).split(":")[1]);
+          if (Number.isFinite(id)) onToggleFavorite(id, mt);
+        }
       });
       return new Map();
     });
@@ -165,7 +214,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
   };
 
   const handleMovieClick = (item: ResultItem) => {
-    const mediaType: MediaType = item.media_type || "movie";
+    const mediaType: MediaType = (item.media_type as MediaType) || "movie";
     const title =
       item.title ||
       item.name ||
@@ -205,14 +254,14 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
     setTimeout(() => playlistInputRef.current?.focus(), 0);
   };
 
-  const savePlaylist = () => {
+  const savePlaylistAction = () => {
     const name = playlistName.trim();
     if (!name) return;
 
     const now = Date.now();
     const pickedItems: PlaylistItem[] = Array.from(sessionPicked.entries()).map(
-      ([id, mediaType]) => ({
-        key: `${mediaType}:${id}`,
+      ([key]) => ({
+        key: String(key),
         addedAt: now,
       })
     );
@@ -252,6 +301,10 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
     return base.length > 0 ? base : "Picky 추천";
   }, [query, hasSearched]);
 
+  const shellClass = "mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10";
+  const cardsGridClass =
+    "grid gap-4 justify-center [grid-template-columns:repeat(auto-fit,minmax(160px,240px))]";
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -260,8 +313,10 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
       className="min-h-screen bg-[#131314] text-white flex flex-col font-sans overflow-x-hidden relative"
     >
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 px-6 py-5 flex items-center justify-between w-full backdrop-blur-xl bg-[#131314]/70 border-b border-white/5">
-        <div className="flex items-center gap-6 max-w-7xl mx-auto w-full justify-between">
+      <header className="fixed top-0 left-0 right-0 z-50 py-5 flex items-center justify-between w-full backdrop-blur-xl bg-[#131314]/70 border-b border-white/5">
+        <div
+          className={`${shellClass} flex items-center justify-between gap-6`}
+        >
           <div className="flex items-center gap-6">
             <button
               onClick={() => window.location.reload()}
@@ -302,7 +357,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="flex-1 flex flex-col items-center justify-center px-4 w-full max-w-[800px] mx-auto pb-20"
+            className={`flex-1 flex flex-col items-center justify-center pb-20 ${shellClass}`}
           >
             <div className="mb-8 text-center">
               <h1 className="text-3xl font-bold mb-4 bg-gradient-to-b from-white to-white/60 bg-clip-text leading-tight">
@@ -313,7 +368,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
               </p>
             </div>
 
-            <div className="w-full relative group mb-8">
+            <div className="w-full max-w-[820px] relative group mb-8">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500/30 to-pink-500/30 rounded-full blur opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
               <form
                 onSubmit={handleSubmit}
@@ -378,7 +433,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="flex-1 flex flex-col items-center justify-center relative"
+            className={`flex-1 flex flex-col items-center justify-center relative ${shellClass}`}
             role="status"
             aria-live="polite"
           >
@@ -429,7 +484,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="flex-1 w-full max-w-6xl mx-auto px-6 py-10"
+            className={`flex-1 w-full py-10 ${shellClass}`}
           >
             {/* search bar + reset */}
             <div className="flex justify-center mb-10">
@@ -522,21 +577,22 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div className={cardsGridClass}>
                 {results.map((item) => {
-                  const isFav = favoriteSet.has(item.id);
+                  const mt: MediaType =
+                    (item.media_type as MediaType) || "movie";
+                  const key = toKey(item.id, mt);
+                  const isFav = favoriteKeySet.has(key);
+
                   return (
-                    <div key={`${item.media_type}:${item.id}`}>
-                      <ContentCard
-                        item={item as any}
-                        isFavorite={isFav}
-                        onToggleFavorite={() =>
-                          togglePick(item.id, item.media_type)
-                        }
-                        onClick={() => handleMovieClick(item)}
-                        context="picky"
-                      />
-                    </div>
+                    <ContentCard
+                      key={`${mt}:${item.id}`}
+                      item={item as any}
+                      isFavorite={isFav}
+                      onToggleFavorite={() => togglePick(item.id, mt)}
+                      onClick={() => handleMovieClick(item)}
+                      context="picky"
+                    />
                   );
                 })}
               </div>
@@ -662,7 +718,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={savePlaylist}
+                  onClick={savePlaylistAction}
                   disabled={!playlistName.trim()}
                   className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -697,11 +753,17 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             <MovieDetailModal
               movie={selectedMovie}
               onClose={() => setSelectedMovie(null)}
-              isFavorite={favorites.some((f) => f.id === selectedMovie.id)}
+              isFavorite={favoriteKeySet.has(
+                toKey(
+                  selectedMovie.id,
+                  (selectedMovie.mediaType as MediaType) || "movie"
+                )
+              )}
               onToggleFavorite={() =>
                 onToggleFavorite(
                   selectedMovie.id,
-                  (selectedMovie.mediaType || "movie") as MediaType
+                  ((selectedMovie.mediaType as MediaType) ||
+                    "movie") as MediaType
                 )
               }
               userPreferences={userPrefs}

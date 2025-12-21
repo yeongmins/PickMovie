@@ -1,3 +1,4 @@
+// frontend/src/features/picky/utils/queryUtils.ts
 export type MediaType = "movie" | "tv";
 
 export function uniq(arr: string[]) {

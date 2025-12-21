@@ -1,3 +1,4 @@
+// frontend/src/features/picky/storage/pickyStorage.ts
 import type { UserPreferences } from "../../onboarding/Onboarding";
 
 export const PLAYLIST_STORAGE_KEY = "pickmovie_playlists_v1";
