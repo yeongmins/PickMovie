@@ -10,37 +10,53 @@ export function safeNum(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export function extractTagsFromQuery(q: string) {
-  const stop = new Set([
-    "추천",
-    "영화",
-    "드라마",
-    "애니",
-    "애니메이션",
-    "시리즈",
-    "보고",
-    "싶어",
-    "싶은",
-    "좀",
-    "진짜",
-    "그냥",
-    "완전",
-    "느낌",
-    "감성",
-    "최신",
-    "요즘",
-    "한국",
-    "일본",
-  ]);
+const STOP = new Set([
+  "추천",
+  "영화",
+  "드라마",
+  "애니",
+  "애니메이션",
+  "시리즈",
+  "작품",
+  "콘텐츠",
+  "컨텐츠",
+  "보고",
+  "싶어",
+  "싶은",
+  "좀",
+  "진짜",
+  "그냥",
+  "완전",
+  "느낌",
+  "비슷한",
+  "같은",
+  "찾아줘",
+  "부탁",
+]);
 
+export function extractTagsFromQuery(q: string) {
   const cleaned = q
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
     .map((w) => w.trim())
     .filter(Boolean)
-    .filter((w) => w.length >= 2 && !stop.has(w));
+    .filter((w) => w.length >= 2)
+    .filter((w) => !STOP.has(w));
 
-  return uniq(cleaned).slice(0, 10);
+  return uniq(cleaned).slice(0, 12);
+}
+
+export function extractIncludeKeywords(q: string, tags: string[] = []) {
+  const tokens = q
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => t.length >= 2)
+    .filter((t) => !STOP.has(t));
+
+  // tags + tokens 합치고 과도한 중복 제거
+  return uniq([...tags, ...tokens]).slice(0, 30);
 }
 
 export function inferMediaTypes(q: string): MediaType[] {

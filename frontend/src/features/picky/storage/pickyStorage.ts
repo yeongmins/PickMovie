@@ -20,6 +20,10 @@ function safeNum(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function safeString(v: unknown, fallback = "") {
+  return typeof v === "string" ? v : fallback;
+}
+
 export function readUserPreferences(): UserPreferences {
   try {
     const raw = localStorage.getItem(PREF_STORAGE_KEY);
@@ -33,14 +37,14 @@ export function readUserPreferences(): UserPreferences {
         excludes: [],
       };
     }
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as any;
     return {
-      genres: Array.isArray(parsed.genres) ? parsed.genres : [],
-      moods: Array.isArray(parsed.moods) ? parsed.moods : [],
-      runtime: parsed.runtime || "",
-      releaseYear: parsed.releaseYear || "",
-      country: parsed.country || "",
-      excludes: Array.isArray(parsed.excludes) ? parsed.excludes : [],
+      genres: Array.isArray(parsed?.genres) ? parsed.genres : [],
+      moods: Array.isArray(parsed?.moods) ? parsed.moods : [],
+      runtime: safeString(parsed?.runtime, ""),
+      releaseYear: safeString(parsed?.releaseYear, ""),
+      country: safeString(parsed?.country, ""),
+      excludes: Array.isArray(parsed?.excludes) ? parsed.excludes : [],
     };
   } catch {
     return {
@@ -58,7 +62,7 @@ export function loadPlaylists(): Playlist[] {
   try {
     const raw = localStorage.getItem(PLAYLIST_STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as any;
     if (!Array.isArray(parsed)) return [];
 
     return parsed
@@ -68,10 +72,17 @@ export function loadPlaylists(): Playlist[] {
       .map((p) => ({
         id: p.id,
         name: p.name,
-        items: Array.isArray(p.items) ? p.items : [],
+        items: Array.isArray(p.items)
+          ? p.items
+              .filter((x: any) => x && typeof x.key === "string")
+              .map((x: any) => ({
+                key: x.key,
+                addedAt: safeNum(x.addedAt, Date.now()),
+              }))
+          : [],
         createdAt: safeNum(p.createdAt, Date.now()),
         updatedAt: safeNum(p.updatedAt, Date.now()),
-      })) as Playlist[];
+      }));
   } catch {
     return [];
   }

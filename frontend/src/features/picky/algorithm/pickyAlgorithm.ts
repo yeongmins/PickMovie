@@ -1,45 +1,101 @@
 // frontend/src/features/picky/algorithm/pickyAlgorithm.ts
-import { apiGet, apiPost } from "../../../lib/apiClient";
-import { GENRE_IDS } from "../../../lib/tmdb";
 import {
   extractTagsFromQuery,
   inferMediaTypes,
   inferYearRange,
+  safeNum,
+  uniq,
+  extractIncludeKeywords,
 } from "../utils/queryUtils";
-import { readUserPreferences } from "../storage/pickyStorage";
-import {
-  expandQueriesByBrandLexicon,
-  expandKeywordsByBrandLexicon,
-} from "./brandLexicon";
 
-export type MediaType = "movie" | "tv";
+type MediaType = "movie" | "tv";
 
-export type ProviderBadge = {
-  provider_name: string;
-  logo_path?: string | null;
+// ✅ base가 http://localhost:3000 이든 http://localhost:3000/api 든 모두 지원
+const RAW_API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+  "http://localhost:3000";
 
-  providerId?: number;
-  providerName?: string;
-  logoPath?: string | null;
-};
+function normalizeBase(base: string) {
+  return String(base || "").replace(/\/+$/, "");
+}
 
-export type PickyResultItem = {
+function joinUrl(base: string, path: string) {
+  const b = normalizeBase(base);
+  const p = String(path || "").replace(/^\/+/, ""); // leading slash 제거 (base path 유지)
+  return `${b}/${p}`;
+}
+
+// ✅ base 후보들 자동 구성 (api prefix 유무 자동 대응)
+function buildBaseCandidates(): string[] {
+  const b = normalizeBase(RAW_API_BASE);
+  const bNoApi = b.replace(/\/api$/i, "");
+  const bApi = /\/api$/i.test(b) ? b : `${b}/api`;
+  return uniq([b, bNoApi, bApi]);
+}
+
+async function requestJSON<T>(
+  method: "GET" | "POST",
+  path: string,
+  opts?: {
+    params?: Record<string, string | number | boolean | undefined>;
+    body?: unknown;
+  }
+): Promise<T> {
+  const bases = buildBaseCandidates();
+
+  let lastErr: unknown = null;
+
+  for (const base of bases) {
+    const url = new URL(joinUrl(base, path));
+    const params = opts?.params;
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v === undefined) return;
+        url.searchParams.set(k, String(v));
+      });
+    }
+
+    try {
+      const res = await fetch(url.toString(), {
+        method,
+        headers:
+          method === "POST"
+            ? { "Content-Type": "application/json" }
+            : undefined,
+        body: method === "POST" ? JSON.stringify(opts?.body ?? {}) : undefined,
+      });
+
+      if (!res.ok) {
+        // ✅ 404 등은 다음 base 후보로 재시도
+        const text = await res.text().catch(() => res.statusText);
+        lastErr = new Error(text || res.statusText);
+        continue;
+      }
+
+      return (await res.json()) as T;
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error("API request failed");
+}
+
+// ✅ PickyPage가 import 하던 타입명 복구
+export type ResultItem = {
   id: number;
-  media_type?: MediaType;
-  mediaType?: MediaType;
+  media_type: MediaType;
 
   title?: string;
   name?: string;
 
-  // ✅ 추가: PickyPage에서 참조
-  original_title?: string;
-  original_name?: string;
-
   overview?: string;
-  poster_path?: string | null;
+
+  poster_path: string | null;
   backdrop_path?: string | null;
 
-  vote_average?: number;
+  vote_average: number;
   vote_count?: number;
 
   release_date?: string;
@@ -48,436 +104,189 @@ export type PickyResultItem = {
   genre_ids?: number[];
   original_language?: string;
 
-  providers?: ProviderBadge[];
-  ageRating?: string | null;
+  matchScore?: number;
+  matchReasons?: string[];
 
-  matchScore?: number; // 0~100
-  reasons?: string[];
+  original_title?: string;
+  original_name?: string;
+
+  providers?: Array<{
+    providerId: number;
+    providerName: string;
+    logoPath: string | null;
+  }>;
+  ageRating?: string | null;
 };
 
-export type ResultItem = PickyResultItem;
+export type AiAnalysis = {
+  originalQuery: string;
+  normalizedQuery: string;
+  expandedQueries: string[];
 
-type AiIntentFromBackend = {
   mediaTypes: MediaType[];
-  genreIds: number[];
-  yearFrom: number | null;
-  yearTo: number | null;
-  originalLanguage: string | null;
-  includeKeywords: string[];
-  excludeKeywords: string[];
-  tone: "light" | "neutral" | "dark";
-  pace: "slow" | "medium" | "fast";
-  ending: "happy" | "open" | "sad" | "any";
-  confidence: number;
-  needsClarification: boolean;
-  clarifyingQuestion: string | null;
+  tags: string[];
+
+  yearFrom?: number;
+  yearTo?: number;
 };
 
 export type AiSearchResponse = {
-  analysis: {
-    mediaTypes: MediaType[];
-    genres: number[];
-    yearFrom?: number;
-    yearTo?: number;
-    originalLanguage?: string;
-    includeKeywords: string[];
-    excludeKeywords: string[];
-    confidence: number;
-    needsClarification: boolean;
-    clarifyingQuestion: string | null;
-  };
-  aiSummary: string;
-  clarifyingQuestion: string | null;
-  expandedQueries: string[];
-  confidence: number;
-  needsClarification: boolean;
-};
-
-type PickyRecommendResponseFromBackend = {
-  items: Array<{
-    id: number;
-    mediaType: MediaType;
-    title: string;
-    overview: string;
-    posterPath: string | null;
-    backdropPath: string | null;
-    voteAverage: number;
-    voteCount: number;
-    releaseDate: string | null;
-    year: number | null;
-    genreIds: number[];
-    originalLanguage: string | null;
-    providers: Array<{
-      providerId: number;
-      providerName: string;
-      logoPath: string | null;
-    }>;
-    ageRating: string | null;
-    matchScore: number;
-    matchReasons: string[];
-  }>;
-};
-
-// TMDB search/multi 최소 타입
-type TmdbSearchHit = {
-  id: number;
-  media_type: "movie" | "tv" | "person";
-
-  title?: string;
-  name?: string;
-
-  // ✅ search/multi에 존재
-  original_title?: string;
-  original_name?: string;
-
-  overview?: string;
-  poster_path?: string | null;
-  backdrop_path?: string | null;
-  vote_average?: number;
-  vote_count?: number;
-  release_date?: string;
-  first_air_date?: string;
-  genre_ids?: number[];
-  original_language?: string;
-};
-
-function uniq<T>(arr: T[]) {
-  return Array.from(new Set(arr));
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function normText(s: string) {
-  return (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-function titleOf(hit: { title?: string; name?: string }) {
-  return hit.title || hit.name || "";
-}
-
-function isTitleLikeQuery(q: string) {
-  const s = q.trim();
-  if (s.length <= 1) return false;
-
-  const generic =
-    /(추천|볼만한|재밌는|요즘|최신|인기|명작|정주행|영화|드라마|애니|시리즈)/;
-  if (generic.test(s) && s.split(/\s+/).length <= 2) return false;
-
-  if (/(같은|비슷|류|느낌)/.test(s)) return true;
-
-  const tokens = s.split(/\s+/).filter(Boolean);
-  return tokens.length <= 5;
-}
-
-function scoreTitleMatch(query: string, candidateTitle: string) {
-  const q = normText(query);
-  const t = normText(candidateTitle);
-  if (!q || !t) return 0;
-  if (q === t) return 100;
-  if (t.includes(q)) return 96;
-  if (q.includes(t)) return 92;
-
-  const rawTokens = query
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .map((x) => x.trim())
-    .filter((x) => x.length >= 2);
-
-  const hit = rawTokens.filter((tok) =>
-    normText(candidateTitle).includes(normText(tok))
-  ).length;
-
-  return clamp(70 + hit * 8, 70, 90);
-}
-
-function mapSearchHitToResult(
-  hit: TmdbSearchHit,
-  reason: string,
-  score: number
-): ResultItem {
-  const mt = hit.media_type as MediaType;
-
-  return {
-    id: hit.id,
-    media_type: mt,
-    mediaType: mt,
-
-    title: mt === "movie" ? hit.title : undefined,
-    name: mt === "tv" ? hit.name : undefined,
-
-    original_title: hit.original_title,
-    original_name: hit.original_name,
-
-    overview: hit.overview,
-    poster_path: hit.poster_path ?? null,
-    backdrop_path: hit.backdrop_path ?? null,
-    vote_average: hit.vote_average ?? 0,
-    vote_count: hit.vote_count ?? 0,
-    release_date: mt === "movie" ? hit.release_date : undefined,
-    first_air_date: mt === "tv" ? hit.first_air_date : undefined,
-    genre_ids: hit.genre_ids ?? [],
-    original_language: hit.original_language,
-
-    matchScore: score,
-    reasons: [reason],
-  };
-}
-
-function mapBackendItemToResult(
-  it: PickyRecommendResponseFromBackend["items"][number]
-): ResultItem {
-  const mt = it.mediaType;
-
-  return {
-    id: it.id,
-    media_type: mt,
-    mediaType: mt,
-
-    title: mt === "movie" ? it.title : undefined,
-    name: mt === "tv" ? it.title : undefined,
-
-    overview: it.overview,
-    poster_path: it.posterPath,
-    backdrop_path: it.backdropPath,
-    vote_average: it.voteAverage,
-    vote_count: it.voteCount,
-    release_date: mt === "movie" ? it.releaseDate ?? undefined : undefined,
-    first_air_date: mt === "tv" ? it.releaseDate ?? undefined : undefined,
-    genre_ids: it.genreIds,
-    original_language: it.originalLanguage ?? undefined,
-
-    providers: (it.providers ?? []).map((p) => ({
-      provider_name: p.providerName,
-      logo_path: p.logoPath,
-      providerId: p.providerId,
-      providerName: p.providerName,
-      logoPath: p.logoPath,
-    })),
-    ageRating: it.ageRating ?? null,
-
-    matchScore: it.matchScore,
-    reasons: it.matchReasons,
-  };
-}
-
-function dedupeByKey(items: ResultItem[]) {
-  const m = new Map<string, ResultItem>();
-  for (const it of items) {
-    const k = `${it.mediaType ?? it.media_type}:${it.id}`;
-    if (!m.has(k)) m.set(k, it);
-  }
-  return Array.from(m.values());
-}
-
-function keywordBoost(item: ResultItem, include: string[]) {
-  if (!include.length) return 0;
-  const text = `${item.title ?? item.name ?? ""} ${
-    item.overview ?? ""
-  }`.toLowerCase();
-
-  let hit = 0;
-  for (const k of include) {
-    const kk = (k || "").trim().toLowerCase();
-    if (kk && text.includes(kk)) hit += 1;
-  }
-  return clamp(hit * 4, 0, 18);
-}
-
-export async function runPickySearch(
-  query: string,
-  limit = 24
-): Promise<{
-  aiAnalysis: AiSearchResponse | null;
   tags: string[];
   results: ResultItem[];
-}> {
-  const q = (query || "").trim();
-  if (!q) return { aiAnalysis: null, tags: [], results: [] };
+  aiAnalysis: AiAnalysis;
+};
 
-  const prefs = readUserPreferences();
-  const titleLike = isTitleLikeQuery(q);
+type SearchMultiResponse = {
+  expandedQueries?: string[];
+  results: any[];
+};
 
-  // 1) ✅ search/multi는 “검색엔진”처럼 먼저 직격 결과 뽑기
-  //    + 브랜드/스튜디오/프랜차이즈 alias로 쿼리 확장
-  const expandedSearchQueries = expandQueriesByBrandLexicon(q, 6);
+type RecommendResponse = {
+  items: any[];
+};
 
-  const searchPages = await Promise.all(
-    expandedSearchQueries.map((qq) =>
-      apiGet<{ results: TmdbSearchHit[] }>("/movies/search/multi", {
-        query: qq,
-        page: 1,
-        language: "ko-KR",
-        includeAdult: false,
-      }).catch(() => ({ results: [] as TmdbSearchHit[] }))
-    )
-  );
+export async function runPickySearch(
+  userQuery: string
+): Promise<AiSearchResponse> {
+  const q = userQuery.trim().replace(/\s+/g, " ");
+  const tags = extractTagsFromQuery(q);
+  const mediaTypes = inferMediaTypes(q);
+  const yr = inferYearRange(q);
 
-  const rawHits = searchPages
-    .flatMap((p) => p.results ?? [])
-    .filter((h) => h && (h.media_type === "movie" || h.media_type === "tv"))
-    .filter((h) => (h.poster_path ?? null) !== null);
+  // 1) 서버 lexicon 확장 포함 search/multi
+  let expandedQueries: string[] = [q];
+  let multiResults: any[] = [];
 
-  const scoredHits = rawHits
-    .map((h) => ({ h, score: scoreTitleMatch(q, titleOf(h)) }))
-    .sort((a, b) => b.score - a.score);
-
-  const best = scoredHits[0];
-
-  const directResults = scoredHits
-    .slice(0, titleLike ? 6 : 10)
-    .map(({ h, score }) =>
-      mapSearchHitToResult(
-        h,
-        score >= 96 ? "검색어 제목 일치" : "검색어 관련 결과",
-        score
-      )
+  try {
+    const res = await requestJSON<SearchMultiResponse>(
+      "GET",
+      "picky/search/multi",
+      {
+        params: {
+          query: q,
+          page: 1,
+          language: "ko-KR",
+          includeAdult: false,
+        },
+      }
     );
 
-  // 2) AI 분석 + 휴리스틱 보강
-  const intent = await apiPost<AiIntentFromBackend>("/ai/analyze", {
-    prompt: q,
-    language: "ko",
-    region: "KR",
-  });
+    expandedQueries =
+      Array.isArray(res.expandedQueries) && res.expandedQueries.length
+        ? res.expandedQueries
+        : [q];
 
-  const extractedTags = extractTagsFromQuery(q);
-  const inferredTypes = inferMediaTypes(q);
-  const inferredYears = inferYearRange(q);
-
-  const prefGenreIds = (prefs.genres || [])
-    .map((g) => GENRE_IDS[g])
-    .filter((x): x is number => typeof x === "number");
-
-  const mediaTypes =
-    intent.mediaTypes?.length && intent.confidence >= 0.35
-      ? intent.mediaTypes
-      : inferredTypes;
-
-  const genreIds = uniq([...(intent.genreIds ?? []), ...prefGenreIds]).filter(
-    (n) => Number.isFinite(n)
-  );
-
-  const yearFrom = intent.yearFrom ?? inferredYears.from ?? null;
-  const yearTo = intent.yearTo ?? inferredYears.to ?? null;
-
-  // includeKeywords: AI + 사용자 쿼리 태그를 합치고
-  const baseInclude = uniq([
-    ...(intent.includeKeywords ?? []),
-    ...extractedTags,
-  ]).slice(0, 12);
-
-  // ✅ 브랜드/스튜디오/프랜차이즈 alias를 대량으로 확장 (요구사항 핵심)
-  const includeKeywords = expandKeywordsByBrandLexicon(baseInclude, 24);
-
-  const excludeKeywords = uniq([
-    ...(intent.excludeKeywords ?? []),
-    ...(prefs.excludes ?? []),
-  ]).slice(0, 12);
-
-  // 화면 태그는 “너무 영어 범벅” 되지 않게 baseInclude 중심
-  const tags = uniq([
-    ...baseInclude,
-    intent.tone !== "neutral" ? intent.tone : "",
-    intent.ending !== "any" ? intent.ending : "",
-    intent.pace !== "medium" ? intent.pace : "",
-  ]).filter(Boolean);
-
-  // 3) 제목이 정확히 잡히면 similar로 “체감” 올리기
-  let similarResults: ResultItem[] = [];
-  if (best && best.score >= 96) {
-    try {
-      const sim = await apiGet<{ results: TmdbSearchHit[] }>(
-        `/movies/${best.h.id}/similar`,
-        { type: best.h.media_type, page: 1, language: "ko-KR" }
-      );
-
-      similarResults = (sim.results ?? [])
-        .filter((h) => h.media_type === "movie" || h.media_type === "tv")
-        .slice(0, 12)
-        .map((h) => mapSearchHitToResult(h, "유사작 추천", 88));
-    } catch {
-      similarResults = [];
-    }
+    multiResults = Array.isArray(res.results) ? res.results : [];
+  } catch {
+    // fallback: 기존 프로젝트에 /movies/search/multi가 있다면 사용
+    const res = await requestJSON<{ results: any[] }>(
+      "GET",
+      "movies/search/multi",
+      {
+        params: {
+          query: q,
+          page: 1,
+          language: "ko-KR",
+          includeAdult: false,
+        },
+      }
+    );
+    multiResults = Array.isArray(res.results) ? res.results : [];
   }
 
-  // 4) ✅ 백엔드 추천(discover) 호출: includeKeywords(확장본)를 그대로 전달
-  const rec = await apiPost<PickyRecommendResponseFromBackend>(
-    "/picky/recommend",
+  // 2) 추천 (서버가 include 확장/회사힌트까지 처리)
+  const includeKeywords = extractIncludeKeywords(q, tags).slice(0, 24);
+
+  const recommend = await requestJSON<RecommendResponse>(
+    "POST",
+    "picky/recommend",
     {
-      prompt: q,
-      mediaTypes,
-      genreIds,
-      yearFrom,
-      yearTo,
-      originalLanguage: intent.originalLanguage ?? null,
-      includeKeywords, // ✅ 중요
-      excludeKeywords,
-      region: "KR",
-      page: 1,
+      body: {
+        prompt: q,
+        mediaTypes,
+        includeKeywords,
+        excludeKeywords: [],
+        genreIds: [],
+        originalLanguage: null,
+        yearFrom: yr.from ?? null,
+        yearTo: yr.to ?? null,
+        language: "ko-KR",
+        region: "KR",
+        page: 1,
+        includeAdult: false,
+        sortBy: "popularity.desc",
+      },
     }
   );
 
-  const recResults = (rec.items ?? []).map(mapBackendItemToResult);
+  // 3) PickyPage 호환 shape로 변환
+  const mapped: ResultItem[] = (
+    Array.isArray(recommend.items) ? recommend.items : []
+  )
+    .map((it) => ({
+      id: safeNum(it.id, 0),
+      media_type: it.mediaType as MediaType,
 
-  // 5) 합치고 정렬 최적화
-  const merged = dedupeByKey([
-    ...directResults,
-    ...similarResults,
-    ...recResults,
-  ])
-    .filter((it) => {
-      if (!excludeKeywords.length) return true;
-      const text = `${it.title ?? it.name ?? ""} ${
-        it.overview ?? ""
-      }`.toLowerCase();
-      return !excludeKeywords.some(
-        (k) => k && text.includes(String(k).toLowerCase())
-      );
+      title: it.mediaType === "movie" ? it.title : undefined,
+      name: it.mediaType === "tv" ? it.title : undefined,
+
+      overview: it.overview ?? "",
+      poster_path: it.posterPath ?? null,
+      backdrop_path: it.backdropPath ?? null,
+
+      vote_average: safeNum(it.voteAverage, 0),
+      vote_count: safeNum(it.voteCount, 0),
+
+      release_date:
+        it.mediaType === "movie" ? it.releaseDate ?? undefined : undefined,
+      first_air_date:
+        it.mediaType === "tv" ? it.releaseDate ?? undefined : undefined,
+
+      genre_ids: Array.isArray(it.genreIds) ? it.genreIds : [],
+      original_language: it.originalLanguage ?? undefined,
+
+      matchScore: safeNum(it.matchScore, 0),
+      matchReasons: Array.isArray(it.matchReasons) ? it.matchReasons : [],
+
+      providers: Array.isArray(it.providers) ? it.providers : [],
+      ageRating: it.ageRating ?? null,
+    }))
+    .filter(
+      (x) => x.id > 0 && (x.media_type === "movie" || x.media_type === "tv")
+    );
+
+  // 4) search/multi 상위 결과가 추천 목록에 있으면 살짝 부스트
+  const directKeySet = new Set(
+    multiResults
+      .filter(
+        (x) =>
+          x &&
+          (x.media_type === "movie" || x.media_type === "tv") &&
+          typeof x.id === "number"
+      )
+      .slice(0, 30)
+      .map((x) => `${x.media_type}:${x.id}`)
+  );
+
+  const boosted = mapped
+    .map((x) => {
+      const key = `${x.media_type}:${x.id}`;
+      const boost = directKeySet.has(key) ? 6 : 0;
+      return { ...x, matchScore: safeNum(x.matchScore, 0) + boost };
     })
-    .map((it) => {
-      const bonus = keywordBoost(it, includeKeywords);
-      const base = typeof it.matchScore === "number" ? it.matchScore : 0;
-      const score = clamp(base + bonus, 0, 100);
-      const reasons = uniq([
-        ...(it.reasons ?? []),
-        bonus > 0 ? `키워드 매칭 +${bonus}` : "",
-      ]).filter(Boolean);
+    .sort((a, b) => safeNum(b.matchScore, 0) - safeNum(a.matchScore, 0));
 
-      return { ...it, matchScore: score, reasons };
-    });
-
-  const final = merged
-    .sort((a, b) => {
-      const s1 = b.matchScore ?? 0;
-      const s2 = a.matchScore ?? 0;
-      if (s1 !== s2) return s1 - s2;
-      return (b.vote_average ?? 0) - (a.vote_average ?? 0);
-    })
-    .slice(0, limit);
-
-  const aiAnalysis: AiSearchResponse = {
-    analysis: {
+  return {
+    tags,
+    results: boosted,
+    aiAnalysis: {
+      originalQuery: userQuery,
+      normalizedQuery: q,
+      expandedQueries,
       mediaTypes,
-      genres: genreIds,
-      yearFrom: yearFrom ?? undefined,
-      yearTo: yearTo ?? undefined,
-      originalLanguage: intent.originalLanguage ?? undefined,
-      includeKeywords,
-      excludeKeywords,
-      confidence: intent.confidence ?? 0.5,
-      needsClarification: !!intent.needsClarification,
-      clarifyingQuestion: intent.clarifyingQuestion ?? null,
+      tags,
+      yearFrom: yr.from,
+      yearTo: yr.to,
     },
-    aiSummary: tags.length
-      ? `키워드 기반 추천: ${tags.slice(0, 6).join(", ")}`
-      : "입력 기반 추천",
-    clarifyingQuestion: intent.clarifyingQuestion ?? null,
-    expandedQueries: expandedSearchQueries,
-    confidence: intent.confidence ?? 0.5,
-    needsClarification: !!intent.needsClarification,
   };
-
-  return { aiAnalysis, tags, results: final };
 }

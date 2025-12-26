@@ -20,9 +20,6 @@ type FetchResponseLike = {
 
 type FetchLike = (url: string, init?: FetchInit) => Promise<unknown>;
 
-/* =========================
- *  tiny safe helpers (no external import)
- * ========================= */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
@@ -59,12 +56,10 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
-/** AI 응답이 "JSON만" 오지 않을 수 있어서 텍스트에서 첫 JSON 객체만 뽑기 */
 function extractFirstJsonObject(text: string): unknown {
   const start = text.indexOf('{');
   if (start < 0) return null;
 
-  // 간단한 brace 스캔 (string escape까지 처리)
   let depth = 0;
   let inStr = false;
   let escaped = false;
@@ -216,9 +211,11 @@ function parseIntentFromUnknown(obj: unknown, fallback: AiIntent): AiIntent {
   const confidence = isNumber(obj.confidence)
     ? clamp(obj.confidence, 0, 1)
     : fallback.confidence;
+
   const needsClarification = isBoolean(obj.needsClarification)
     ? obj.needsClarification
     : false;
+
   const clarifyingQuestion = isString(obj.clarifyingQuestion)
     ? obj.clarifyingQuestion
     : null;
@@ -265,7 +262,6 @@ async function callGemini(prompt: string): Promise<string | null> {
 
   const g = globalThis as unknown as Record<string, unknown>;
   const f = g['fetch'];
-
   if (!isFetchLike(f)) return null;
 
   const resUnknown = await f(url, {
@@ -280,7 +276,6 @@ async function callGemini(prompt: string): Promise<string | null> {
   const rawText = await resUnknown.text();
   const parsed = safeJsonParse(rawText);
 
-  // Gemini 응답 구조 안전 접근
   if (!isRecord(parsed) || !isArray(parsed.candidates)) return null;
   const c0 = parsed.candidates[0];
   if (!isRecord(c0) || !isRecord(c0.content) || !isArray(c0.content.parts))

@@ -47,4 +47,8 @@ export class PickyRecommendDto {
   excludeKeywords?: string[];
 
   page?: number;
+
+  language?: string;
+  includeAdult?: boolean;
+  sortBy?: string;
 }

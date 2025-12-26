@@ -1,3 +1,5 @@
+// backend/src/movies/movies.service.ts
+
 import { Injectable } from '@nestjs/common';
 import { TmdbService, type TmdbQuery } from '../tmdb/tmdb.service';
 

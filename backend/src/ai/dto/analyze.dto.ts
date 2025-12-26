@@ -1,5 +1,4 @@
 // backend/src/ai/dto/analyze.dto.ts
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import {
   IsIn,
   IsInt,

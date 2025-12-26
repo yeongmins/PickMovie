@@ -20,8 +20,8 @@ import { ContentCard } from "../components/content/ContentCard";
 import { pickRandomKeywords } from "../features/picky/data/keywordPool";
 import {
   runPickySearch,
-  type AiSearchResponse,
   type ResultItem,
+  type AiAnalysis,
 } from "../features/picky/algorithm/pickyAlgorithm";
 import {
   loadPlaylists,
@@ -112,7 +112,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
   );
 
   // 검색 결과
-  const [aiAnalysis, setAiAnalysis] = useState<AiSearchResponse | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [results, setResults] = useState<ResultItem[]>([]);
 
