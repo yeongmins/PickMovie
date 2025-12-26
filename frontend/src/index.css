@@ -4035,7 +4035,7 @@ body:after {
     @apply inline-flex items-center justify-center box-border font-medium leading-none
       rounded-[10px] transition duration-200 ease-out;
     /* Tailwind에 없는 height / padding-inline은 그대로 CSS로 지정 */
-    height: 2.5rem;
+    height: 2.75rem !important;
     padding-inline: 2.5rem;
   }
 

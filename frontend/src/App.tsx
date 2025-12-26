@@ -8,6 +8,7 @@ import { MainScreen } from "./pages/MainScreen";
 import FavoritesPage from "./pages/FavoritesPage";
 import { PickyPage } from "./pages/PickyPage";
 import { LoginPage } from "./pages/auth/LoginPage";
+import { SignupPage } from "./pages/auth/SignupPage";
 
 export interface FavoriteItem {
   id: number;
@@ -115,7 +116,9 @@ export default function App() {
 
   return (
     <Routes>
+      {/* ✅ Auth Routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
 
       <Route
         path="/picky"
