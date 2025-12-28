@@ -1,9 +1,4 @@
 // frontend/src/features/movies/components/MovieDetailModal.tsx
-// ✅ Fix:
-// 1) movie.rating / similar.vote_average 같은 값이 undefined일 때 toFixed 크래시 방지
-// 2) getPosterUrl size "w200" -> (TMDBImageSize 허용) "w185" 로 변경
-// 3) movie.genre 필수 -> optional로 변경 (Picky/MainScreen에서 genre 누락 타입 에러 제거)
-
 import { useState, useEffect, useRef, useMemo } from "react";
 import { X, Star, Heart, User } from "lucide-react";
 import { motion } from "framer-motion";
@@ -20,12 +15,12 @@ type MediaType = "movie" | "tv";
 export interface ModalMovie {
   id: number;
   title?: string;
-  poster?: string; // full url 가능
-  poster_path?: string | null; // TMDB path 가능
-  rating?: number; // vote_average 대응
-  vote_average?: number; // TMDB raw
+  poster?: string;
+  poster_path?: string | null;
+  rating?: number;
+  vote_average?: number;
   year?: number;
-  genre?: string; // ✅ optional
+  genre?: string;
   matchScore?: number;
   description?: string;
   runtime?: number;
@@ -49,6 +44,22 @@ interface MovieDetailModalProps {
   };
 }
 
+const AUTH_KEYS = {
+  ACCESS: "pickmovie_access_token",
+  USER: "pickmovie_user",
+} as const;
+
+function isLoggedInFallback(): boolean {
+  try {
+    return (
+      !!localStorage.getItem(AUTH_KEYS.ACCESS) ||
+      !!localStorage.getItem(AUTH_KEYS.USER)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function safeNum(v: unknown, fallback = 0) {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -64,7 +75,6 @@ function safeYearFromDates(date?: string) {
 function ensurePosterUrl(poster?: string, poster_path?: string | null) {
   if (poster && typeof poster === "string") {
     if (/^https?:\/\//.test(poster)) return poster;
-    // 혹시 path가 들어온 경우도 처리
     return getPosterUrl(poster, "w500") || "";
   }
   if (poster_path) return getPosterUrl(poster_path, "w500") || "";
@@ -85,7 +95,8 @@ export function MovieDetailModal({
 
   const mediaType: MediaType = movie.mediaType || movie.media_type || "movie";
 
-  // 모달 열려있는 동안 body 스크롤 잠금
+  const canFav = useMemo(() => isLoggedInFallback(), []);
+
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -94,7 +105,6 @@ export function MovieDetailModal({
     };
   }, []);
 
-  // ESC 닫기
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -103,7 +113,6 @@ export function MovieDetailModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  // 선택된 컨텐츠 바뀔 때 상세 재요청
   useEffect(() => {
     const loadDetails = async () => {
       const tmdbId = movie.tmdbId || movie.id;
@@ -124,7 +133,6 @@ export function MovieDetailModal({
     loadDetails();
   }, [movie.id, movie.tmdbId, mediaType]);
 
-  // 영화 변경 시 스크롤 맨 위
   useEffect(() => {
     const el = modalContentRef.current;
     if (el) el.scrollTop = 0;
@@ -145,7 +153,6 @@ export function MovieDetailModal({
   );
 
   const rating = useMemo(() => {
-    // ✅ undefined 방지
     return safeNum(
       movie.rating ?? movie.vote_average ?? (details as any)?.vote_average,
       0
@@ -264,7 +271,6 @@ export function MovieDetailModal({
         className="relative bg-[#1a1a24] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 닫기 */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center transition-colors duration-200"
@@ -273,7 +279,6 @@ export function MovieDetailModal({
           <X className="w-5 h-5 text-white" />
         </button>
 
-        {/* Hero */}
         <div className="relative h-72 bg-gradient-to-b from-gray-900 to-[#1a1a24] overflow-hidden">
           {posterUrl ? (
             <img
@@ -324,31 +329,34 @@ export function MovieDetailModal({
                 <span className="text-gray-400 text-sm">{runtime}분</span>
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={onToggleFavorite}
-                  className={`px-5 py-2 rounded-lg border-2 transition-colors flex items-center gap-2 ${
-                    isFavorite
-                      ? "border-red-500 bg-red-500/10 hover:bg-red-500/20"
-                      : "border-white/20 bg-white/5 hover:bg-white/10"
-                  }`}
-                  aria-label={isFavorite ? "찜 해제" : "찜 하기"}
-                >
-                  <Heart
-                    className={`w-4 h-4 ${
-                      isFavorite ? "fill-current text-red-500" : "text-white"
+              {/* ✅ 로그인 안 하면 찜 버튼 숨김 */}
+              {canFav && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={onToggleFavorite}
+                    className={`px-5 py-2 rounded-lg border-2 transition-colors flex items-center gap-2 ${
+                      isFavorite
+                        ? "border-red-500 bg-red-500/10 hover:bg-red-500/20"
+                        : "border-white/20 bg-white/5 hover:bg-white/10"
                     }`}
-                  />
-                  <span className="text-white text-sm font-medium">
-                    {isFavorite ? "찜 완료" : "찜하기"}
-                  </span>
-                </button>
-              </div>
+                    aria-label={isFavorite ? "찜 해제" : "찜 하기"}
+                  >
+                    <Heart
+                      className={`w-4 h-4 ${
+                        isFavorite ? "fill-current text-red-500" : "text-white"
+                      }`}
+                    />
+                    <span className="text-white text-sm font-medium">
+                      {isFavorite ? "찜 완료" : "찜하기"}
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Content */}
+        {/* 이하 동일(생략 없이 유지) */}
         <div className="p-8">
           <div className="mb-8">
             <h3 className="text-white mb-3 text-lg font-semibold">줄거리</h3>
@@ -433,7 +441,6 @@ export function MovieDetailModal({
 
               <div className="grid grid-cols-4 gap-4">
                 {similarMoviesWithScore.map((similar: any) => {
-                  // ✅ "w200" -> "w185"
                   const poster = getPosterUrl(similar.poster_path, "w185");
                   if (!poster) return null;
 

@@ -1,13 +1,13 @@
 // backend/src/auth/auth.service.ts
 import {
-  ConflictException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
   UnauthorizedException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -41,11 +41,12 @@ type DailyCounter = { count: number; resetAt: number };
 const DAILY_LIMIT = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+type FavoriteItem = { id: number; mediaType: 'movie' | 'tv' };
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  // ✅ IP 기준 요청 제한용(메모리)
   private readonly recoveryLimitMap = new Map<string, DailyCounter>();
 
   constructor(
@@ -122,13 +123,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * ✅ 아이디(username) 마스킹
-   * - 1~2: 전부 *
-   * - 3~4: 첫 글자만 노출 + 나머지 *
-   * - 5+: 앞2 + 중간* + 뒤2
-   *   예) asdzxc123 -> as*****23
-   */
   private maskUsername(username: string): string {
     const s = (username ?? '').trim();
     const n = s.length;
@@ -142,7 +136,6 @@ export class AuthService {
     return head + '*'.repeat(n - 4) + tail;
   }
 
-  // ✅ 하루 10회 제한(아이디 찾기/비번 찾기)
   private enforceRecoveryDailyLimit(
     kind: 'username_lookup' | 'password_reset',
     ip?: string,
@@ -158,7 +151,6 @@ export class AuthService {
     }
 
     if (cur.count >= DAILY_LIMIT) {
-      // ✅ Nest 버전에 따라 TooManyRequestsException이 없을 수 있으므로 429를 직접 던짐
       throw new HttpException(
         '하루 요청 가능 횟수를 초과했습니다. (10회/일)',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -505,7 +497,6 @@ export class AuthService {
     });
   }
 
-  // ✅ ip 추가(옵션) + 하루 10회 제한 적용
   async requestPasswordReset(identifier: string, ip?: string): Promise<void> {
     this.enforceRecoveryDailyLimit('password_reset', ip);
 
@@ -587,12 +578,6 @@ export class AuthService {
     });
   }
 
-  /**
-   * ✅ 아이디 찾기(이메일로)
-   * - 마스킹해서 안내
-   * - 메일 실패로 500 터지지 않게 처리
-   * - ✅ ip(옵션) + 하루 10회 제한 적용
-   */
   async requestUsernameByEmail(email: string, ip?: string): Promise<void> {
     this.enforceRecoveryDailyLimit('username_lookup', ip);
 
@@ -635,5 +620,160 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException();
     return this.safeUser(user);
+  }
+
+  // ======================================================
+  // ✅ Favorites (DB only)
+  // ======================================================
+  async getFavorites(userId: number): Promise<FavoriteItem[]> {
+    const rows = await this.prisma.favorite.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { tmdbId: true, mediaType: true },
+    });
+
+    return rows.map((r) => ({
+      id: r.tmdbId,
+      mediaType: r.mediaType === 'tv' ? 'tv' : 'movie',
+    }));
+  }
+
+  async setFavorite(
+    userId: number,
+    tmdbId: number,
+    mediaType: 'movie' | 'tv',
+    isFavorite: boolean,
+  ): Promise<void> {
+    const mt = mediaType === 'tv' ? 'tv' : 'movie';
+
+    if (isFavorite) {
+      await this.prisma.favorite.upsert({
+        where: {
+          userId_tmdbId_mediaType: {
+            userId,
+            tmdbId,
+            mediaType: mt,
+          },
+        },
+        create: {
+          userId,
+          tmdbId,
+          mediaType: mt,
+        },
+        update: {},
+        select: { id: true },
+      });
+      return;
+    }
+
+    await this.prisma.favorite.deleteMany({
+      where: { userId, tmdbId, mediaType: mt },
+    });
+  }
+
+  async syncFavorites(
+    userId: number,
+    items: FavoriteItem[],
+  ): Promise<FavoriteItem[]> {
+    const dedup = new Map<string, FavoriteItem>();
+    for (const it of Array.isArray(items) ? items : []) {
+      const id = Number(it?.id);
+      const mt = it?.mediaType === 'tv' ? 'tv' : 'movie';
+      if (!Number.isFinite(id) || id <= 0) continue;
+      dedup.set(`${mt}:${id}`, { id, mediaType: mt });
+    }
+
+    const list = Array.from(dedup.values());
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.favorite.deleteMany({ where: { userId } });
+      if (list.length > 0) {
+        await tx.favorite.createMany({
+          data: list.map((it) => ({
+            userId,
+            tmdbId: it.id,
+            mediaType: it.mediaType,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    });
+
+    return this.getFavorites(userId);
+  }
+
+  // ======================================================
+  // ✅ Playlists (DB only)
+  // ======================================================
+  async getPlaylists(userId: number) {
+    const rows = await this.prisma.playlist.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        items: { orderBy: { addedAt: 'desc' } },
+      },
+    });
+
+    return rows.map((pl) => ({
+      id: pl.id,
+      name: pl.name,
+      createdAt: pl.createdAt,
+      updatedAt: pl.updatedAt,
+      items: pl.items.map((it) => ({
+        id: it.tmdbId,
+        mediaType: it.mediaType === 'tv' ? 'tv' : 'movie',
+        addedAt: it.addedAt,
+      })),
+    }));
+  }
+
+  async createPlaylist(userId: number, name: string, items: FavoriteItem[]) {
+    const n = (name ?? '').trim().slice(0, 50);
+
+    const dedup = new Map<string, FavoriteItem>();
+    for (const it of Array.isArray(items) ? items : []) {
+      const id = Number(it?.id);
+      const mt = it?.mediaType === 'tv' ? 'tv' : 'movie';
+      if (!Number.isFinite(id) || id <= 0) continue;
+      dedup.set(`${mt}:${id}`, { id, mediaType: mt });
+    }
+
+    const list = Array.from(dedup.values());
+    if (!n) throw new ForbiddenException('플레이리스트 이름이 필요합니다.');
+    if (list.length === 0)
+      throw new ForbiddenException('아이템이 비어있습니다.');
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const playlist = await tx.playlist.create({
+        data: { userId, name: n },
+        select: { id: true, name: true, createdAt: true, updatedAt: true },
+      });
+
+      await tx.playlistItem.createMany({
+        data: list.map((it) => ({
+          playlistId: playlist.id,
+          tmdbId: it.id,
+          mediaType: it.mediaType,
+        })),
+        skipDuplicates: true,
+      });
+
+      return playlist;
+    });
+
+    return created;
+  }
+
+  async deletePlaylist(userId: number, playlistId: number): Promise<void> {
+    // userId 소유 검증
+    const pl = await this.prisma.playlist.findFirst({
+      where: { id: playlistId, userId },
+      select: { id: true },
+    });
+    if (!pl) throw new ForbiddenException('삭제 권한이 없습니다.');
+
+    await this.prisma.playlist.delete({
+      where: { id: playlistId },
+    });
   }
 }

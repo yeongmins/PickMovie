@@ -15,7 +15,7 @@ import type { FavoriteItem } from "../App";
 import type { ModalMovie } from "../features/movies/components/MovieDetailModal";
 import { getPosterUrl } from "../lib/tmdb";
 
-import { Header } from "../components/layout/Header"; // ✅ 공통 Header 적용
+import { Header } from "../components/layout/Header";
 import { ContentCard } from "../components/content/ContentCard";
 
 import { pickRandomKeywords } from "../features/picky/data/keywordPool";
@@ -24,14 +24,12 @@ import {
   type ResultItem,
   type AiAnalysis,
 } from "../features/picky/algorithm/pickyAlgorithm";
-import {
-  loadPlaylists,
-  savePlaylists,
-  readUserPreferences,
-  type Playlist,
-  type PlaylistItem,
-  type MediaType,
-} from "../features/picky/storage/pickyStorage";
+
+// ✅ 플레이리스트 localStorage 저장 제거 → DB 저장
+import { apiPost } from "../lib/apiClient";
+
+// preferences는 기존 로직 유지(원하면 이것도 DB화 가능)
+import { readUserPreferences } from "../features/picky/storage/pickyStorage";
 
 const MovieDetailModal = lazy(() =>
   import("../features/movies/components/MovieDetailModal").then((m) => ({
@@ -39,12 +37,16 @@ const MovieDetailModal = lazy(() =>
   }))
 );
 
+type MediaType = "movie" | "tv";
+type FavoriteKey = `${MediaType}:${number}`;
+
 export type PickyPageProps = {
   favorites: FavoriteItem[];
   onToggleFavorite: (movieId: number, mediaType?: MediaType) => void;
-};
 
-type FavoriteKey = `${MediaType}:${number}`;
+  // ✅ 추가: 로그인 여부
+  isAuthed: boolean;
+};
 
 function safeNum(v: unknown, fallback = 0) {
   const n = typeof v === "number" ? v : Number(v);
@@ -66,7 +68,6 @@ function toKey(id: number, mediaType?: MediaType): FavoriteKey {
   return `${mt}:${id}`;
 }
 
-// ✅ (원래 코드에서 toKey 안에 들어가 있던 버그 수정) AI 인사이트 컴포넌트
 function AiInsight({ analysis }: { analysis: AiAnalysis | null }) {
   if (!analysis) return null;
 
@@ -104,40 +105,37 @@ function AiInsight({ analysis }: { analysis: AiAnalysis | null }) {
   );
 }
 
-export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
+export function PickyPage({
+  favorites,
+  onToggleFavorite,
+  isAuthed,
+}: PickyPageProps) {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
 
-  // UI 상태
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 키워드(칩)
   const [displayedKeywords, setDisplayedKeywords] = useState<string[]>(() =>
     pickRandomKeywords(8)
   );
 
-  // 검색 결과
   const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [results, setResults] = useState<ResultItem[]>([]);
 
-  // 모달
   const [selectedMovie, setSelectedMovie] = useState<ModalMovie | null>(null);
 
-  // 세션 찜(이번 검색에서 찜한 것들) - movie/tv 충돌 방지 위해 key 사용
   const [sessionPicked, setSessionPicked] = useState<
     Map<FavoriteKey, MediaType>
   >(() => new Map());
 
-  // 플레이리스트 모달
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const playlistInputRef = useRef<HTMLInputElement>(null);
 
-  // favorites key set
   const favoriteKeySet = useMemo(() => {
     const set = new Set<FavoriteKey>();
     favorites.forEach((f) => {
@@ -147,12 +145,18 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
     return set;
   }, [favorites]);
 
-  // userPrefs(모달에 전달용)
   const userPrefs = useMemo(() => readUserPreferences(), []);
 
   const refreshKeywords = () => setDisplayedKeywords(pickRandomKeywords(8));
 
   const togglePick = (id: number, mediaType?: MediaType) => {
+    if (!isAuthed) {
+      setToast("로그인이 필요합니다.");
+      setTimeout(() => setToast(null), 900);
+      navigate("/login");
+      return;
+    }
+
     const mt: MediaType = mediaType === "tv" ? "tv" : "movie";
     const key = toKey(id, mt);
 
@@ -252,44 +256,52 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
     setSelectedMovie(modalMovie);
   };
 
-  // ===== Playlist Create =====
+  // ===== Playlist Create (DB) =====
   const openPlaylistModal = () => {
+    if (!isAuthed) {
+      setToast("로그인이 필요합니다.");
+      setTimeout(() => setToast(null), 900);
+      navigate("/login");
+      return;
+    }
     if (sessionPicked.size === 0) return;
     setPlaylistName("");
     setIsPlaylistModalOpen(true);
     setTimeout(() => playlistInputRef.current?.focus(), 0);
   };
 
-  const savePlaylistAction = () => {
+  const savePlaylistAction = async () => {
+    if (!isAuthed) {
+      setToast("로그인이 필요합니다.");
+      setTimeout(() => setToast(null), 900);
+      navigate("/login");
+      return;
+    }
+
     const name = playlistName.trim();
     if (!name) return;
 
-    const now = Date.now();
-    const pickedItems: PlaylistItem[] = Array.from(sessionPicked.entries()).map(
-      ([key]) => ({
-        key: String(key),
-        addedAt: now,
+    const items = Array.from(sessionPicked.entries())
+      .map(([key, mt]) => {
+        const id = Number(String(key).split(":")[1]);
+        return Number.isFinite(id) ? ({ id, mediaType: mt } as const) : null;
       })
-    );
+      .filter(Boolean) as { id: number; mediaType: "movie" | "tv" }[];
 
-    const next: Playlist = {
-      id: `pl_${now}`,
-      name,
-      items: pickedItems,
-      createdAt: now,
-      updatedAt: now,
-    };
+    try {
+      await apiPost("/auth/playlists/create", { name, items });
+      setIsPlaylistModalOpen(false);
+      setToast("저장되었습니다 ✨");
 
-    const all = loadPlaylists();
-    savePlaylists([next, ...all]);
-
-    setIsPlaylistModalOpen(false);
-    setToast("저장되었습니다 ✨");
-
-    setTimeout(() => {
-      setToast(null);
-      navigate("/");
-    }, 900);
+      setTimeout(() => {
+        setToast(null);
+        navigate("/"); // 기존 동작 유지
+      }, 900);
+    } catch (e) {
+      console.error(e);
+      setToast("저장 실패 😭 잠시 후 다시 시도해주세요.");
+      setTimeout(() => setToast(null), 1200);
+    }
   };
 
   useEffect(() => {
@@ -318,14 +330,11 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
       transition={{ duration: 0.25 }}
       className="min-h-screen bg-[#131314] text-white flex flex-col font-sans overflow-x-hidden relative"
     >
-      {/* ✅ 공통 Header */}
       <Header searchQuery={query} onSearchChange={setQuery} />
 
-      {/* Header가 fixed라서 spacer */}
       <div className="h-16 shrink-0" />
 
       <AnimatePresence mode="wait">
-        {/* Start */}
         {!hasSearched && !loading && (
           <motion.main
             key="picky-start"
@@ -372,7 +381,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
               </form>
             </div>
 
-            {/* Keyword chips */}
             <div className="flex flex-wrap justify-center gap-2.5 max-w-2xl relative items-center">
               {displayedKeywords.map((keyword, idx) => (
                 <motion.button
@@ -401,7 +409,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
           </motion.main>
         )}
 
-        {/* Loading */}
         {loading && (
           <motion.div
             key="picky-loading"
@@ -452,7 +459,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
           </motion.div>
         )}
 
-        {/* Results */}
         {hasSearched && !loading && (
           <motion.div
             key="picky-results"
@@ -462,7 +468,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             transition={{ duration: 0.25 }}
             className={`flex-1 w-full py-10 ${shellClass}`}
           >
-            {/* search bar + reset */}
             <div className="flex justify-center mb-10">
               <div className="w-full max-w-2xl flex items-center gap-2">
                 <div className="relative group flex-1">
@@ -503,7 +508,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
               </div>
             </div>
 
-            {/* Title / tags */}
             <div className="mb-8 text-center">
               <div className="inline-block px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-sm mb-4">
                 ✨ Picky's Choice
@@ -528,7 +532,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
               </p>
             </div>
 
-            {/* ✅ AI 분석 카드 */}
             <AiInsight analysis={aiAnalysis} />
 
             {results.length === 0 ? (
@@ -580,7 +583,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
         )}
       </AnimatePresence>
 
-      {/* Bottom Action Bar */}
       <AnimatePresence>
         {!loading && hasSearched && sessionPicked.size > 0 && (
           <motion.div
@@ -631,7 +633,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
         )}
       </AnimatePresence>
 
-      {/* Playlist Modal */}
       <AnimatePresence>
         {isPlaylistModalOpen && (
           <motion.div
@@ -709,7 +710,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
         )}
       </AnimatePresence>
 
-      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -725,7 +725,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
         )}
       </AnimatePresence>
 
-      {/* Detail Modal */}
       <AnimatePresence>
         {selectedMovie && (
           <Suspense fallback={null}>

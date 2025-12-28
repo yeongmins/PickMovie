@@ -1,3 +1,5 @@
+// src/features/favorites/components/FavoritesCarousel.tsx
+
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Star, Info, ChevronLeft, ChevronRight } from "lucide-react";

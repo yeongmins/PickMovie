@@ -1,4 +1,4 @@
-// frontend/src/components/content/ContentCard.tsx
+// src/components/content/ContentCard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
@@ -53,25 +53,40 @@ export type ContentCardProps = {
   onPosterError?: () => void;
 
   className?: string;
+
+  // ✅ 추가: 로그인 안 하면 하트 숨김
+  // - 페이지에서 명시적으로 제어하고 싶으면 이 값 넘기면 됨
+  canFavorite?: boolean;
 };
 
 const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-// ✅ 전역 캐시(중복 호출 방지) - nowPlaying도 같이 캐싱
 const metaCache = new Map<
   string,
-  { providers: ProviderBadge[]; ageRating: string; isNowPlaying: boolean }
+  { providers: ProviderBadge[]; ageRating: string }
 >();
 const inflight = new Map<
   string,
-  Promise<{
-    providers: ProviderBadge[];
-    ageRating: string;
-    isNowPlaying: boolean;
-  }>
+  Promise<{ providers: ProviderBadge[]; ageRating: string }>
 >();
+
+const AUTH_KEYS = {
+  ACCESS: "pickmovie_access_token",
+  USER: "pickmovie_user",
+} as const;
+
+function isLoggedInFallback(): boolean {
+  try {
+    return (
+      !!localStorage.getItem(AUTH_KEYS.ACCESS) ||
+      !!localStorage.getItem(AUTH_KEYS.USER)
+    );
+  } catch {
+    return false;
+  }
+}
 
 function getDisplayTitle(item: ContentCardItem) {
   return (
@@ -181,37 +196,6 @@ function pickAgeFromResponse(r: any): string {
   return s || "—";
 }
 
-// ✅ meta 응답에 nowPlaying/상영중 정보가 오면 반영(없어도 안전)
-function pickNowPlayingFromResponse(r: any): boolean {
-  const v =
-    r?.isNowPlaying ??
-    r?.nowPlaying ??
-    r?.is_now_playing ??
-    r?.inTheaters ??
-    false;
-  return v === true;
-}
-
-// ✅ isNowPlaying이 없는 데이터도 “개봉일 기준”으로 상영중 추정 (영화에 한해)
-function inferNowPlayingByDate(item: ContentCardItem, mediaType: MediaType) {
-  if (mediaType !== "movie") return false;
-  const d = (item.release_date || "").trim();
-  if (!d) return false;
-
-  const t = new Date(d).getTime();
-  if (!Number.isFinite(t)) return false;
-
-  const now = Date.now();
-  if (t > now) return false;
-
-  // 상영 기간을 90일 쇼트 윈도우로 추정
-  const WINDOW_DAYS = 90;
-  const windowMs = WINDOW_DAYS * 24 * 60 * 60 * 1000;
-
-  return now - t <= windowMs;
-}
-
-/** ✅ 요청: 높이 20px / 폰트 10px / border 제거 / radius 5px */
 function Chip({
   children,
   tone = "dark",
@@ -242,6 +226,7 @@ export function ContentCard({
   context = "default",
   onPosterError,
   className,
+  canFavorite,
 }: ContentCardProps) {
   const title = getDisplayTitle(item);
   const rating =
@@ -257,7 +242,6 @@ export function ContentCard({
   const [meta, setMeta] = useState<{
     providers: ProviderBadge[];
     ageRating: string;
-    isNowPlaying: boolean;
   } | null>(() => metaCache.get(cacheKey) ?? null);
 
   const needsMeta = useMemo(() => {
@@ -265,7 +249,6 @@ export function ContentCard({
       Array.isArray(item.providers) && item.providers.length > 0;
     const rawAge = (item.ageRating || "").trim();
     const hasAge = !!rawAge && rawAge !== "-" && rawAge !== "—";
-    // nowPlaying은 필수가 아니니 providers/age 없을 때만 meta 요청
     return !(hasProviders && hasAge);
   }, [item.providers, item.ageRating]);
 
@@ -288,8 +271,7 @@ export function ContentCard({
               r?.providers ?? r?.providerList ?? []
             );
             const ageRating = pickAgeFromResponse(r);
-            const isNowPlaying = pickNowPlayingFromResponse(r);
-            const safe = { providers, ageRating, isNowPlaying };
+            const safe = { providers, ageRating };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -297,7 +279,7 @@ export function ContentCard({
             if ((import.meta as any).env?.DEV) {
               console.warn("[ContentCard] meta fetch failed:", cacheKey, e);
             }
-            const safe = { providers: [], ageRating: "—", isNowPlaying: false };
+            const safe = { providers: [], ageRating: "—" };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -323,15 +305,7 @@ export function ContentCard({
       : meta?.providers) ?? [];
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
-
-  // ✅ 모든 화면에서 “상영중” 노출:
-  // 1) item.isNowPlaying === true 이면 무조건
-  // 2) meta가 isNowPlaying 제공하면 반영
-  // 3) 둘 다 없으면 개봉일로 추정(영화)
-  const showNowPlaying =
-    item.isNowPlaying === true ||
-    meta?.isNowPlaying === true ||
-    inferNowPlayingByDate(item, mediaType);
+  const showNowPlaying = item.isNowPlaying === true;
 
   const showMatch =
     context === "picky" &&
@@ -355,6 +329,10 @@ export function ContentCard({
 
   const hasProviders = visibleProviders.length > 0;
   const hasAge = ageValue !== "—";
+
+  // ✅ 로그인 안 하면 하트 숨김
+  const canFav =
+    typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
 
   return (
     <div
@@ -419,24 +397,26 @@ export function ContentCard({
           )}
         </div>
 
-        {/* 우상단 하트 */}
-        <div className="absolute top-2 right-2 z-20">
-          <button
-            type="button"
-            aria-label="찜 토글"
-            className="w-[30px] h-[30px] rounded-[5px] bg-black/55 hover:bg-black/70 flex items-center justify-center"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite();
-            }}
-          >
-            <Heart
-              className={`h-4 w-4 ${
-                isFavorite ? "fill-red-500 text-red-500" : "text-white"
-              }`}
-            />
-          </button>
-        </div>
+        {/* 우상단 하트 (로그인 시에만 노출) */}
+        {canFav && (
+          <div className="absolute top-2 right-2 z-20">
+            <button
+              type="button"
+              aria-label="찜 토글"
+              className="w-[30px] h-[30px] rounded-[5px] bg-black/55 hover:bg-black/70 flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite();
+              }}
+            >
+              <Heart
+                className={`h-4 w-4 ${
+                  isFavorite ? "fill-red-500 text-red-500" : "text-white"
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
         {/* 우하단 */}
         {(hasProviders || hasAge) && (

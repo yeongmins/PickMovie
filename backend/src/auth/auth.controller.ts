@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -23,6 +23,10 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import type { JwtAccessPayload } from './strategies/jwt-access.strategy';
 
 type ApiOk = { ok: true };
+
+type FavoriteItem = { id: number; mediaType: 'movie' | 'tv' };
+type CreatePlaylistBody = { name: string; items: FavoriteItem[] };
+type DeletePlaylistBody = { playlistId: number };
 
 @Controller('auth')
 export class AuthController {
@@ -43,7 +47,7 @@ export class AuthController {
     return this.config.get<string>('COOKIE_NAME_REFRESH') ?? 'refresh_token';
   }
 
-  private cookieOptions() {
+  private cookieOptions(): CookieOptions {
     const secureEnv = this.config.get<string>('COOKIE_SECURE');
     const secure =
       secureEnv === 'true'
@@ -56,12 +60,12 @@ export class AuthController {
       this.config.get<string>('COOKIE_SAMESITE') ?? 'lax'
     ).toLowerCase();
 
-    const sameSite =
+    const sameSite: CookieOptions['sameSite'] =
       sameSiteEnv === 'none'
-        ? ('none' as const)
+        ? 'none'
         : sameSiteEnv === 'strict'
-          ? ('strict' as const)
-          : ('lax' as const);
+          ? 'strict'
+          : 'lax';
 
     const domain = (this.config.get<string>('COOKIE_DOMAIN') ?? '').trim();
 
@@ -101,8 +105,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ 쿠키 파서(req.cookies) 의존 제거 (타입/설정 꼬임 방지)
-   * - Cookie 헤더를 직접 파싱해서 refresh 토큰을 찾음
+   * ✅ 쿠키 파서(req.cookies) 의존 제거
    */
   private getRefreshFromCookie(req: Request): string | null {
     const header = req.headers.cookie;
@@ -230,7 +233,6 @@ export class AuthController {
     return { ok: true };
   }
 
-  // ✅ 비밀번호 찾기: IP 전달해서 하루 10회 제한 적용
   @Post('password/forgot')
   async forgotPassword(
     @Body() dto: ForgotPasswordDto,
@@ -247,7 +249,6 @@ export class AuthController {
     return { ok: true };
   }
 
-  // ✅ 아이디 찾기: IP 전달해서 하루 10회 제한 적용
   @Post('username/lookup')
   async usernameLookup(
     @Body() dto: UsernameLookupDto,
@@ -264,5 +265,86 @@ export class AuthController {
     if (!user) return { user: null };
     const me = await this.auth.me(user.sub);
     return { user: me };
+  }
+
+  // =========================
+  // ✅ Favorites (DB only)
+  // =========================
+  @UseGuards(JwtAccessGuard)
+  @Get('favorites')
+  async favorites(@CurrentUser() user: JwtAccessPayload) {
+    const items = await this.auth.getFavorites(user.sub);
+    return { items };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('favorites/set')
+  async setFavorite(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body()
+    body: { id?: number; mediaType?: 'movie' | 'tv'; isFavorite?: boolean },
+  ) {
+    const id = Number(body?.id);
+    const mediaType = body?.mediaType === 'tv' ? 'tv' : 'movie';
+    const isFavorite = Boolean(body?.isFavorite);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new BadRequestException('id is required');
+    }
+
+    await this.auth.setFavorite(user.sub, id, mediaType, isFavorite);
+    return { ok: true };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('favorites/sync')
+  async syncFavorites(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: { items?: FavoriteItem[] },
+  ) {
+    const items = Array.isArray(body?.items) ? body.items : [];
+    const saved = await this.auth.syncFavorites(user.sub, items);
+    return { items: saved };
+  }
+
+  // =========================
+  // ✅ Playlists (DB only)
+  // =========================
+  @UseGuards(JwtAccessGuard)
+  @Get('playlists')
+  async playlists(@CurrentUser() user: JwtAccessPayload) {
+    const playlists = await this.auth.getPlaylists(user.sub);
+    return { playlists };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('playlists/create')
+  async createPlaylist(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: CreatePlaylistBody,
+  ) {
+    const name = (body?.name ?? '').trim();
+    const items = Array.isArray(body?.items) ? body.items : [];
+
+    if (!name) throw new BadRequestException('name is required');
+    if (items.length === 0) throw new BadRequestException('items is required');
+
+    const playlist = await this.auth.createPlaylist(user.sub, name, items);
+    return { playlist };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('playlists/delete')
+  async deletePlaylist(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: DeletePlaylistBody,
+  ) {
+    const playlistId = Number(body?.playlistId);
+    if (!Number.isFinite(playlistId) || playlistId <= 0) {
+      throw new BadRequestException('playlistId is required');
+    }
+
+    await this.auth.deletePlaylist(user.sub, playlistId);
+    return { ok: true };
   }
 }

@@ -616,6 +616,7 @@ export default function FavoritesPage({
   const loadFavoriteItems = useCallback(async () => {
     if (!favorites.length) {
       setFavoriteItems([]);
+      itemCacheRef.current.clear(); // ✅ 로그아웃/초기화 시 캐시 정리
       setLoading(false);
       hasLoadedOnceRef.current = true;
       return;
@@ -709,6 +710,16 @@ export default function FavoritesPage({
   useEffect(() => {
     loadFavoriteItems();
   }, [loadFavoriteItems]);
+
+  useEffect(() => {
+    if (favorites.length === 0) {
+      // ✅ 로그아웃/초기화 순간에 즉시 화면 상태 정리
+      setSelectedMovie(null);
+      setSearchQuery("");
+      setFavoriteItems([]);
+      itemCacheRef.current.clear();
+    }
+  }, [favorites.length]);
 
   const handleOpenDetail = useCallback(
     async (item: MediaItem) => {

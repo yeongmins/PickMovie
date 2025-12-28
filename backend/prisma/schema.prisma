@@ -1,7 +1,7 @@
 // prisma/schema.prisma
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
@@ -32,6 +32,9 @@ model User {
 
   // ✅ 찜(서버 동기화 MVP)
   favorites Favorite[]
+
+  // ✅ 플레이리스트(DB)
+  playlists Playlist[]
 }
 
 model Favorite {
@@ -45,6 +48,33 @@ model Favorite {
 
   @@unique([userId, tmdbId, mediaType], name: "userId_tmdbId_mediaType")
   @@index([userId])
+}
+
+model Playlist {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     PlaylistItem[]
+
+  @@index([userId])
+}
+
+model PlaylistItem {
+  id         Int      @id @default(autoincrement())
+  playlistId Int
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  tmdbId     Int
+  mediaType  MediaType
+  addedAt    DateTime @default(now())
+
+  @@unique([playlistId, tmdbId, mediaType], name: "playlistId_tmdbId_mediaType")
+  @@index([playlistId])
 }
 
 model RefreshToken {

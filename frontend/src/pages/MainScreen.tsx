@@ -6,9 +6,10 @@ import {
   useMemo,
   lazy,
   Suspense,
+  useRef,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, LogOut } from "lucide-react";
 
 import { ContentCard } from "../components/content/ContentCard";
 import type { UserPreferences } from "../features/onboarding/Onboarding";
@@ -58,6 +59,8 @@ export interface MainScreenProps {
   onReanalyze?: () => void;
   onToggleFavorite?: (movieId: number, mediaType?: MediaType) => void;
   initialSection: Section;
+
+  isAuthed?: boolean;
 }
 
 export interface MovieWithScore extends TMDBMovie {
@@ -88,13 +91,47 @@ function buildGenreString(details: any): string {
   return "";
 }
 
+function LoggedOutCarouselPlaceholder() {
+  return (
+    <div className="relative h-main-carousel mb-5 overflow-hidden bg-gradient-to-b from-purple-900/15 via-black/20 to-transparent">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(168,85,247,0.12),transparent_55%)]" />
+      <div className="relative h-full flex items-center justify-center px-6">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
+            <LogOut className="h-7 w-7 text-white/75" />
+          </div>
+          <div className="text-lg font-semibold text-white/90">
+            로그아웃되었습니다
+          </div>
+          <div className="mt-2 text-sm text-white/60">
+            내 찜 목록을 새로 고쳤어요. 로그인하면 다시 볼 수 있어요.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MainScreen({
   userPreferences,
   favorites,
   onToggleFavorite,
   initialSection,
+  isAuthed,
 }: MainScreenProps) {
   const currentSection = initialSection;
+
+  // ✅ isAuthed가 안 내려오는 상황도 대비(보통 App에서 내려줌)
+  const authed =
+    typeof isAuthed === "boolean"
+      ? isAuthed
+      : (() => {
+          try {
+            return !!localStorage.getItem("pickmovie_user");
+          } catch {
+            return false;
+          }
+        })();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
@@ -110,24 +147,74 @@ export function MainScreen({
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  const favoriteKeySet = useMemo(() => {
-    return new Set(favorites.map((f) => `${f.mediaType}:${f.id}`));
-  }, [favorites]);
+  // ✅ (부드러운 로그아웃 전환)
+  const [logoutFxOn, setLogoutFxOn] = useState(false);
+  const [carouselSnapshot, setCarouselSnapshot] = useState<
+    MovieWithScore[] | null
+  >(null);
+  const prevAuthedRef = useRef<boolean>(authed);
+  const favoriteMoviesRef = useRef<MovieWithScore[]>([]);
 
-  const favoriteIdList = useMemo(() => favorites.map((f) => f.id), [favorites]);
+  useEffect(() => {
+    favoriteMoviesRef.current = favoriteMovies;
+  }, [favoriteMovies]);
+
+  // ✅ 로그아웃 순간: "현재 캐러셀 프레임"을 잠깐 유지하고, 오버레이 → 페이드아웃 → 로그아웃 UI로 전환
+  useEffect(() => {
+    const prev = prevAuthedRef.current;
+
+    // 로그인 -> 로그아웃 전환
+    if (prev === true && authed === false) {
+      setSelectedMovie(null); // ✅ 로그아웃 시 모달 닫기
+      setCarouselSnapshot(favoriteMoviesRef.current);
+      setLogoutFxOn(true);
+
+      const t = window.setTimeout(() => {
+        setLogoutFxOn(false);
+        setCarouselSnapshot(null);
+      }, 700);
+
+      prevAuthedRef.current = authed;
+      return () => window.clearTimeout(t);
+    }
+
+    // 로그아웃 -> 로그인 전환 (즉시 정상 모드)
+    if (prev === false && authed === true) {
+      setLogoutFxOn(false);
+      setCarouselSnapshot(null);
+    }
+
+    prevAuthedRef.current = authed;
+  }, [authed]);
+
+  // ✅ 로그아웃 상태면 favorites를 무조건 비움(즉시 하트/캐러셀 동기화)
+  const effectiveFavorites = useMemo(
+    () => (authed ? favorites : []),
+    [authed, favorites]
+  );
+
+  const favoriteKeySet = useMemo(() => {
+    return new Set(effectiveFavorites.map((f) => `${f.mediaType}:${f.id}`));
+  }, [effectiveFavorites]);
+
+  const favoriteIdList = useMemo(
+    () => effectiveFavorites.map((f) => f.id),
+    [effectiveFavorites]
+  );
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentSection]);
 
   const loadFavoriteMoviesDetails = useCallback(async () => {
-    if (!favorites.length) {
+    // ✅ 로그아웃이면 즉시 비움(네트워크 호출 방지)
+    if (!authed || !effectiveFavorites.length) {
       setFavoriteMovies([]);
       return;
     }
 
     try {
-      const detailPromises = favorites.map(async (item) => {
+      const detailPromises = effectiveFavorites.map(async (item) => {
         try {
           const detail =
             item.mediaType === "tv"
@@ -151,7 +238,7 @@ export function MainScreen({
     } catch (error) {
       console.error(error);
     }
-  }, [favorites, userPreferences]);
+  }, [authed, effectiveFavorites, userPreferences]);
 
   const loadAllData = useCallback(async () => {
     setLoading(true);
@@ -270,6 +357,9 @@ export function MainScreen({
 
   const currentViewKey = filteredContent ? "search" : currentSection;
 
+  // ✅ 로그아웃 전환 중에는 스냅샷을 보여주고, 아니면 실제 favoriteMovies
+  const carouselMoviesToRender = carouselSnapshot ?? favoriteMovies;
+
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden flex flex-col">
       <Suspense fallback={<div className="h-16" />}>
@@ -278,13 +368,83 @@ export function MainScreen({
 
       {currentSection === "home" && !filteredContent && (
         <section className="relative z-20">
-          <Suspense fallback={<div className="h-[260px]" />}>
-            <FavoritesCarousel
-              movies={favoriteMovies}
-              onMovieClick={handleMovieClick}
-              onToggleFavorite={(id, type) => toggleFav(id, type)}
-            />
-          </Suspense>
+          <AnimatePresence mode="wait">
+            {/* ✅ 1) 로그인 상태 or 로그아웃 전환 중: 캐러셀 유지 + 페이드/블러 + 오버레이 */}
+            {(authed || logoutFxOn || carouselSnapshot) && (
+              <motion.div
+                key="fav-carousel"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  filter: logoutFxOn ? "blur(1.5px)" : "blur(0px)",
+                }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+                className="relative"
+              >
+                {/* 오버레이 */}
+                <AnimatePresence>
+                  {logoutFxOn && (
+                    <motion.div
+                      key="logout-overlay"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.22 }}
+                      className="absolute inset-0 z-40 flex items-center justify-center"
+                    >
+                      <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" />
+                      <motion.div
+                        initial={{ scale: 0.98, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.98, opacity: 0 }}
+                        transition={{ duration: 0.22 }}
+                        className="relative z-10 rounded-2xl border border-white/10 bg-black/60 px-5 py-4 shadow-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Loader2 className="h-5 w-5 animate-spin text-purple-400" />
+                          <div className="text-sm text-white/90 font-semibold">
+                            세션을 종료하는 중…
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-white/55">
+                          내 찜 목록을 새로고침하고 있어요
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* 캐러셀 본체 */}
+                <motion.div
+                  animate={{ opacity: logoutFxOn ? 0.78 : 1 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <Suspense fallback={<div className="h-[260px]" />}>
+                    <FavoritesCarousel
+                      movies={carouselMoviesToRender}
+                      onMovieClick={handleMovieClick}
+                      onToggleFavorite={(id, type) => toggleFav(id, type)}
+                    />
+                  </Suspense>
+                </motion.div>
+              </motion.div>
+            )}
+
+            {/* ✅ 2) 로그아웃 상태(전환 끝) : 로그아웃 전용 플레이스홀더로 부드럽게 */}
+            {!authed && !logoutFxOn && !carouselSnapshot && (
+              <motion.div
+                key="fav-loggedout"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+              >
+                <LoggedOutCarouselPlaceholder />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
       )}
 

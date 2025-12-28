@@ -1,5 +1,5 @@
 // frontend/src/App.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 
 import type { UserPreferences } from "./features/onboarding/Onboarding";
@@ -17,11 +17,15 @@ export interface FavoriteItem {
 }
 
 const STORAGE_KEYS = {
-  FAVORITES: "pickmovie_favorites",
+  // ✅ favorites는 더 이상 저장/로드 안 함 (DB만 사용)
   PREFERENCES: "pickmovie_preferences",
   ACCESS: "pickmovie_access_token",
   USER: "pickmovie_user",
-};
+} as const;
+
+// ✅ 이벤트명 통합(둘 다 수신/발신)
+const AUTH_EVENT = "pickmovie-auth-changed" as const;
+const LEGACY_AUTH_EVENT = "pickmovie:auth" as const;
 
 const createEmptyPreferences = (): UserPreferences => ({
   genres: [],
@@ -39,13 +43,14 @@ type MeUser = {
   nickname: string | null;
 };
 
-function uniqueFavorites(items: FavoriteItem[]) {
-  const map = new Map<string, FavoriteItem>();
-  for (const it of items) {
-    const key = `${it.mediaType}:${it.id}`;
-    map.set(key, it);
+function readStoredUser(): MeUser | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.USER);
+    if (!raw) return null;
+    return JSON.parse(raw) as MeUser;
+  } catch {
+    return null;
   }
-  return Array.from(map.values());
 }
 
 export default function App() {
@@ -64,8 +69,12 @@ export default function App() {
   );
   const [me, setMe] = useState<MeUser | null>(null);
 
-  const handleResetFavorites = useCallback(() => {
-    setFavorites([]);
+  // ✅ bootstrap 중 이벤트 재진입 방지
+  const bootingRef = useRef(false);
+
+  const emitAuthChanged = useCallback(() => {
+    window.dispatchEvent(new Event(LEGACY_AUTH_EVENT));
+    window.dispatchEvent(new Event(AUTH_EVENT));
   }, []);
 
   const authHeaders = useCallback(() => {
@@ -110,79 +119,78 @@ export default function App() {
     [API_BASE, authHeaders]
   );
 
-  // ✅ id만 비교하면 movie/tv가 같은 id일 때 충돌 가능 → mediaType까지 같이 비교
-  const handleToggleFavorite = useCallback(
-    (id: number, mediaType: "movie" | "tv" = "movie") => {
-      setFavorites((prev) => {
-        const exists = prev.some(
-          (f) => f.id === id && f.mediaType === mediaType
-        );
-        const next = exists
-          ? prev.filter((f) => !(f.id === id && f.mediaType === mediaType))
-          : [{ id, mediaType }, ...prev];
+  const clearAuthLocal = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEYS.ACCESS);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+  }, []);
 
-        // ✅ 로그인 상태면 서버에도 반영(실패해도 UI는 유지)
-        if (me) {
-          void postJson("/auth/favorites/set", {
-            id,
-            mediaType,
-            isFavorite: !exists,
-          }).catch(() => {
-            // ignore
-          });
-        }
+  const bootstrapAuthAndFavorites = useCallback(async () => {
+    if (bootingRef.current) return;
 
-        return next;
-      });
-    },
-    [me, postJson]
-  );
+    bootingRef.current = true;
+    try {
+      // 1) refresh로 accessToken 갱신(쿠키 기반)
+      const refreshed = await postJson("/auth/refresh");
+      const accessToken = (refreshed?.accessToken as string | null) ?? null;
 
-  // 초기 로드 (localStorage)
+      if (!accessToken) {
+        clearAuthLocal();
+        setMe(null);
+        setFavorites([]);
+        // ✅ Header 등 즉시 동기화
+        emitAuthChanged();
+        return;
+      }
+
+      localStorage.setItem(STORAGE_KEYS.ACCESS, accessToken);
+
+      // 2) me 조회
+      const meRes = await getJson("/auth/me");
+      const user = (meRes?.user as MeUser | null) ?? null;
+
+      if (!user) {
+        clearAuthLocal();
+        setMe(null);
+        setFavorites([]);
+        emitAuthChanged();
+        return;
+      }
+
+      setMe(user);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+
+      // 3) ✅ favorites는 DB에서만 가져옴
+      const favRes = await getJson("/auth/favorites");
+      const serverItems = Array.isArray(favRes?.items)
+        ? (favRes.items as FavoriteItem[])
+        : [];
+
+      setFavorites(serverItems);
+
+      // ✅ 자동 로그인/갱신 시 Header도 즉시 반영
+      emitAuthChanged();
+    } catch {
+      // 네트워크/서버 오류 시: 로그인 상태 확정 못하니 안전하게 비움
+      clearAuthLocal();
+      setMe(null);
+      setFavorites([]);
+      emitAuthChanged();
+    } finally {
+      bootingRef.current = false;
+    }
+  }, [clearAuthLocal, emitAuthChanged, getJson, postJson]);
+
+  // 초기 로드 (preferences만 localStorage 유지)
   useEffect(() => {
     try {
-      const savedFavorites = localStorage.getItem(STORAGE_KEYS.FAVORITES);
       const savedPreferences = localStorage.getItem(STORAGE_KEYS.PREFERENCES);
-
-      if (savedFavorites) {
-        const parsed = JSON.parse(savedFavorites);
-
-        // 마이그레이션(number[] -> FavoriteItem[])
-        if (
-          Array.isArray(parsed) &&
-          parsed.length > 0 &&
-          typeof parsed[0] === "number"
-        ) {
-          const migrated = parsed.map((nid: number) => ({
-            id: nid,
-            mediaType: "movie" as const,
-          }));
-          setFavorites(migrated);
-          localStorage.setItem(
-            STORAGE_KEYS.FAVORITES,
-            JSON.stringify(migrated)
-          );
-        } else {
-          setFavorites(Array.isArray(parsed) ? parsed : []);
-        }
-      }
-
-      if (savedPreferences) {
-        setUserPreferences(JSON.parse(savedPreferences));
-      }
+      if (savedPreferences) setUserPreferences(JSON.parse(savedPreferences));
     } catch (e) {
       console.error(e);
     } finally {
       setIsLoading(false);
     }
   }, []);
-
-  // 자동 저장
-  useEffect(() => {
-    if (!isLoading) {
-      localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
-    }
-  }, [favorites, isLoading]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -193,71 +201,94 @@ export default function App() {
     }
   }, [userPreferences, isLoading]);
 
-  // ✅ 로그인 “체감” 강화: 앱 시작 시 refresh → me → favorites sync
+  // ✅ 앱 시작/로그인/로그아웃 이벤트마다 동기화
   useEffect(() => {
     if (isLoading) return;
 
-    const bootstrap = async () => {
-      try {
-        // 1) refresh로 accessToken 갱신(쿠키 기반)
-        const refreshed = await postJson("/auth/refresh");
-        const accessToken = refreshed?.accessToken as string | null;
+    void bootstrapAuthAndFavorites();
 
-        if (!accessToken) {
-          setMe(null);
-          return;
-        }
+    const onAuth = () => {
+      if (bootingRef.current) return;
 
-        localStorage.setItem(STORAGE_KEYS.ACCESS, accessToken);
+      const token = localStorage.getItem(STORAGE_KEYS.ACCESS);
+      const storedUser = readStoredUser();
 
-        // 2) me 조회
-        const meRes = await getJson("/auth/me");
-        const user = meRes?.user as MeUser | null;
-
-        if (!user) {
-          setMe(null);
-          return;
-        }
-
-        setMe(user);
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-        window.dispatchEvent(new Event("pickmovie:auth"));
-
-        // 3) 서버 favorites 가져와서 local과 merge 후 서버에 sync
-        const server = await getJson("/auth/favorites");
-        const serverItems = Array.isArray(server?.items)
-          ? (server.items as FavoriteItem[])
-          : [];
-
-        const merged = uniqueFavorites([...favorites, ...serverItems]);
-
-        // 서버에 merged로 교체(sync)
-        const synced = await postJson("/auth/favorites/sync", {
-          items: merged,
-        });
-        const finalItems = Array.isArray(synced?.items)
-          ? (synced.items as FavoriteItem[])
-          : merged;
-
-        setFavorites(finalItems);
-      } catch {
-        // 실패해도 기존 로컬 UX는 유지
+      // ✅ 로그아웃 이벤트면 즉시 UI에서 제거 (refresh로 다시 로그인 시도하지 않음)
+      if (!token || !storedUser) {
+        setMe(null);
+        setFavorites([]);
+        return;
       }
+
+      // ✅ 로그인(또는 다른 탭에서 로그인) -> 서버 기준으로 재조회
+      void bootstrapAuthAndFavorites();
     };
 
-    void bootstrap();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading]);
+    window.addEventListener(AUTH_EVENT, onAuth);
+    window.addEventListener(LEGACY_AUTH_EVENT, onAuth);
+    window.addEventListener("storage", onAuth);
+    window.addEventListener("focus", onAuth);
+
+    return () => {
+      window.removeEventListener(AUTH_EVENT, onAuth);
+      window.removeEventListener(LEGACY_AUTH_EVENT, onAuth);
+      window.removeEventListener("storage", onAuth);
+      window.removeEventListener("focus", onAuth);
+    };
+  }, [isLoading, bootstrapAuthAndFavorites]);
+
+  const handleResetFavorites = useCallback(() => {
+    if (!me) {
+      setFavorites([]);
+      return;
+    }
+
+    setFavorites([]);
+    void postJson("/auth/favorites/sync", { items: [] }).catch(() => {
+      // ignore
+    });
+  }, [me, postJson]);
+
+  // ✅ 찜 토글: 로그인 상태에서만 DB 반영
+  const handleToggleFavorite = useCallback(
+    (id: number, mediaType: "movie" | "tv" = "movie") => {
+      if (!me) {
+        navigate("/login");
+        return;
+      }
+
+      setFavorites((prev) => {
+        const exists = prev.some(
+          (f) => f.id === id && f.mediaType === mediaType
+        );
+        const next = exists
+          ? prev.filter((f) => !(f.id === id && f.mediaType === mediaType))
+          : [{ id, mediaType }, ...prev];
+
+        void postJson("/auth/favorites/set", {
+          id,
+          mediaType,
+          isFavorite: !exists,
+        }).catch(() => {
+          // 실패 시 롤백
+          setFavorites(prev);
+        });
+
+        return next;
+      });
+    },
+    [me, navigate, postJson]
+  );
+
+  const isAuthed = !!me;
 
   return (
     <Routes>
-      {/* ✅ Auth Routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
 
-      {/* ✅ MyPage */}
       <Route path="/mypage" element={<MyPage />} />
 
       <Route
@@ -266,11 +297,11 @@ export default function App() {
           <PickyPage
             favorites={favorites}
             onToggleFavorite={handleToggleFavorite}
+            isAuthed={isAuthed}
           />
         }
       />
 
-      {/* ✅ 홈 */}
       <Route
         path="/"
         element={
@@ -280,11 +311,11 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
             initialSection="home"
+            isAuthed={isAuthed}
           />
         }
       />
 
-      {/* ✅ 찜/플레이리스트 */}
       <Route
         path="/favorites"
         element={
@@ -306,6 +337,7 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
             initialSection="popular-movies"
+            isAuthed={isAuthed}
           />
         }
       />
@@ -319,6 +351,7 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             onReanalyze={() => navigate("/")}
             initialSection="popular-tv"
+            isAuthed={isAuthed}
           />
         }
       />
