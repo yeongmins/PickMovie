@@ -1,4 +1,4 @@
-// src/components/content/ContentCard.tsx
+// frontend/src/components/content/ContentCard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
@@ -52,23 +52,25 @@ export type ContentCardProps = {
   context?: "default" | "picky";
   onPosterError?: () => void;
 
-  // ✅ 확장(그리드/캐러셀에서 w-full 등 강제할 때)
   className?: string;
 };
 
-// ✅ 고화질 OTT 로고: w92 + srcSet(w185)
 const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-// ✅ 전역 캐시(중복 호출 방지)
+// ✅ 전역 캐시(중복 호출 방지) - nowPlaying도 같이 캐싱
 const metaCache = new Map<
   string,
-  { providers: ProviderBadge[]; ageRating: string }
+  { providers: ProviderBadge[]; ageRating: string; isNowPlaying: boolean }
 >();
 const inflight = new Map<
   string,
-  Promise<{ providers: ProviderBadge[]; ageRating: string }>
+  Promise<{
+    providers: ProviderBadge[];
+    ageRating: string;
+    isNowPlaying: boolean;
+  }>
 >();
 
 function getDisplayTitle(item: ContentCardItem) {
@@ -179,7 +181,37 @@ function pickAgeFromResponse(r: any): string {
   return s || "—";
 }
 
-/** ✅ 요청: 높이 20px / 폰트 10px / border 제거 / radius 5px / “여백 느낌” 최소화 */
+// ✅ meta 응답에 nowPlaying/상영중 정보가 오면 반영(없어도 안전)
+function pickNowPlayingFromResponse(r: any): boolean {
+  const v =
+    r?.isNowPlaying ??
+    r?.nowPlaying ??
+    r?.is_now_playing ??
+    r?.inTheaters ??
+    false;
+  return v === true;
+}
+
+// ✅ isNowPlaying이 없는 데이터도 “개봉일 기준”으로 상영중 추정 (영화에 한해)
+function inferNowPlayingByDate(item: ContentCardItem, mediaType: MediaType) {
+  if (mediaType !== "movie") return false;
+  const d = (item.release_date || "").trim();
+  if (!d) return false;
+
+  const t = new Date(d).getTime();
+  if (!Number.isFinite(t)) return false;
+
+  const now = Date.now();
+  if (t > now) return false;
+
+  // 상영 기간을 90일 쇼트 윈도우로 추정
+  const WINDOW_DAYS = 90;
+  const windowMs = WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+  return now - t <= windowMs;
+}
+
+/** ✅ 요청: 높이 20px / 폰트 10px / border 제거 / radius 5px */
 function Chip({
   children,
   tone = "dark",
@@ -225,6 +257,7 @@ export function ContentCard({
   const [meta, setMeta] = useState<{
     providers: ProviderBadge[];
     ageRating: string;
+    isNowPlaying: boolean;
   } | null>(() => metaCache.get(cacheKey) ?? null);
 
   const needsMeta = useMemo(() => {
@@ -232,6 +265,7 @@ export function ContentCard({
       Array.isArray(item.providers) && item.providers.length > 0;
     const rawAge = (item.ageRating || "").trim();
     const hasAge = !!rawAge && rawAge !== "-" && rawAge !== "—";
+    // nowPlaying은 필수가 아니니 providers/age 없을 때만 meta 요청
     return !(hasProviders && hasAge);
   }, [item.providers, item.ageRating]);
 
@@ -254,7 +288,8 @@ export function ContentCard({
               r?.providers ?? r?.providerList ?? []
             );
             const ageRating = pickAgeFromResponse(r);
-            const safe = { providers, ageRating };
+            const isNowPlaying = pickNowPlayingFromResponse(r);
+            const safe = { providers, ageRating, isNowPlaying };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -262,7 +297,7 @@ export function ContentCard({
             if ((import.meta as any).env?.DEV) {
               console.warn("[ContentCard] meta fetch failed:", cacheKey, e);
             }
-            const safe = { providers: [], ageRating: "—" };
+            const safe = { providers: [], ageRating: "—", isNowPlaying: false };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -288,7 +323,15 @@ export function ContentCard({
       : meta?.providers) ?? [];
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
-  const showNowPlaying = item.isNowPlaying === true;
+
+  // ✅ 모든 화면에서 “상영중” 노출:
+  // 1) item.isNowPlaying === true 이면 무조건
+  // 2) meta가 isNowPlaying 제공하면 반영
+  // 3) 둘 다 없으면 개봉일로 추정(영화)
+  const showNowPlaying =
+    item.isNowPlaying === true ||
+    meta?.isNowPlaying === true ||
+    inferNowPlayingByDate(item, mediaType);
 
   const showMatch =
     context === "picky" &&
@@ -303,7 +346,6 @@ export function ContentCard({
     })
     .filter((x) => !!x.name && !!x.path);
 
-  // ✅ OTT 한 줄 고정: 최대 3개 + 나머지 +N
   const MAX_PROVIDER_BADGES = 3;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER_BADGES);
   const hiddenCount = Math.max(

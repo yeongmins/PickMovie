@@ -52,46 +52,134 @@ export class MailService {
     }
   }
 
-  private buildButtonTemplate(opts: {
+  private escapeHtml(v: string) {
+    return v
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  private nl2br(v: string) {
+    return this.escapeHtml(v).replace(/\n/g, '<br/>');
+  }
+
+  private buildBaseTemplate(opts: {
     title: string;
     subtitle: string;
     buttonText: string;
     url: string;
     footer?: string;
+    highlightLabel?: string;
+    highlightValue?: string;
   }) {
-    const { title, subtitle, buttonText, url, footer } = opts;
+    const {
+      title,
+      subtitle,
+      buttonText,
+      url,
+      footer,
+      highlightLabel,
+      highlightValue,
+    } = opts;
 
     const subject = `[PickMovie] ${title}`;
-    const text = `${title}\n\n${subtitle}\n\n${url}\n\n${footer ?? ''}`.trim();
 
+    const textParts: string[] = [];
+    textParts.push(title);
+    textParts.push('');
+    textParts.push(subtitle);
+    textParts.push('');
+
+    if (highlightLabel && highlightValue) {
+      textParts.push(`${highlightLabel}: ${highlightValue}`);
+      textParts.push('');
+    }
+
+    textParts.push(url);
+    textParts.push('');
+    if (footer) textParts.push(footer);
+
+    const text = textParts.join('\n').trim();
+
+    const safeTitle = this.escapeHtml(title);
+    const safeSubtitle = this.nl2br(subtitle);
+    const safeBtn = this.escapeHtml(buttonText);
+    const safeUrl = this.escapeHtml(url);
+    const safeFooter = footer ? this.escapeHtml(footer) : '';
+
+    const safeHighlightLabel = highlightLabel
+      ? this.escapeHtml(highlightLabel)
+      : '';
+    const safeHighlightValue = highlightValue
+      ? this.escapeHtml(highlightValue)
+      : '';
+
+    // ✅ 이메일 클라이언트 호환성 우선: 라이트 고정 + 테이블 + 인라인 CSS
     const html = `
 <!doctype html>
 <html>
-  <body style="margin:0;background:#0b0b10;font-family:Apple SD Gothic Neo,Segoe UI,Roboto,sans-serif;">
-    <div style="max-width:560px;margin:0 auto;padding:32px 18px;">
-      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:26px;color:#fff;">
-        <div style="font-size:20px;font-weight:800;margin-bottom:10px;">${title}</div>
-        <div style="color:rgba(255,255,255,0.75);line-height:1.6;margin-bottom:18px;">${subtitle}</div>
-        <a href="${url}"
-           style="display:inline-block;padding:12px 18px;border-radius:12px;
-                  background:linear-gradient(90deg,#7c3aed,#db2777);
-                  color:#fff;text-decoration:none;font-weight:700;">
-          ${buttonText}
-        </a>
-        <div style="margin-top:16px;color:rgba(255,255,255,0.55);font-size:12px;line-height:1.5;">
-          버튼이 안 눌리면 아래 링크를 복사해 브라우저에 붙여넣어주세요.<br/>
-          <span style="word-break:break-all;">${url}</span>
-        </div>
-        ${
-          footer
-            ? `<div style="margin-top:18px;color:rgba(255,255,255,0.45);font-size:12px;">${footer}</div>`
-            : ''
-        }
-      </div>
-      <div style="text-align:center;margin-top:14px;color:rgba(255,255,255,0.35);font-size:12px;">
-        © 2025 PickMovie
-      </div>
-    </div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Apple SD Gothic Neo,Segoe UI,Roboto,sans-serif;color:#111;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f6f7fb;margin:0;padding:0;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;background:#ffffff;border:1px solid #e9e9ef;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="padding:22px 22px 18px 22px;">
+                <div style="font-size:20px;font-weight:800;line-height:1.25;color:#111827;">
+                  ${safeTitle}
+                </div>
+                <div style="margin-top:10px;font-size:14px;line-height:1.6;color:#4b5563;">
+                  ${safeSubtitle}
+                </div>
+
+                ${
+                  highlightLabel && highlightValue
+                    ? `
+                <div style="margin-top:16px;padding:14px 14px;background:#f7f7ff;border:1px solid #e7e7ff;border-radius:14px;">
+                  <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">${safeHighlightLabel}</div>
+                  <div style="font-size:18px;font-weight:800;letter-spacing:0.2px;color:#111827;">${safeHighlightValue}</div>
+                </div>
+                `
+                    : ''
+                }
+
+                <div style="margin-top:18px;">
+                  <a href="${safeUrl}"
+                    style="display:inline-block;padding:12px 18px;border-radius:12px;
+                           background:#7c3aed;background-image:linear-gradient(90deg,#7c3aed,#db2777);
+                           color:#ffffff;text-decoration:none;font-weight:800;">
+                    ${safeBtn}
+                  </a>
+                </div>
+
+                <div style="margin-top:16px;font-size:12px;line-height:1.6;color:#6b7280;">
+                  버튼이 안 눌리면 아래 링크를 복사해 브라우저에 붙여넣어주세요.<br/>
+                  <a href="${safeUrl}" style="color:#4f46e5;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
+                </div>
+
+                ${
+                  footer
+                    ? `<div style="margin-top:16px;font-size:12px;color:#9ca3af;line-height:1.5;">${safeFooter}</div>`
+                    : ''
+                }
+              </td>
+            </tr>
+          </table>
+
+          <div style="text-align:center;margin-top:12px;font-size:12px;color:#9ca3af;">
+            © 2025 PickMovie
+          </div>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`.trim();
 
@@ -116,7 +204,7 @@ export class MailService {
   }
 
   async sendEmailVerification(to: string, verifyUrl: string): Promise<void> {
-    const { subject, html, text } = this.buildButtonTemplate({
+    const { subject, html, text } = this.buildBaseTemplate({
       title: '이메일 인증을 완료해주세요',
       subtitle: '아래 버튼을 누르면 이메일 인증이 완료됩니다.',
       buttonText: '이메일 인증하기',
@@ -128,7 +216,7 @@ export class MailService {
   }
 
   async sendPasswordReset(to: string, resetUrl: string): Promise<void> {
-    const { subject, html, text } = this.buildButtonTemplate({
+    const { subject, html, text } = this.buildBaseTemplate({
       title: '비밀번호 재설정',
       subtitle: '아래 버튼을 눌러 새 비밀번호를 설정하세요.',
       buttonText: '비밀번호 재설정',
@@ -140,9 +228,9 @@ export class MailService {
   }
 
   /**
-   * ✅ 아이디 찾기 메일 UX 개선 + 보안(마스킹)
-   * - username을 그대로 보내지 않고, 마스킹된 아이디를 안내
-   * - 버튼은 로그인 페이지로 이동
+   * ✅ 아이디 찾기 메일
+   * - 네이버에서도 본문이 보이도록 라이트 템플릿
+   * - 아이디는 버튼 위에 강조 노출(마스킹된 값)
    */
   async sendUsernameHint(
     to: string,
@@ -153,12 +241,14 @@ export class MailService {
       loginUrl ||
       `${this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173'}/login`;
 
-    const { subject, html, text } = this.buildButtonTemplate({
+    const { subject, html, text } = this.buildBaseTemplate({
       title: '아이디 안내',
-      subtitle: `요청하신 계정의 아이디는 보안상 일부 마스킹되어 안내됩니다.\n\n아이디: ${maskedUsername}`,
+      subtitle: '요청하신 계정의 아이디는 보안상 일부 마스킹되어 안내됩니다.',
       buttonText: '로그인 페이지로 이동',
       url,
       footer: '본 메일은 요청 시에만 발송됩니다.',
+      highlightLabel: '요청하신 아이디',
+      highlightValue: maskedUsername,
     });
 
     await this.send(to, subject, html, text);

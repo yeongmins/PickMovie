@@ -1,5 +1,6 @@
-// src/pages/auth/AccountRecoveryModal.tsx
-import React, { useMemo, useState } from "react";
+// frontend/src/pages/auth/AccountRecoveryModal.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   CheckCircle2,
@@ -45,8 +46,6 @@ export function AccountRecoveryModal({
     [mode]
   );
 
-  if (!open) return null;
-
   const resetAndClose = () => {
     setEmail("");
     setLoading(false);
@@ -66,7 +65,7 @@ export function AccountRecoveryModal({
     setError(null);
 
     try {
-      // ✅ 백엔드에서 '계정 존재 여부'와 상관없이 200(OK)로 처리하는 것을 권장
+      // ✅ 계정 존재 여부 노출 방지: 성공/실패 모두 동일 UX
       if (mode === "id") {
         await apiPost<{ ok: true }>("/auth/username/lookup", { email: e });
       } else {
@@ -74,7 +73,6 @@ export function AccountRecoveryModal({
       }
       setDone(true);
     } catch (err) {
-      // ✅ 여기서도 존재 여부 유추 가능한 메시지 노출 X
       if (err instanceof ApiError && err.status >= 500) {
         setError("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
       } else {
@@ -85,15 +83,34 @@ export function AccountRecoveryModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[80]">
+  // ✅ 배경 스크롤 잠금(상용화 UX)
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  if (!open) return null;
+  if (typeof document === "undefined") return null;
+
+  const modal = (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={resetAndClose}
         aria-label="overlay"
       />
-      <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-[520px] -translate-x-1/2 -translate-y-1/2">
+
+      <div className="relative w-full max-w-[520px]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)]">
           <div className="p-6">
             <div className="flex items-start justify-between gap-3">
@@ -208,4 +225,6 @@ export function AccountRecoveryModal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

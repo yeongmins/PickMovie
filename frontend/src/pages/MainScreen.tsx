@@ -110,12 +110,10 @@ export function MainScreen({
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  // ✅ movie/tv 충돌 방지용 keySet
   const favoriteKeySet = useMemo(() => {
     return new Set(favorites.map((f) => `${f.mediaType}:${f.id}`));
   }, [favorites]);
 
-  // (기존 MovieRow 호환 유지용) id만 뽑은 배열도 제공 가능
   const favoriteIdList = useMemo(() => favorites.map((f) => f.id), [favorites]);
 
   useEffect(() => {
@@ -262,7 +260,6 @@ export function MainScreen({
     );
   }
 
-  // 검색 필터 (검색 범위를 추천+인기영화+인기TV로만)
   const filteredContent = searchQuery
     ? [...recommendedMovies, ...popularMovies, ...popularTV].filter((m: any) =>
         (m.title || m.name || "")
@@ -274,7 +271,7 @@ export function MainScreen({
   const currentViewKey = filteredContent ? "search" : currentSection;
 
   return (
-    <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden">
+    <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden flex flex-col">
       <Suspense fallback={<div className="h-16" />}>
         <Header searchQuery={searchQuery} onSearchChange={setSearchQuery} />
       </Suspense>
@@ -291,7 +288,7 @@ export function MainScreen({
         </section>
       )}
 
-      <main className="page-fade-in pb-20">
+      <main className="page-fade-in pb-20 flex-1">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentViewKey}
@@ -307,7 +304,6 @@ export function MainScreen({
                 <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10">
                   <h2 className="text-xl mb-4">검색 결과</h2>
 
-                  {/* ✅ 여백 과다/모바일 비율 깨짐 방지: auto-fit + minmax */}
                   <div className="grid gap-4 justify-center [grid-template-columns:repeat(auto-fit,minmax(160px,240px))]">
                     {filteredContent.map((m: any) => {
                       const mt = (m.media_type || "movie") as MediaType;
@@ -335,8 +331,8 @@ export function MainScreen({
                   <MovieRow
                     title="당신을 위한 추천"
                     movies={recommendedMovies as any}
-                    favorites={favoriteIdList} // 기존 호환
-                    favoriteKeySet={favoriteKeySet} // ✅ 충돌 방지 + 정확한 하트 표시
+                    favorites={favoriteIdList}
+                    favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
@@ -437,6 +433,57 @@ export function MainScreen({
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 bg-[#111118]">
+        <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10 py-10">
+          <div className="grid gap-8 md:grid-cols-3">
+            <div>
+              <div className="text-lg font-semibold">PickMovie</div>
+              <p className="mt-2 text-sm text-white/60 leading-relaxed">
+                취향 기반 추천 + Picky AI 검색으로 지금 보고 싶은 콘텐츠를
+                빠르게 찾는 서비스입니다.
+              </p>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-white/80">
+                Data / APIs
+              </div>
+              <ul className="mt-2 space-y-2 text-sm text-white/60">
+                <li>• TMDB API (영화/TV 메타데이터, 포스터, 평점, 장르)</li>
+                <li>• Google Gemini API (Picky 자연어 취향 분석/추천 보조)</li>
+              </ul>
+
+              <div className="mt-4 text-xs text-white/40 leading-relaxed">
+                This product uses the TMDB API but is not endorsed or certified
+                by TMDB.
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold text-white/80">Contact</div>
+              <div className="mt-2 text-sm text-white/60">
+                문의:{" "}
+                <a
+                  className="text-purple-300 hover:text-purple-200 underline underline-offset-4"
+                  href="mailto:yeongmins123@gmail.com"
+                >
+                  yeongmins123@gmail.com
+                </a>
+              </div>
+              <div className="mt-3 text-xs text-white/40">
+                오류/개선 제안은 이메일로 편하게 보내주세요.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/35">
+            <span>© {new Date().getFullYear()} PickMovie</span>
+            <span>Sources: TMDB / Google Gemini</span>
+          </div>
+        </div>
+      </footer>
 
       {/* 모달 */}
       <AnimatePresence>

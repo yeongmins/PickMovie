@@ -1,12 +1,13 @@
 // backend/src/auth/auth.service.ts
 import {
+  ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   ServiceUnavailableException,
   UnauthorizedException,
-  ConflictException,
-  ForbiddenException as NestForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -35,9 +36,17 @@ type RefreshResult = {
   refreshExpiresAt: Date;
 };
 
+// ✅ 하루 제한(아이디 찾기/비번 찾기)
+type DailyCounter = { count: number; resetAt: number };
+const DAILY_LIMIT = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  // ✅ IP 기준 요청 제한용(메모리)
+  private readonly recoveryLimitMap = new Map<string, DailyCounter>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,8 +65,6 @@ export class AuthService {
   }
 
   private mailRequired(): boolean {
-    // true면 메일 발송 실패 시 회원가입 자체를 실패 처리(운영용)
-    // false면 개발환경에서 콘솔 링크로 대체(500 방지)
     const v = (
       this.config.get<string>('MAIL_REQUIRED') ?? 'false'
     ).toLowerCase();
@@ -66,6 +73,10 @@ export class AuthService {
 
   private backendUrl(): string {
     return this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3000';
+  }
+
+  private frontendUrl(): string {
+    return this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
   }
 
   private sha256(value: string): string {
@@ -80,13 +91,11 @@ export class AuthService {
     return this.jwt.sign({ sub: userId, username });
   }
 
-  // ✅ .env 키에 맞춤
   private refreshDays(): number {
     const n = Number(this.config.get<string>('JWT_REFRESH_TTL_DAYS') ?? '14');
     return Number.isFinite(n) && n > 0 ? n : 14;
   }
 
-  // ✅ .env 키에 맞춤
   private resetMinutes(): number {
     const n = Number(
       this.config.get<string>('PASSWORD_RESET_TTL_MINUTES') ?? '15',
@@ -94,7 +103,6 @@ export class AuthService {
     return Number.isFinite(n) && n > 0 ? n : 15;
   }
 
-  // ✅ 이메일 인증 TTL(선택 env). 없으면 24시간
   private emailVerifyHours(): number {
     const n = Number(this.config.get<string>('EMAIL_VERIFY_TTL_HOURS') ?? '24');
     return Number.isFinite(n) && n > 0 ? n : 24;
@@ -115,8 +123,52 @@ export class AuthService {
   }
 
   /**
-   * ✅ username만 중복 체크 (프론트 /auth/check-username 대응)
+   * ✅ 아이디(username) 마스킹
+   * - 1~2: 전부 *
+   * - 3~4: 첫 글자만 노출 + 나머지 *
+   * - 5+: 앞2 + 중간* + 뒤2
+   *   예) asdzxc123 -> as*****23
    */
+  private maskUsername(username: string): string {
+    const s = (username ?? '').trim();
+    const n = s.length;
+
+    if (n <= 0) return '';
+    if (n <= 2) return '*'.repeat(n);
+    if (n <= 4) return s[0] + '*'.repeat(n - 1);
+
+    const head = s.slice(0, 2);
+    const tail = s.slice(-2);
+    return head + '*'.repeat(n - 4) + tail;
+  }
+
+  // ✅ 하루 10회 제한(아이디 찾기/비번 찾기)
+  private enforceRecoveryDailyLimit(
+    kind: 'username_lookup' | 'password_reset',
+    ip?: string,
+  ) {
+    const safeIp = (ip || 'unknown').replace('::ffff:', '').trim() || 'unknown';
+    const key = `${kind}:${safeIp}`;
+    const now = Date.now();
+    const cur = this.recoveryLimitMap.get(key);
+
+    if (!cur || cur.resetAt <= now) {
+      this.recoveryLimitMap.set(key, { count: 1, resetAt: now + DAY_MS });
+      return;
+    }
+
+    if (cur.count >= DAILY_LIMIT) {
+      // ✅ Nest 버전에 따라 TooManyRequestsException이 없을 수 있으므로 429를 직접 던짐
+      throw new HttpException(
+        '하루 요청 가능 횟수를 초과했습니다. (10회/일)',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    cur.count += 1;
+    this.recoveryLimitMap.set(key, cur);
+  }
+
   async isUsernameAvailable(username: string): Promise<boolean> {
     const u = (username ?? '').trim();
     if (!u) return false;
@@ -129,18 +181,12 @@ export class AuthService {
     return !exists;
   }
 
-  /**
-   * ✅ 프론트 check-nickname 용
-   * - 값 하나로 username/nickname 둘 다 중복 체크
-   */
   async isNicknameAvailable(value: string): Promise<boolean> {
     const v = (value ?? '').trim();
     if (!v) return false;
 
     const exists = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ username: v }, { nickname: v }],
-      },
+      where: { OR: [{ username: v }, { nickname: v }] },
       select: { id: true },
     });
 
@@ -154,7 +200,6 @@ export class AuthService {
       Date.now() + this.emailVerifyHours() * 60 * 60 * 1000,
     );
 
-    // 기존 토큰이 많이 쌓이지 않게 만료/미사용 토큰 정리
     await this.prisma.emailVerificationToken.deleteMany({
       where: { userId, usedAt: null },
     });
@@ -165,10 +210,6 @@ export class AuthService {
     });
 
     return rawToken;
-  }
-
-  private frontendUrl(): string {
-    return this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
   }
 
   async signup(input: {
@@ -216,7 +257,6 @@ export class AuthService {
       select: { id: true, username: true, email: true, nickname: true },
     });
 
-    // ✅ 이메일이 있으면 인증메일 자동 발송 (실패해도 개발환경에서는 흐름 유지)
     if (user.email) {
       const raw = await this.issueEmailVerificationToken(user.id);
       const verifyUrl = `${this.backendUrl()}/auth/email/verify?token=${encodeURIComponent(raw)}`;
@@ -277,7 +317,6 @@ export class AuthService {
       );
     }
 
-    // ✅ 이메일이 있는 계정은 인증 완료 전 로그인 차단
     if (user.email && !user.emailVerifiedAt) {
       throw new ForbiddenException('이메일 인증이 필요합니다.');
     }
@@ -398,7 +437,6 @@ export class AuthService {
     });
   }
 
-  // ✅ 이메일 인증 메일 재발송 (메일 실패 시 500 방지 + DEV 링크 출력)
   async requestEmailVerification(email: string): Promise<void> {
     const e = (email ?? '').trim();
     if (!e) return;
@@ -408,7 +446,6 @@ export class AuthService {
       select: { id: true, email: true, emailVerifiedAt: true },
     });
 
-    // 존재여부/상태 노출 방지: 항상 성공처럼
     if (!user || !user.email) return;
     if (user.emailVerifiedAt) return;
 
@@ -437,10 +474,9 @@ export class AuthService {
     }
   }
 
-  // ✅ 이메일 인증 토큰 검증
   async verifyEmail(token: string): Promise<void> {
     const raw = (token ?? '').trim();
-    if (!raw) throw new NestForbiddenException('유효하지 않은 토큰입니다.');
+    if (!raw) throw new ForbiddenException('유효하지 않은 토큰입니다.');
 
     const tokenHash = this.sha256(raw);
 
@@ -449,11 +485,10 @@ export class AuthService {
       include: { user: { select: { id: true, emailVerifiedAt: true } } },
     });
 
-    if (!record) throw new NestForbiddenException('유효하지 않은 토큰입니다.');
-    if (record.usedAt)
-      throw new NestForbiddenException('이미 사용된 토큰입니다.');
+    if (!record) throw new ForbiddenException('유효하지 않은 토큰입니다.');
+    if (record.usedAt) throw new ForbiddenException('이미 사용된 토큰입니다.');
     if (record.expiresAt.getTime() <= Date.now())
-      throw new NestForbiddenException('만료된 토큰입니다.');
+      throw new ForbiddenException('만료된 토큰입니다.');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.emailVerificationToken.update({
@@ -461,7 +496,6 @@ export class AuthService {
         data: { usedAt: new Date() },
       });
 
-      // 이미 인증된 계정이면 덮어쓰지 않음
       if (!record.user.emailVerifiedAt) {
         await tx.user.update({
           where: { id: record.user.id },
@@ -471,7 +505,10 @@ export class AuthService {
     });
   }
 
-  async requestPasswordReset(identifier: string): Promise<void> {
+  // ✅ ip 추가(옵션) + 하루 10회 제한 적용
+  async requestPasswordReset(identifier: string, ip?: string): Promise<void> {
+    this.enforceRecoveryDailyLimit('password_reset', ip);
+
     const id = identifier.trim();
 
     const user = id.includes('@')
@@ -484,7 +521,6 @@ export class AuthService {
           select: { id: true, email: true },
         });
 
-    // user enumeration 방지: 항상 성공처럼
     if (!user || !user.email) return;
 
     const rawToken = this.newOpaqueToken(48);
@@ -497,7 +533,23 @@ export class AuthService {
 
     const resetUrl = `${this.frontendUrl()}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
-    await this.mailer.sendPasswordReset(user.email, resetUrl);
+    try {
+      await this.mailer.sendPasswordReset(user.email, resetUrl);
+    } catch (err: unknown) {
+      this.logger.error('sendPasswordReset failed', this.errToString(err));
+
+      if ((process.env.NODE_ENV ?? 'development') !== 'production') {
+        this.logger.warn(
+          `[DEV] Password reset link for ${user.email}: ${resetUrl}`,
+        );
+      }
+
+      if (this.mailRequired()) {
+        throw new ServiceUnavailableException(
+          '이메일 발송 설정이 올바르지 않습니다. 서버 MAIL 설정을 확인해주세요.',
+        );
+      }
+    }
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -535,18 +587,45 @@ export class AuthService {
     });
   }
 
-  async requestUsernameByEmail(email: string): Promise<void> {
-    const e = email.trim();
+  /**
+   * ✅ 아이디 찾기(이메일로)
+   * - 마스킹해서 안내
+   * - 메일 실패로 500 터지지 않게 처리
+   * - ✅ ip(옵션) + 하루 10회 제한 적용
+   */
+  async requestUsernameByEmail(email: string, ip?: string): Promise<void> {
+    this.enforceRecoveryDailyLimit('username_lookup', ip);
+
+    const e = (email ?? '').trim();
+    if (!e) return;
 
     const user = await this.prisma.user.findUnique({
       where: { email: e },
       select: { username: true, email: true },
     });
 
-    // user enumeration 방지
     if (!user || !user.email) return;
 
-    await this.mailer.sendUsernameHint(user.email, user.username);
+    const masked = this.maskUsername(user.username);
+    const loginUrl = `${this.frontendUrl()}/login`;
+
+    try {
+      await this.mailer.sendUsernameHint(user.email, masked, loginUrl);
+    } catch (err: unknown) {
+      this.logger.error('sendUsernameHint failed', this.errToString(err));
+
+      if ((process.env.NODE_ENV ?? 'development') !== 'production') {
+        this.logger.warn(
+          `[DEV] Username hint for ${user.email}: ${masked} (login: ${loginUrl})`,
+        );
+      }
+
+      if (this.mailRequired()) {
+        throw new ServiceUnavailableException(
+          '이메일 발송 설정이 올바르지 않습니다. 서버 MAIL 설정을 확인해주세요.',
+        );
+      }
+    }
   }
 
   async me(userId: number): Promise<SafeUser> {

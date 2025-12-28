@@ -1,6 +1,14 @@
 // frontend/src/components/layout/Header.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Sparkles, User, LogOut, UserRound } from "lucide-react";
+import {
+  Search,
+  Sparkles,
+  User,
+  LogOut,
+  UserRound,
+  ChevronDown,
+  Settings,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
@@ -40,6 +48,8 @@ function readStoredUser(): SafeUser | null {
 function getActiveSection(pathname: string) {
   if (pathname.startsWith("/favorites")) return "favorites";
   if (pathname.startsWith("/picky")) return "picky";
+  if (pathname.startsWith("/mypage")) return "mypage";
+  if (pathname.startsWith("/settings")) return "settings";
   return "home";
 }
 
@@ -70,7 +80,6 @@ export function Header({
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // ✅ 로그인/로그아웃 시 헤더 갱신
   useEffect(() => {
     const sync = () => setMe(readStoredUser());
     window.addEventListener("pickmovie-auth-changed", sync);
@@ -81,7 +90,6 @@ export function Header({
     };
   }, []);
 
-  // ✅ 바깥 클릭 / ESC 닫기
   useEffect(() => {
     if (!profileOpen) return;
 
@@ -107,13 +115,14 @@ export function Header({
     if (section === "home") return navigate("/");
     if (section === "favorites") return navigate("/favorites");
     if (section === "picky") return navigate("/picky");
+    if (section === "mypage") return navigate("/mypage");
+    if (section === "settings") return navigate("/settings");
     onNavigate?.(section);
   };
 
   const active = currentSection ?? activeSection;
 
   const displayName = (me?.nickname?.trim() || me?.username || "").trim();
-  const avatarLetter = (displayName[0] ?? "P").toUpperCase();
 
   const onLogout = async () => {
     try {
@@ -160,6 +169,8 @@ export function Header({
                 onClick={() => go("favorites")}
               />
 
+              {/* ✅ 마이페이지 Nav 제거 */}
+
               <button
                 onClick={() => go("picky")}
                 className="flex items-center gap-1.5 px-3 py-1.5 ml-2 rounded-full bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 text-sm font-medium text-purple-300 hover:text-white hover:border-purple-500/40 transition-all"
@@ -185,7 +196,6 @@ export function Header({
               />
             </div>
 
-            {/* ✅ 로그인 전/후 UI */}
             {!me ? (
               <Button
                 variant="ghost"
@@ -208,9 +218,13 @@ export function Header({
                   <span className="hidden sm:inline text-sm font-semibold">
                     {displayName}님
                   </span>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-r from-purple-500/40 to-pink-500/40 border border-white/10 text-xs font-bold text-white">
-                    {avatarLetter}
-                  </span>
+
+                  {/* ✅ 원형 제거 → 화살표만 */}
+                  <ChevronDown
+                    className={`h-4 w-4 text-white/80 transition-transform ${
+                      profileOpen ? "rotate-180" : ""
+                    }`}
+                  />
                 </button>
 
                 {profileOpen ? (
@@ -230,6 +244,7 @@ export function Header({
                         </div>
                       </div>
 
+                      {/* ✅ 메뉴 순서: 마이페이지 / 설정 / 로그아웃 */}
                       <div className="mt-4 grid gap-2">
                         <button
                           type="button"
@@ -240,6 +255,21 @@ export function Header({
                           className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white flex items-center justify-between"
                         >
                           <span>마이페이지</span>
+                          <span className="text-white/35">→</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileOpen(false);
+                            navigate("/settings");
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-2">
+                            <Settings className="h-4 w-4 text-white/70" />
+                            설정
+                          </span>
                           <span className="text-white/35">→</span>
                         </button>
 

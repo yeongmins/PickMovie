@@ -128,11 +128,6 @@ export class AuthController {
     return null;
   }
 
-  /**
-   * ✅ 프론트에서 호출하는 엔드포인트 (404 해결)
-   * - body 키가 프로젝트마다 달라서 호환되게 받음: nickname | username | value
-   * - 내부에서는 username/nickname 둘 다 중복 체크해서 안전하게 처리
-   */
   @Post('check-nickname')
   async checkNickname(
     @Body()
@@ -149,17 +144,13 @@ export class AuthController {
     return { available };
   }
 
-  // ✅ 프론트: POST /auth/check-username
   @Post('check-username')
   async checkUsername(@Body() body: { username?: string; value?: string }) {
     const v = (body?.username ?? body?.value ?? '').trim();
     const available = await this.auth.isUsernameAvailable(v);
-
-    // 프론트 구현이 어떤 키를 보든 대응 가능하게 2개 같이 반환
     return { available, isAvailable: available };
   }
 
-  // ✅ 프론트: POST /auth/register
   @Post('register')
   async register(@Body() dto: SignupDto) {
     const user = await this.auth.signup(dto);
@@ -217,7 +208,6 @@ export class AuthController {
     return { ok: true };
   }
 
-  // ✅ 이메일 인증 메일 재발송
   @Post('email/request-verification')
   async requestEmailVerification(@Body('email') email: string): Promise<ApiOk> {
     await this.auth.requestEmailVerification(email);
@@ -234,16 +224,20 @@ export class AuthController {
     return res.redirect(302, `${fe}/login?verified=1`);
   }
 
-  // ✅ 이메일 인증 토큰 검증
   @Post('email/verify')
   async verifyEmail(@Body('token') token: string): Promise<ApiOk> {
     await this.auth.verifyEmail(token);
     return { ok: true };
   }
 
+  // ✅ 비밀번호 찾기: IP 전달해서 하루 10회 제한 적용
   @Post('password/forgot')
-  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ApiOk> {
-    await this.auth.requestPasswordReset(dto.identifier);
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() req: Request,
+  ): Promise<ApiOk> {
+    const meta = this.getClientMeta(req);
+    await this.auth.requestPasswordReset(dto.identifier, meta.ip);
     return { ok: true };
   }
 
@@ -253,9 +247,14 @@ export class AuthController {
     return { ok: true };
   }
 
+  // ✅ 아이디 찾기: IP 전달해서 하루 10회 제한 적용
   @Post('username/lookup')
-  async usernameLookup(@Body() dto: UsernameLookupDto): Promise<ApiOk> {
-    await this.auth.requestUsernameByEmail(dto.email);
+  async usernameLookup(
+    @Body() dto: UsernameLookupDto,
+    @Req() req: Request,
+  ): Promise<ApiOk> {
+    const meta = this.getClientMeta(req);
+    await this.auth.requestUsernameByEmail(dto.email, meta.ip);
     return { ok: true };
   }
 
