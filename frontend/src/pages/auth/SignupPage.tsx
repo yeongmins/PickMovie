@@ -1,3 +1,4 @@
+// src/pages/auth/SignupPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { AuthLayout } from "../auth/AuthLayout";
 import { Button } from "../../components/ui/button";
+import { apiPost, ApiError } from "../../lib/apiClient";
 
 const NICKNAME_MIN = 2;
 const NICKNAME_MAX = 12;
@@ -20,26 +22,7 @@ const USERNAME_MAX = 20;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 16;
 
-const STORAGE_KEY_USERS = "pickmovie_mock_users";
-
-type MockUser = {
-  nickname: string;
-  username: string;
-};
-
-function loadUsers(): MockUser[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_USERS);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveUsers(users: MockUser[]) {
-  localStorage.setItem(STORAGE_KEY_USERS, JSON.stringify(users));
-}
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateNickname(v: string) {
   const s = v.trim();
@@ -63,6 +46,12 @@ function validateUsername(v: string) {
   return null;
 }
 
+function validateEmail(v: string) {
+  const s = v.trim();
+  if (!EMAIL_REGEX.test(s)) return "올바른 이메일 형식으로 입력해주세요.";
+  return null;
+}
+
 function validatePassword(v: string) {
   if (v.length < PASSWORD_MIN || v.length > PASSWORD_MAX) {
     return `비밀번호는 ${PASSWORD_MIN}~${PASSWORD_MAX}자입니다.`;
@@ -82,6 +71,7 @@ export function SignupPage() {
 
   const [nickname, setNickname] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState(""); // ✅ 추가
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -90,6 +80,7 @@ export function SignupPage() {
   const [usernameState, setUsernameState] = useState<DupState>("idle");
 
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const nicknameErr = useMemo(
     () => (nickname ? validateNickname(nickname) : null),
@@ -99,42 +90,62 @@ export function SignupPage() {
     () => (username ? validateUsername(username) : null),
     [username]
   );
+  const emailErr = useMemo(
+    () => (email ? validateEmail(email) : null),
+    [email]
+  ); // ✅ 추가
   const pwErr = useMemo(() => (pw ? validatePassword(pw) : null), [pw]);
   const pwMatch = pw.length > 0 && pw === pw2;
 
   useEffect(() => setNicknameState("idle"), [nickname]);
   useEffect(() => setUsernameState("idle"), [username]);
 
+  // ✅ 서버 중복 체크(엔드포인트가 없으면 available 처리해서 UX 막지 않음)
   const checkNicknameDup = async () => {
     if (nicknameErr || !nickname.trim()) return;
     setNicknameState("checking");
-    await new Promise((r) => setTimeout(r, 200));
-    const users = loadUsers();
-    const exists = users.some(
-      (u) => u.nickname.toLowerCase() === nickname.trim().toLowerCase()
-    );
-    setNicknameState(exists ? "duplicate" : "available");
+    try {
+      // 권장: POST /auth/check-nickname { nickname } -> { available: boolean }
+      const res = await apiPost<{ available: boolean }>(
+        "/auth/check-nickname",
+        {
+          nickname: nickname.trim(),
+        }
+      );
+      setNicknameState(res.available ? "available" : "duplicate");
+    } catch {
+      // 엔드포인트 없거나 네트워크 문제면 최종은 register에서 판단
+      setNicknameState("available");
+    }
   };
 
   const checkUsernameDup = async () => {
     if (usernameErr || !username.trim()) return;
     setUsernameState("checking");
-    await new Promise((r) => setTimeout(r, 200));
-    const users = loadUsers();
-    const exists = users.some(
-      (u) => u.username.toLowerCase() === username.trim().toLowerCase()
-    );
-    setUsernameState(exists ? "duplicate" : "available");
+    try {
+      // 권장: POST /auth/check-username { username } -> { available: boolean }
+      const res = await apiPost<{ available: boolean }>(
+        "/auth/check-username",
+        {
+          username: username.trim(),
+        }
+      );
+      setUsernameState(res.available ? "available" : "duplicate");
+    } catch {
+      setUsernameState("available");
+    }
   };
 
   const canSubmit = useMemo(() => {
     return (
       nickname.trim().length > 0 &&
       username.trim().length > 0 &&
+      email.trim().length > 0 && // ✅ 추가
       pw.length > 0 &&
       pw2.length > 0 &&
       !nicknameErr &&
       !usernameErr &&
+      !emailErr && // ✅ 추가
       !pwErr &&
       pwMatch &&
       nicknameState === "available" &&
@@ -143,10 +154,12 @@ export function SignupPage() {
   }, [
     nickname,
     username,
+    email,
     pw,
     pw2,
     nicknameErr,
     usernameErr,
+    emailErr,
     pwErr,
     pwMatch,
     nicknameState,
@@ -172,29 +185,56 @@ export function SignupPage() {
 
     const nErr = validateNickname(nickname);
     const uErr = validateUsername(username);
+    const eErr = validateEmail(email);
     const pErr = validatePassword(pw);
 
     if (nErr) return setError(nErr);
     if (uErr) return setError(uErr);
+    if (eErr) return setError(eErr);
     if (pErr) return setError(pErr);
     if (!pwMatch) return setError("비밀번호가 일치하지 않습니다.");
+    if (nicknameState !== "available")
+      return setError("닉네임 중복 확인을 해주세요.");
+    if (usernameState !== "available")
+      return setError("아이디 중복 확인을 해주세요.");
 
-    const users = loadUsers();
-    const nickExists = users.some(
-      (u) => u.nickname.toLowerCase() === nickname.trim().toLowerCase()
-    );
-    const userExists = users.some(
-      (u) => u.username.toLowerCase() === username.trim().toLowerCase()
-    );
-    if (nickExists) return setError("이미 사용 중인 닉네임입니다.");
-    if (userExists) return setError("이미 사용 중인 아이디입니다.");
+    setLoading(true);
+    try {
+      await apiPost("/auth/register", {
+        nickname: nickname.trim(),
+        username: username.trim(),
+        email: email.trim(),
+        password: pw,
+      });
 
-    saveUsers([
-      { nickname: nickname.trim(), username: username.trim() },
-      ...users,
-    ]);
+      navigate("/verify-email/sent", {
+        replace: true,
+        state: { email: email.trim() },
+      });
+      // frontend/src/pages/auth/SignupPage.tsx
+      // onSubmit()의 catch 블록을 아래로 교체
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // ✅ 400/409 등 서버 메시지 그대로 노출 (중복이면 "이미 사용 중..."이 그대로 보임)
+        if (err.status >= 500) {
+          setError("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        } else {
+          setError(err.message); // ⭐ 핵심
+        }
 
-    navigate("/login", { replace: true, state: { signupSuccess: true } });
+        // UX 보조: 아이디 중복이면 뱃지도 duplicate로
+        if (typeof err.message === "string" && err.message.includes("아이디")) {
+          setUsernameState("duplicate");
+        }
+        if (typeof err.message === "string" && err.message.includes("닉네임")) {
+          setNicknameState("duplicate");
+        }
+      } else {
+        setError("회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -282,6 +322,27 @@ export function SignupPage() {
           ) : null}
         </label>
 
+        {/* ✅ 이메일(디자인 동일) */}
+        <label className="block">
+          <span className="mb-2 block text-sm text-white/80">이메일</span>
+
+          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 focus-within:border-purple-400/50 focus-within:ring-2 focus-within:ring-purple-400/15">
+            <User className="text-white/45" size={18} />
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              autoComplete="email"
+              placeholder="이메일을 입력하세요"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-white/30"
+            />
+          </div>
+
+          {emailErr ? (
+            <p className="mt-1 text-xs text-red-300">{emailErr}</p>
+          ) : null}
+        </label>
+
         <label className="block">
           <span className="mb-2 block text-sm text-white/80">
             비밀번호{" "}
@@ -353,10 +414,10 @@ export function SignupPage() {
 
         <Button
           type="submit"
-          disabled={!canSubmit}
+          disabled={!canSubmit || loading}
           className="pick-cta text-md w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed border-none transition-opacity"
         >
-          회원가입
+          {loading ? "가입 중..." : "회원가입"}
         </Button>
       </form>
     </AuthLayout>

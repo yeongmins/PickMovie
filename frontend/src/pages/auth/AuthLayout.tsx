@@ -1,4 +1,5 @@
-import React from "react";
+// src/pages/auth/AuthLayout.tsx
+import React from "react"; 
 import { Link } from "react-router-dom";
 import { Logo } from "../../components/icons/Logo";
 

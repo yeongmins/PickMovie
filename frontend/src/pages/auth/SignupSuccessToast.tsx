@@ -1,3 +1,4 @@
+// src/pages/auth/SignupSuccessToast.tsx
 import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PartyPopper } from "lucide-react";
@@ -6,9 +7,15 @@ type Props = {
   open: boolean;
   onClose: () => void;
   durationMs?: number;
+  message?: string;
 };
 
-export function AuthSuccessModal({ open, onClose, durationMs = 2500 }: Props) {
+export function AuthSuccessModal({
+  open,
+  onClose,
+  durationMs = 2500,
+  message = "회원가입을 축하합니다! 로그인 후 PickMovie를 시작해보세요.",
+}: Props) {
   useEffect(() => {
     if (!open) return;
     const t = window.setTimeout(onClose, durationMs);
@@ -33,9 +40,7 @@ export function AuthSuccessModal({ open, onClose, durationMs = 2500 }: Props) {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
               <PartyPopper className="h-5 w-5 text-white" />
             </div>
-            <div className="text-sm text-white/90">
-              회원가입을 축하합니다! 로그인 후 PickMovie를 시작해보세요.
-            </div>
+            <div className="text-sm text-white/90">{message}</div>
           </button>
         </motion.div>
       )}

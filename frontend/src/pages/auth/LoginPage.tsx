@@ -1,3 +1,4 @@
+// frontend/src/pages/auth/LoginPage.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -10,13 +11,20 @@ import {
   Circle,
 } from "lucide-react";
 import { AuthLayout } from "../auth/AuthLayout";
-import { AuthSuccessModal } from "./SignupSuccessToast.tsx";
+import { AuthSuccessModal } from "./SignupSuccessToast";
 import { Button } from "../../components/ui/button";
+import { apiPost, ApiError } from "../../lib/apiClient";
+import { AccountRecoveryModal } from "./AccountRecoveryModal";
 
 const USERNAME_MIN = 5;
 const USERNAME_MAX = 20;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 16;
+
+const AUTH_STORAGE = {
+  ACCESS: "pickmovie_access_token",
+  USER: "pickmovie_user",
+} as const;
 
 function validateUsername(v: string) {
   const s = v.trim();
@@ -40,6 +48,18 @@ type LocationState = {
   signupSuccess?: boolean;
 };
 
+type SafeUser = {
+  id: number;
+  username: string;
+  email: string | null;
+  nickname: string | null;
+};
+
+type LoginResponse = {
+  user: SafeUser;
+  accessToken: string;
+};
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -52,14 +72,57 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [successOpen, setSuccessOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | undefined>(
+    undefined
+  );
 
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState<"id" | "password">(
+    "password"
+  );
+
+  const [loading, setLoading] = useState(false);
+
+  // ✅ 1) SignupPage에서 state로 넘어온 성공 모달 유지
   useEffect(() => {
     if (state.signupSuccess) {
+      setSuccessMessage(
+        "회원가입을 축하합니다! 이메일 인증 후 로그인해보세요."
+      );
       setSuccessOpen(true);
       navigate("/login", { replace: true, state: {} });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ✅ 2) 이메일 인증 링크 클릭 후 리다이렉트(/login?verified=1) 처리
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const verified = params.get("verified");
+
+    if (!verified) return;
+
+    if (verified === "1") {
+      setSuccessMessage(
+        "이메일 인증이 완료되었습니다. 이제 로그인할 수 있어요!"
+      );
+      setSuccessOpen(true);
+    } else {
+      setError("이메일 인증 링크가 만료되었거나 이미 사용되었습니다.");
+    }
+
+    // ✅ 쿼리 제거(새로고침 시 반복 방지)
+    params.delete("verified");
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+      },
+      { replace: true, state: {} }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
   const usernameErr = useMemo(
     () => (username ? validateUsername(username) : null),
@@ -74,7 +137,7 @@ export function LoginPage() {
     return !!username.trim() && !!password && !usernameErr && !passwordErr;
   }, [username, password, usernameErr, passwordErr]);
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -83,11 +146,49 @@ export function LoginPage() {
     if (uErr) return setError(uErr);
     if (pErr) return setError(pErr);
 
-    console.log("[LOGIN]", { username: username.trim(), password, remember });
+    setLoading(true);
+    try {
+      const data = await apiPost<LoginResponse>("/auth/login", {
+        username: username.trim(),
+        password,
+        rememberMe: remember,
+      });
+
+      // ✅ 로그인 상태 저장(헤더 닉네임 표시/마이페이지 접근 등에 사용)
+      localStorage.setItem(AUTH_STORAGE.ACCESS, data.accessToken);
+      localStorage.setItem(AUTH_STORAGE.USER, JSON.stringify(data.user));
+
+      // ✅ 이벤트는 둘 다 쏴서(기존/신규 헤더) 호환
+      window.dispatchEvent(new Event("pickmovie:auth"));
+      window.dispatchEvent(new Event("pickmovie-auth-changed"));
+
+      navigate("/", { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 403) {
+          setError("이메일 인증이 필요합니다. 메일함을 확인해주세요.");
+        } else if (err.status >= 500) {
+          setError("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        } else {
+          setError("아이디 또는 비밀번호가 올바르지 않습니다.");
+        }
+      } else {
+        setError("로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const onFindPassword = () => console.log("TODO: 비밀번호 찾기");
-  const onFindId = () => console.log("TODO: 아이디 찾기");
+  const onFindPassword = () => {
+    setRecoveryMode("password");
+    setRecoveryOpen(true);
+  };
+
+  const onFindId = () => {
+    setRecoveryMode("id");
+    setRecoveryOpen(true);
+  };
 
   return (
     <>
@@ -98,18 +199,18 @@ export function LoginPage() {
           <div className="text-sm text-white/65">
             <button
               type="button"
-              onClick={onFindPassword}
-              className="hover:text-white hover:underline underline-offset-4"
-            >
-              비밀번호 찾기
-            </button>
-            <span className="mx-3 text-white/25">|</span>
-            <button
-              type="button"
               onClick={onFindId}
               className="hover:text-white hover:underline underline-offset-4"
             >
               아이디 찾기
+            </button>
+            <span className="mx-3 text-white/25">|</span>
+            <button
+              type="button"
+              onClick={onFindPassword}
+              className="hover:text-white hover:underline underline-offset-4"
+            >
+              비밀번호 찾기
             </button>
             <span className="mx-3 text-white/25">|</span>
             <Link
@@ -122,7 +223,6 @@ export function LoginPage() {
         }
       >
         <form onSubmit={onSubmit} className="space-y-5">
-          {/* Username */}
           <label className="block">
             <span className="mb-2 block text-sm text-white/80">
               아이디{" "}
@@ -146,7 +246,6 @@ export function LoginPage() {
             ) : null}
           </label>
 
-          {/* Password */}
           <label className="block">
             <span className="mb-2 block text-sm text-white/80">
               비밀번호{" "}
@@ -177,7 +276,6 @@ export function LoginPage() {
               <p className="mt-1 text-xs text-red-300">{passwordErr}</p>
             ) : null}
 
-            {/* ✅ 흰 체크박스 제거 -> 아이콘 토글 */}
             <div className="mt-3 flex items-center justify-between">
               <button
                 type="button"
@@ -202,13 +300,12 @@ export function LoginPage() {
             </div>
           ) : null}
 
-          {/* ✅ 버튼 스타일 통일 */}
           <Button
             type="submit"
-            disabled={!canSubmit}
+            disabled={!canSubmit || loading}
             className="pick-cta text-md w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed border-none transition-opacity"
           >
-            로그인
+            {loading ? "로그인 중..." : "로그인"}
           </Button>
         </form>
       </AuthLayout>
@@ -216,6 +313,14 @@ export function LoginPage() {
       <AuthSuccessModal
         open={successOpen}
         onClose={() => setSuccessOpen(false)}
+        message={successMessage}
+      />
+
+      <AccountRecoveryModal
+        open={recoveryOpen}
+        mode={recoveryMode}
+        onClose={() => setRecoveryOpen(false)}
+        onSwitchMode={(m) => setRecoveryMode(m)}
       />
     </>
   );

@@ -8,13 +8,14 @@ import React, {
   Suspense,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowUp, User, X, Sparkles, RefreshCcw } from "lucide-react";
+import { ArrowUp, X, Sparkles, RefreshCcw } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
 import type { FavoriteItem } from "../App";
 import type { ModalMovie } from "../features/movies/components/MovieDetailModal";
 import { getPosterUrl } from "../lib/tmdb";
 
+import { Header } from "../components/layout/Header"; // ✅ 공통 Header 적용
 import { ContentCard } from "../components/content/ContentCard";
 
 import { pickRandomKeywords } from "../features/picky/data/keywordPool";
@@ -63,38 +64,44 @@ function yearFromItem(item: {
 function toKey(id: number, mediaType?: MediaType): FavoriteKey {
   const mt: MediaType = mediaType === "tv" ? "tv" : "movie";
   return `${mt}:${id}`;
+}
 
-  // 예시: PickyPage 상단 (원하는 파일에 적용)
-  function AiInsight({
-    aiSummary,
-    analysis,
-  }: {
-    aiSummary: string;
-    analysis: any;
-  }) {
-    if (!analysis) return null;
-    return (
-      <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="text-sm opacity-80">Picky AI 분석</div>
-        <div className="mt-1 text-base">{aiSummary}</div>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
+// ✅ (원래 코드에서 toKey 안에 들어가 있던 버그 수정) AI 인사이트 컴포넌트
+function AiInsight({ analysis }: { analysis: AiAnalysis | null }) {
+  if (!analysis) return null;
+
+  const a: any = analysis as any;
+  const aiSummary: string = (
+    a.aiSummary ??
+    a.summary ??
+    a.message ??
+    ""
+  ).toString();
+
+  return (
+    <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="text-sm opacity-80">Picky AI 분석</div>
+      {aiSummary ? <div className="mt-1 text-base">{aiSummary}</div> : null}
+
+      <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
+        <span className="rounded-full bg-white/10 px-2 py-1">
+          신뢰도 {Math.round(safeNum(a.confidence, 0.5) * 100)}%
+        </span>
+        {a.yearFrom && a.yearTo ? (
           <span className="rounded-full bg-white/10 px-2 py-1">
-            신뢰도 {Math.round((analysis.confidence ?? 0.5) * 100)}%
+            {a.yearFrom}~{a.yearTo}
           </span>
-          {analysis.yearFrom && analysis.yearTo ? (
-            <span className="rounded-full bg-white/10 px-2 py-1">
-              {analysis.yearFrom}~{analysis.yearTo}
-            </span>
-          ) : null}
-          {(analysis.includeKeywords || []).slice(0, 5).map((k: string) => (
+        ) : null}
+        {(Array.isArray(a.includeKeywords) ? a.includeKeywords : [])
+          .slice(0, 5)
+          .map((k: string) => (
             <span key={k} className="rounded-full bg-white/10 px-2 py-1">
               {k}
             </span>
           ))}
-        </div>
       </div>
-    );
-  }
+    </div>
+  );
 }
 
 export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
@@ -162,7 +169,6 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
   const clearSessionPicks = () => {
     setSessionPicked((prev) => {
       prev.forEach((mt, key) => {
-        // 현재 즐겨찾기(찜)에 들어있는 것만 다시 토글해서 제거
         if (favoriteKeySet.has(key)) {
           const id = Number(String(key).split(":")[1]);
           if (Number.isFinite(id)) onToggleFavorite(id, mt);
@@ -312,41 +318,11 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
       transition={{ duration: 0.25 }}
       className="min-h-screen bg-[#131314] text-white flex flex-col font-sans overflow-x-hidden relative"
     >
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 py-5 flex items-center justify-between w-full backdrop-blur-xl bg-[#131314]/70 border-b border-white/5">
-        <div
-          className={`${shellClass} flex items-center justify-between gap-6`}
-        >
-          <div className="flex items-center gap-6">
-            <button
-              onClick={() => window.location.reload()}
-              className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
-              aria-label="Picky 새로고침"
-            >
-              Picky
-            </button>
-            <div className="h-5 w-[1px] bg-white/10" />
-            <button
-              onClick={() => navigate("/")}
-              className="text-xl font-bold text-gray-300 hover:text-white transition-colors"
-              aria-label="PickMovie 홈으로 이동"
-            >
-              PickMovie
-            </button>
-          </div>
+      {/* ✅ 공통 Header */}
+      <Header searchQuery={query} onSearchChange={setQuery} />
 
-          <button
-            onClick={() => navigate("/login")}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 text-sm font-medium text-gray-300 hover:text-white transition-all border border-white/5 hover:border-white/20"
-            aria-label="로그인"
-          >
-            <User className="w-4 h-4" />
-            <span>로그인</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="h-[84px] shrink-0" />
+      {/* Header가 fixed라서 spacer */}
+      <div className="h-16 shrink-0" />
 
       <AnimatePresence mode="wait">
         {/* Start */}
@@ -528,7 +504,7 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
             </div>
 
             {/* Title / tags */}
-            <div className="mb-10 text-center">
+            <div className="mb-8 text-center">
               <div className="inline-block px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-sm mb-4">
                 ✨ Picky's Choice
               </div>
@@ -551,6 +527,9 @@ export function PickyPage({ favorites, onToggleFavorite }: PickyPageProps) {
                 총 {results.length}개의 추천 결과
               </p>
             </div>
+
+            {/* ✅ AI 분석 카드 */}
+            <AiInsight analysis={aiAnalysis} />
 
             {results.length === 0 ? (
               <div className="bg-white/5 border border-white/10 rounded-2xl p-10 text-center">

@@ -1,13 +1,12 @@
 // frontend/src/components/layout/Header.tsx
-
-import { useEffect, useMemo, useState } from "react";
-import { Search, Sparkles, User } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, Sparkles, User, LogOut, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
+import { apiPost } from "../../lib/apiClient";
 
 export interface HeaderProps {
-  // ✅ 기존 코드 호환용(있어도 되고 없어도 됨)
   onNavigate?: (section: string) => void;
   currentSection?: string;
 
@@ -16,9 +15,29 @@ export interface HeaderProps {
   onOpenAI?: () => void;
 }
 
+type SafeUser = {
+  id: number;
+  username: string;
+  email: string | null;
+  nickname: string | null;
+};
+
+const AUTH_KEYS = {
+  ACCESS: "pickmovie_access_token",
+  USER: "pickmovie_user",
+} as const;
+
+function readStoredUser(): SafeUser | null {
+  try {
+    const raw = localStorage.getItem(AUTH_KEYS.USER);
+    if (!raw) return null;
+    return JSON.parse(raw) as SafeUser;
+  } catch {
+    return null;
+  }
+}
+
 function getActiveSection(pathname: string) {
-  // ✅ Header 메뉴는 홈/찜/피키만 있으므로
-  // 인기 영화/TV 페이지도 "홈" 활성으로 취급 (디자인 유지 + UX 자연스러움)
   if (pathname.startsWith("/favorites")) return "favorites";
   if (pathname.startsWith("/picky")) return "picky";
   return "home";
@@ -31,6 +50,11 @@ export function Header({
   onSearchChange,
 }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
+  const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -46,22 +70,66 @@ export function Header({
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // ✅ 로그인/로그아웃 시 헤더 갱신
+  useEffect(() => {
+    const sync = () => setMe(readStoredUser());
+    window.addEventListener("pickmovie-auth-changed", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("pickmovie-auth-changed", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  // ✅ 바깥 클릭 / ESC 닫기
+  useEffect(() => {
+    if (!profileOpen) return;
+
+    const onDown = (e: MouseEvent) => {
+      const el = popoverRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target))
+        setProfileOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false);
+    };
+
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [profileOpen]);
+
   const go = (section: string) => {
-    // ✅ Header가 라우팅 담당
     if (section === "home") return navigate("/");
     if (section === "favorites") return navigate("/favorites");
     if (section === "picky") return navigate("/picky");
-
-    // 혹시 다른 메뉴가 추가됐을 때만 fallback
     onNavigate?.(section);
   };
 
   const active = currentSection ?? activeSection;
 
+  const displayName = (me?.nickname?.trim() || me?.username || "").trim();
+  const avatarLetter = (displayName[0] ?? "P").toUpperCase();
+
+  const onLogout = async () => {
+    try {
+      await apiPost("/auth/logout", {});
+    } finally {
+      localStorage.removeItem(AUTH_KEYS.ACCESS);
+      localStorage.removeItem(AUTH_KEYS.USER);
+      window.dispatchEvent(new Event("pickmovie-auth-changed"));
+      setProfileOpen(false);
+      navigate("/", { replace: true });
+    }
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full">
       <div className="relative w-full px-6 h-16 flex items-center justify-between">
-        {/* ✅ 배경 2장을 겹쳐서 opacity만 전환(갑툭튀 제거) */}
         <div
           className="absolute inset-0 bg-gradient-to-b from-black/50 to-transparent transition-opacity duration-300"
           style={{ opacity: scrolled ? 0 : 1 }}
@@ -73,7 +141,6 @@ export function Header({
           aria-hidden="true"
         />
 
-        {/* content */}
         <div className="relative z-10 w-full flex items-center justify-between">
           {/* 좌측 */}
           <div className="flex items-center gap-8 h-full">
@@ -118,15 +185,81 @@ export function Header({
               />
             </div>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-gray-300 hover:text-white hover:bg-white/10 gap-2 h-9 px-4 rounded-full"
-              onClick={() => navigate("/login")}
-            >
-              <User className="w-4 h-4" />
-              <span className="hidden sm:inline font-medium">로그인</span>
-            </Button>
+            {/* ✅ 로그인 전/후 UI */}
+            {!me ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-gray-300 hover:text-white hover:bg-white/10 gap-2 h-9 px-4 rounded-full"
+                onClick={() => navigate("/login")}
+              >
+                <User className="w-4 h-4" />
+                <span className="hidden sm:inline font-medium">로그인</span>
+              </Button>
+            ) : (
+              <div className="relative" ref={popoverRef}>
+                <button
+                  type="button"
+                  onClick={() => setProfileOpen((v) => !v)}
+                  className="flex items-center gap-2 h-9 px-3 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-white/85"
+                  aria-haspopup="dialog"
+                  aria-expanded={profileOpen}
+                >
+                  <span className="hidden sm:inline text-sm font-semibold">
+                    {displayName}님
+                  </span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-r from-purple-500/40 to-pink-500/40 border border-white/10 text-xs font-bold text-white">
+                    {avatarLetter}
+                  </span>
+                </button>
+
+                {profileOpen ? (
+                  <div className="absolute right-0 mt-2 w-[260px] rounded-2xl border border-white/10 bg-black/70 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] overflow-hidden">
+                    <div className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+                          <UserRound className="h-5 w-5 text-white/80" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate">
+                            {displayName}님
+                          </div>
+                          <div className="text-xs text-white/50 truncate">
+                            {me.email ?? "이메일 미등록"}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileOpen(false);
+                            navigate("/mypage");
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white flex items-center justify-between"
+                        >
+                          <span>마이페이지</span>
+                          <span className="text-white/35">→</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={onLogout}
+                          className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-2">
+                            <LogOut className="h-4 w-4 text-white/70" />
+                            로그아웃
+                          </span>
+                          <span className="text-white/35">→</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </div>
