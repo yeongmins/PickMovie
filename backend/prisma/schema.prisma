@@ -125,3 +125,55 @@ model EmailVerificationToken {
   usedAt    DateTime?
   createdAt DateTime @default(now())
 }
+
+enum TrendSource {
+  kobis
+  youtube
+  naver
+  netflix
+}
+
+enum TrendMediaType {
+  movie
+  tv
+  anime
+  unknown
+}
+
+model TrendSeed {
+  id        Int           @id @default(autoincrement())
+  keyword   String
+  source    TrendSource
+  mediaType TrendMediaType @default(unknown)
+
+  tmdbId    Int?
+  year      Int?
+  raw       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ranks     TrendRank[]
+
+  @@unique([keyword, source, mediaType])
+  @@index([source, mediaType])
+  @@index([updatedAt])
+}
+
+model TrendRank {
+  id        Int      @id @default(autoincrement())
+  seedId    Int
+  seed      TrendSeed @relation(fields: [seedId], references: [id], onDelete: Cascade)
+
+  // ✅ 타임존 꼬임 방지용: YYYYMMDD 문자열(정렬도 그대로 먹힘)
+  date      String   // e.g. "20251229"
+
+  rank      Int
+  score     Float
+  breakdown Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([seedId, date])
+  @@index([date, score])
+}
