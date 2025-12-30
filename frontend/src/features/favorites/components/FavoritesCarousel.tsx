@@ -116,6 +116,12 @@ const getDisplayTitle = (movie: any) => {
   );
 };
 
+function isKoreanTitle(movie: any): boolean {
+  const t = String(getDisplayTitle(movie) || "").trim();
+  if (!t || t === "제목 정보 없음") return false;
+  return /[가-힣]/.test(t);
+}
+
 function inferMediaType(item: any): MediaType {
   if (item?.media_type === "tv") return "tv";
   if (item?.media_type === "movie") return "movie";
@@ -257,13 +263,159 @@ function daysDiff(a: Date, b: Date) {
   return ax - bx;
 }
 
+// =========================
+// ✅ now_playing/upcoming ID Set 캐시
+// =========================
+
+type ScreeningSets = {
+  nowPlaying: Set<number>;
+  upcoming: Set<number>;
+  fetchedAt: number;
+};
+
+let screeningCache: ScreeningSets | null = null;
+let screeningInFlight: Promise<ScreeningSets> | null = null;
+
+async function loadScreeningSets(): Promise<ScreeningSets> {
+  const OK_TTL = 30 * 60 * 1000;
+  const now = Date.now();
+
+  if (screeningCache && now - screeningCache.fetchedAt < OK_TTL) {
+    return screeningCache;
+  }
+  if (screeningInFlight) return screeningInFlight;
+
+  const PAGES = 5;
+
+  screeningInFlight = (async () => {
+    const pages = Array.from({ length: PAGES }, (_, i) => i + 1);
+
+    const [nowPlayingResList, upcomingResList] = await Promise.all([
+      Promise.all(
+        pages.map((page) =>
+          apiGet<{ results: Array<{ id: number }> }>("/movies/now_playing", {
+            page,
+            region: "KR",
+            language: "ko-KR",
+          }).catch(() => ({ results: [] }))
+        )
+      ),
+      Promise.all(
+        pages.map((page) =>
+          apiGet<{ results: Array<{ id: number }> }>("/movies/upcoming", {
+            page,
+            region: "KR",
+            language: "ko-KR",
+          }).catch(() => ({ results: [] }))
+        )
+      ),
+    ]);
+
+    const nowSet = new Set<number>();
+    const upSet = new Set<number>();
+
+    for (const r of nowPlayingResList) {
+      for (const it of r?.results ?? []) {
+        if (typeof it?.id === "number") nowSet.add(it.id);
+      }
+    }
+    for (const r of upcomingResList) {
+      for (const it of r?.results ?? []) {
+        if (typeof it?.id === "number") upSet.add(it.id);
+      }
+    }
+
+    screeningCache = {
+      nowPlaying: nowSet,
+      upcoming: upSet,
+      fetchedAt: Date.now(),
+    };
+    screeningInFlight = null;
+    return screeningCache;
+  })().catch((e) => {
+    screeningInFlight = null;
+    throw e;
+  });
+
+  return screeningInFlight;
+}
+
+// =========================
+// ✅ OTT 전용이면 "상영중" 제거 (TMDB release_dates direct)
+// =========================
+
+const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
+  | string
+  | undefined;
+
+const TMDB_DIRECT_BASE =
+  (import.meta as any)?.env?.VITE_TMDB_BASE_URL ||
+  "https://api.themoviedb.org/3";
+
+const _ottOnlyCache = new Map<string, boolean>();
+const _ottOnlyInFlight = new Map<string, Promise<boolean>>();
+
+async function tmdbDirectFetch(path: string) {
+  if (!TMDB_API_KEY) return null;
+  const url = new URL(`${TMDB_DIRECT_BASE}${path}`);
+  url.searchParams.set("api_key", TMDB_API_KEY);
+  const res = await fetch(url.toString());
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+async function isOttOnlyMovie(
+  id: number,
+  region: string = "KR"
+): Promise<boolean> {
+  if (!TMDB_API_KEY) return false;
+
+  const key = `${id}:${region}`;
+  if (_ottOnlyCache.has(key)) return _ottOnlyCache.get(key)!;
+
+  const inflight = _ottOnlyInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    const json = await tmdbDirectFetch(`/movie/${id}/release_dates`);
+    const results = Array.isArray(json?.results) ? json.results : [];
+    const block = results.find((r: any) => r?.iso_3166_1 === region);
+    const dates = Array.isArray(block?.release_dates)
+      ? block.release_dates
+      : [];
+
+    const types: number[] = dates
+      .map((d: any) => d?.type)
+      .filter((t: any) => typeof t === "number");
+
+    const hasTheatrical = types.some((t) => t === 2 || t === 3);
+    const hasDigital = types.some((t) => t === 4);
+
+    const ottOnly = !hasTheatrical && hasDigital;
+    _ottOnlyCache.set(key, ottOnly);
+    return ottOnly;
+  })()
+    .catch(() => {
+      _ottOnlyCache.set(key, false);
+      return false;
+    })
+    .finally(() => {
+      _ottOnlyInFlight.delete(key);
+    });
+
+  _ottOnlyInFlight.set(key, p);
+  return p;
+}
+
 /**
  * - 영화: "상영중" / "상영예정"만 표시
  * - TV/OTT: "상영예정"만 표시(그 외는 표시 X)
  */
 function getAiringChip(
   item: Movie,
-  metaNowPlaying?: boolean
+  metaNowPlaying: boolean | undefined,
+  sets: ScreeningSets | null,
+  ottOnly: boolean
 ): { label: string; tone: "green" | "blue" } | null {
   const mt = inferMediaType(item);
 
@@ -273,6 +425,12 @@ function getAiringChip(
   const today = new Date();
 
   if (mt === "movie") {
+    const inNowPlaying = !!sets?.nowPlaying?.has(item.id);
+    const inUpcoming = !!sets?.upcoming?.has(item.id);
+
+    if (inNowPlaying && !ottOnly) return NOW;
+    if (inUpcoming) return UPCOMING;
+
     const rel = parseYmdToDate(item.release_date);
 
     const hasExplicit =
@@ -284,14 +442,13 @@ function getAiringChip(
       const diff = daysDiff(today, rel);
       if (diff < 0) return UPCOMING;
 
-      if (hasExplicit) return explicitNow ? NOW : null;
+      if (hasExplicit) return explicitNow && !ottOnly ? NOW : null;
 
-      // 플래그 없으면 휴리스틱(최근 90일 = 상영중 추정)
       const likelyNowPlaying = diff <= 90;
-      return likelyNowPlaying ? NOW : null;
+      return likelyNowPlaying && !ottOnly ? NOW : null;
     }
 
-    if (hasExplicit) return explicitNow ? NOW : null;
+    if (hasExplicit) return explicitNow && !ottOnly ? NOW : null;
     return null;
   }
 
@@ -347,6 +504,12 @@ export function FavoritesCarousel({
     isNowPlaying?: boolean;
   } | null>(null);
 
+  const [screening, setScreening] = useState<ScreeningSets | null>(() => {
+    return screeningCache ?? null;
+  });
+
+  const [heroOttOnly, setHeroOttOnly] = useState(false);
+
   // ✅ auth 변경 감지
   useEffect(() => {
     const sync = () => setLoggedIn(isLoggedInFallback());
@@ -355,6 +518,25 @@ export function FavoritesCarousel({
     return () => {
       window.removeEventListener(AUTH_EVENT, sync);
       window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  // ✅ screening sets 로드
+  useEffect(() => {
+    let mounted = true;
+
+    loadScreeningSets()
+      .then((s) => {
+        if (!mounted) return;
+        setScreening(s);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setScreening((prev) => prev ?? null);
+      });
+
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -435,7 +617,8 @@ export function FavoritesCarousel({
   }, [loggedIn]);
 
   const activeMovies = useMemo(() => {
-    return loggedIn ? movies : trendMovies;
+    const raw = loggedIn ? movies : trendMovies;
+    return (Array.isArray(raw) ? raw : []).filter(isKoreanTitle);
   }, [loggedIn, movies, trendMovies]);
 
   const currentMovie: Movie | null = useMemo(() => {
@@ -573,6 +756,47 @@ export function FavoritesCarousel({
     };
   }, [metaKey, needsMeta, currentMovie]);
 
+  // ✅ hero: OTT 전용이면 상영중 제거
+  useEffect(() => {
+    let mounted = true;
+
+    if (!currentMovie) {
+      setHeroOttOnly(false);
+      return;
+    }
+
+    const mt = inferMediaType(currentMovie);
+    if (mt !== "movie") {
+      setHeroOttOnly(false);
+      return;
+    }
+
+    const inNowPlaying = !!screening?.nowPlaying?.has(currentMovie.id);
+    const explicitNow =
+      currentMovie.isNowPlaying === true || heroMeta?.isNowPlaying === true;
+
+    if (!inNowPlaying && !explicitNow) {
+      setHeroOttOnly(false);
+      return;
+    }
+
+    const key = `${currentMovie.id}:KR`;
+    const cached = _ottOnlyCache.get(key);
+    if (typeof cached === "boolean") {
+      setHeroOttOnly(cached);
+      return;
+    }
+
+    isOttOnlyMovie(currentMovie.id, "KR").then((v) => {
+      if (!mounted) return;
+      setHeroOttOnly(v);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [currentMovie, screening, heroMeta?.isNowPlaying]);
+
   // ===== 렌더 =====
 
   if (activeMovies.length === 0) {
@@ -646,7 +870,12 @@ export function FavoritesCarousel({
   const showAge = ageValue !== "—";
 
   const typeText = typeLabelOf(currentMovie);
-  const airingChip = getAiringChip(currentMovie, heroMeta?.isNowPlaying);
+  const airingChip = getAiringChip(
+    currentMovie,
+    heroMeta?.isNowPlaying,
+    screening,
+    heroOttOnly
+  );
 
   const hasBackdrop = !!(
     currentMovie.backdrop_path || currentMovie.poster_path
@@ -719,7 +948,6 @@ export function FavoritesCarousel({
                 {getDisplayTitle(currentMovie)}
               </h1>
 
-              {/* ✅ 요청: 배지/메타를 '출시년도 바로 오른쪽'에 배치 */}
               <div className="flex items-center gap-4 mb-4 text-sm carousel-middle">
                 <div className="flex items-center gap-1 shrink-0">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
@@ -734,7 +962,6 @@ export function FavoritesCarousel({
                   </span>
                 )}
 
-                {/* meta 영역: year 오른쪽에 붙어서, 길면 가로 스크롤 */}
                 <div className="min-w-0 flex-1 overflow-x-auto">
                   <div className="flex items-center gap-2 flex-nowrap w-max">
                     <Chip tone="dark">{typeText}</Chip>

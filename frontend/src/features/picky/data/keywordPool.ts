@@ -97,6 +97,19 @@ function shuffle<T>(arr: T[]) {
   return a;
 }
 
-export function pickRandomKeywords(count = 8) {
-  return shuffle(KEYWORD_POOL).slice(0, count);
+/**
+ * ✅ extra(트렌드 키워드 등)를 섞어서 랜덤 픽
+ */
+export function pickRandomKeywords(count = 8, extra?: string[]) {
+  const merged = [
+    ...KEYWORD_POOL,
+    ...(Array.isArray(extra) ? extra.filter(Boolean) : []),
+  ];
+
+  // 중복 제거 + trim
+  const uniq = Array.from(new Set(merged.map((s) => String(s).trim()))).filter(
+    Boolean
+  );
+
+  return shuffle(uniq).slice(0, count);
 }

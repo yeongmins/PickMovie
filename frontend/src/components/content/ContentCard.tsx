@@ -1,4 +1,4 @@
-// src/components/content/ContentCard.tsx
+// frontend/src/components/content/ContentCard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
@@ -36,7 +36,7 @@ export type ContentCardItem = {
 
   isNowPlaying?: boolean;
 
-  // ✅ 추가: 상영 예정(페이지에서 명시적으로 주면 최우선)
+  // ✅ 상영 예정(페이지에서 명시적으로 주면 최우선)
   isUpcoming?: boolean;
 
   providers?: ProviderBadge[];
@@ -44,6 +44,16 @@ export type ContentCardItem = {
   ageRating?: string;
 
   matchScore?: number;
+
+  // ✅ 트렌드 배지(메인/트렌드 Row에서 주입)
+  trendRank?: number;
+  trendScore?: number;
+
+  // ✅ 추천 이유(선택)
+  recommendReason?: string;
+
+  // ✅ 매칭 배지를 picky 외 화면에서도 보여주고 싶을 때
+  showMatchBadge?: boolean;
 };
 
 export type ContentCardProps = {
@@ -58,8 +68,7 @@ export type ContentCardProps = {
 
   className?: string;
 
-  // ✅ 추가: 로그인 안 하면 하트 숨김
-  // - 페이지에서 명시적으로 제어하고 싶으면 이 값 넘기면 됨
+  // ✅ 로그인 안 하면 하트 숨김
   canFavorite?: boolean;
 };
 
@@ -67,25 +76,18 @@ const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-// ✅ metaCache 확장: isNowPlaying + isUpcoming 포함
-const metaCache = new Map<
-  string,
-  {
-    providers: ProviderBadge[];
-    ageRating: string;
-    isNowPlaying?: boolean;
-    isUpcoming?: boolean;
-  }
->();
-const inflight = new Map<
-  string,
-  Promise<{
-    providers: ProviderBadge[];
-    ageRating: string;
-    isNowPlaying?: boolean;
-    isUpcoming?: boolean;
-  }>
->();
+// ✅ metaCache: 성공/실패 캐시 + TTL(실패 영구 고정 방지)
+type MetaPayload = {
+  providers: ProviderBadge[];
+  ageRating: string;
+  isNowPlaying?: boolean;
+  isUpcoming?: boolean;
+  fetchedAt: number;
+  isError?: boolean;
+};
+
+const metaCache = new Map<string, MetaPayload>();
+const inflight = new Map<string, Promise<MetaPayload>>();
 
 const AUTH_KEYS = {
   ACCESS: "pickmovie_access_token",
@@ -111,6 +113,12 @@ function getDisplayTitle(item: ContentCardItem) {
     item.original_name ||
     "제목 정보 없음"
   );
+}
+
+function isKoreanTitle(item: ContentCardItem): boolean {
+  const t = String(getDisplayTitle(item) || "").trim();
+  if (!t || t === "제목 정보 없음") return false;
+  return /[가-힣]/.test(t);
 }
 
 function inferMediaType(item: ContentCardItem): MediaType {
@@ -211,7 +219,6 @@ function pickAgeFromResponse(r: any): string {
   return s || "—";
 }
 
-// ✅ meta 응답에서 상영중 플래그 추출(있으면 정확하게 사용)
 function pickNowPlayingFromResponse(r: any): boolean | undefined {
   const v =
     r?.isNowPlaying ??
@@ -230,7 +237,6 @@ function pickNowPlayingFromResponse(r: any): boolean | undefined {
   return undefined;
 }
 
-// ✅ meta 응답에서 상영 예정 플래그 추출(있으면 정확하게 사용)
 function pickUpcomingFromResponse(r: any): boolean | undefined {
   const v =
     r?.isUpcoming ??
@@ -302,6 +308,150 @@ function Chip({
   return <div className={`${base} ${cls}`}>{children}</div>;
 }
 
+// =========================
+// ✅ "상영중/상영예정" 확정용: now_playing/upcoming ID Set 캐시
+// =========================
+
+type ScreeningSets = {
+  nowPlaying: Set<number>;
+  upcoming: Set<number>;
+  fetchedAt: number;
+};
+
+let screeningCache: ScreeningSets | null = null;
+let screeningInFlight: Promise<ScreeningSets> | null = null;
+
+async function loadScreeningSets(): Promise<ScreeningSets> {
+  const OK_TTL = 30 * 60 * 1000; // 30분
+  const now = Date.now();
+
+  if (screeningCache && now - screeningCache.fetchedAt < OK_TTL) {
+    return screeningCache;
+  }
+  if (screeningInFlight) return screeningInFlight;
+
+  const PAGES = 5;
+
+  screeningInFlight = (async () => {
+    const pages = Array.from({ length: PAGES }, (_, i) => i + 1);
+
+    const [nowPlayingResList, upcomingResList] = await Promise.all([
+      Promise.all(
+        pages.map((page) =>
+          apiGet<{ results: Array<{ id: number }> }>("/movies/now_playing", {
+            page,
+            region: "KR",
+            language: "ko-KR",
+          }).catch(() => ({ results: [] }))
+        )
+      ),
+      Promise.all(
+        pages.map((page) =>
+          apiGet<{ results: Array<{ id: number }> }>("/movies/upcoming", {
+            page,
+            region: "KR",
+            language: "ko-KR",
+          }).catch(() => ({ results: [] }))
+        )
+      ),
+    ]);
+
+    const nowSet = new Set<number>();
+    const upSet = new Set<number>();
+
+    for (const r of nowPlayingResList) {
+      for (const it of r?.results ?? []) {
+        if (typeof it?.id === "number") nowSet.add(it.id);
+      }
+    }
+    for (const r of upcomingResList) {
+      for (const it of r?.results ?? []) {
+        if (typeof it?.id === "number") upSet.add(it.id);
+      }
+    }
+
+    screeningCache = {
+      nowPlaying: nowSet,
+      upcoming: upSet,
+      fetchedAt: Date.now(),
+    };
+    screeningInFlight = null;
+    return screeningCache;
+  })().catch((e) => {
+    screeningInFlight = null;
+    throw e;
+  });
+
+  return screeningInFlight;
+}
+
+// =========================
+// ✅ OTT 전용이면 "상영중" 제거 (TMDB release_dates direct)
+// =========================
+
+const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
+  | string
+  | undefined;
+
+const TMDB_DIRECT_BASE =
+  (import.meta as any)?.env?.VITE_TMDB_BASE_URL ||
+  "https://api.themoviedb.org/3";
+
+const _ottOnlyCache = new Map<string, boolean>();
+const _ottOnlyInFlight = new Map<string, Promise<boolean>>();
+
+async function tmdbDirectFetch(path: string) {
+  if (!TMDB_API_KEY) return null;
+  const url = new URL(`${TMDB_DIRECT_BASE}${path}`);
+  url.searchParams.set("api_key", TMDB_API_KEY);
+  const res = await fetch(url.toString());
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+async function isOttOnlyMovie(
+  id: number,
+  region: string = "KR"
+): Promise<boolean> {
+  if (!TMDB_API_KEY) return false;
+
+  const key = `${id}:${region}`;
+  if (_ottOnlyCache.has(key)) return _ottOnlyCache.get(key)!;
+
+  const inflight = _ottOnlyInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    const json = await tmdbDirectFetch(`/movie/${id}/release_dates`);
+    const results = Array.isArray(json?.results) ? json.results : [];
+    const block = results.find((r: any) => r?.iso_3166_1 === region);
+    const dates = Array.isArray(block?.release_dates)
+      ? block.release_dates
+      : [];
+
+    const types: number[] = dates
+      .map((d: any) => d?.type)
+      .filter((t: any) => typeof t === "number");
+
+    const hasTheatrical = types.some((t) => t === 2 || t === 3);
+    const hasDigital = types.some((t) => t === 4);
+
+    const ottOnly = !hasTheatrical && hasDigital;
+    _ottOnlyCache.set(key, ottOnly);
+    return ottOnly;
+  })()
+    .catch(() => {
+      _ottOnlyCache.set(key, false);
+      return false;
+    })
+    .finally(() => {
+      _ottOnlyInFlight.delete(key);
+    });
+
+  _ottOnlyInFlight.set(key, p);
+  return p;
+}
+
 export function ContentCard({
   item,
   isFavorite,
@@ -313,6 +463,8 @@ export function ContentCard({
   className,
   canFavorite,
 }: ContentCardProps) {
+  if (!isKoreanTitle(item)) return null;
+
   const title = getDisplayTitle(item);
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
@@ -324,14 +476,42 @@ export function ContentCard({
   const posterUrl = getPosterUrl(item.poster_path, "w500");
   const cacheKey = `${mediaType}:${item.id}`;
 
-  const [meta, setMeta] = useState<{
-    providers: ProviderBadge[];
-    ageRating: string;
-    isNowPlaying?: boolean;
-    isUpcoming?: boolean;
-  } | null>(() => metaCache.get(cacheKey) ?? null);
+  const [meta, setMeta] = useState<MetaPayload | null>(() => {
+    return metaCache.get(cacheKey) ?? null;
+  });
 
-  // ✅ 상영중/상영예정 플래그가 없다면 meta를 통해 보강하도록 needsMeta 조건 확장
+  const [screening, setScreening] = useState<ScreeningSets | null>(() => {
+    return screeningCache ?? null;
+  });
+
+  const [ottOnly, setOttOnly] = useState<boolean>(() => {
+    return _ottOnlyCache.get(`${item.id}:KR`) ?? false;
+  });
+
+  // ✅ screening sets 로드 (한 번만)
+  useEffect(() => {
+    let mounted = true;
+
+    if (mediaType !== "movie") return;
+
+    loadScreeningSets()
+      .then((s) => {
+        if (!mounted) return;
+        setScreening(s);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setScreening((prev) => prev ?? null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [mediaType]);
+
+  // ✅ meta 보강 조건:
+  // - providers / age 없으면
+  // - movie면 isNowPlaying / isUpcoming이 명시되지 않았다면(meta 우선)
   const needsMeta = useMemo(() => {
     const hasProviders =
       Array.isArray(item.providers) && item.providers.length > 0;
@@ -342,11 +522,8 @@ export function ContentCard({
     const needsNowPlaying =
       mediaType === "movie" && typeof item.isNowPlaying !== "boolean";
 
-    // 개봉일이 없고 isUpcoming도 없으면 meta에 기대(있다면)
     const needsUpcoming =
-      mediaType === "movie" &&
-      typeof item.isUpcoming !== "boolean" &&
-      !(item.release_date || "").trim();
+      mediaType === "movie" && typeof item.isUpcoming !== "boolean";
 
     return !hasProviders || !hasAge || needsNowPlaying || needsUpcoming;
   }, [
@@ -354,7 +531,6 @@ export function ContentCard({
     item.ageRating,
     item.isNowPlaying,
     item.isUpcoming,
-    item.release_date,
     mediaType,
   ]);
 
@@ -362,11 +538,24 @@ export function ContentCard({
     let mounted = true;
     if (!needsMeta) return;
 
+    const now = Date.now();
     const cached = metaCache.get(cacheKey);
-    if (cached) {
-      setMeta(cached);
-      return;
-    }
+
+    // ✅ 성공 캐시는 길게, 실패 캐시는 짧게 재시도
+    const OK_TTL = 30 * 60 * 1000; // 30분
+    const ERROR_TTL = 60 * 1000; // 60초
+
+    const isFreshOk =
+      cached && !cached.isError && now - cached.fetchedAt < OK_TTL;
+
+    const isFreshError =
+      cached && cached.isError && now - cached.fetchedAt < ERROR_TTL;
+
+    // 즉시 반영(있으면)
+    if (cached) setMeta(cached);
+
+    // 신선하면 fetch 불필요
+    if (isFreshOk || isFreshError) return;
 
     if (!inflight.has(cacheKey)) {
       inflight.set(
@@ -380,7 +569,14 @@ export function ContentCard({
             const isNowPlaying = pickNowPlayingFromResponse(r);
             const isUpcoming = pickUpcomingFromResponse(r);
 
-            const safe = { providers, ageRating, isNowPlaying, isUpcoming };
+            const safe: MetaPayload = {
+              providers,
+              ageRating,
+              isNowPlaying,
+              isUpcoming,
+              fetchedAt: Date.now(),
+              isError: false,
+            };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -388,11 +584,13 @@ export function ContentCard({
             if ((import.meta as any).env?.DEV) {
               console.warn("[ContentCard] meta fetch failed:", cacheKey, e);
             }
-            const safe = {
+            const safe: MetaPayload = {
               providers: [],
               ageRating: "—",
               isNowPlaying: undefined,
               isUpcoming: undefined,
+              fetchedAt: Date.now(),
+              isError: true,
             };
             metaCache.set(cacheKey, safe);
             return safe;
@@ -420,34 +618,70 @@ export function ContentCard({
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
 
-  // ✅ 상영중 표시 우선순위:
-  // 1) item.isNowPlaying (페이지에서 명시적으로 준 값)
-  // 2) meta.isNowPlaying (/tmdb/meta가 제공)
-  // 3) fallback (개봉 후 56일 이내)
-  const showNowPlaying =
+  const screeningNow =
+    mediaType === "movie" ? !!screening?.nowPlaying?.has(item.id) : false;
+  const screeningUpcoming =
+    mediaType === "movie" ? !!screening?.upcoming?.has(item.id) : false;
+
+  const candidateNowPlaying =
     (typeof item.isNowPlaying === "boolean" ? item.isNowPlaying : undefined) ??
     (typeof meta?.isNowPlaying === "boolean"
       ? meta?.isNowPlaying
       : undefined) ??
+    (mediaType === "movie" ? (screeningNow ? true : undefined) : undefined) ??
     fallbackLikelyNowPlaying(item, mediaType);
 
-  // ✅ 상영 예정 표시 우선순위:
-  // - 상영중이면 예정은 숨김
-  // 1) item.isUpcoming
-  // 2) meta.isUpcoming
-  // 3) fallback (개봉일이 미래)
+  // ✅ OTT 전용이면 "상영중" 제거 (candidateNowPlaying이 true일 때만 판단)
+  useEffect(() => {
+    let mounted = true;
+
+    if (mediaType !== "movie") {
+      setOttOnly(false);
+      return;
+    }
+    if (!candidateNowPlaying) {
+      setOttOnly(false);
+      return;
+    }
+
+    const key = `${item.id}:KR`;
+    const cached = _ottOnlyCache.get(key);
+    if (typeof cached === "boolean") {
+      setOttOnly(cached);
+      return;
+    }
+
+    isOttOnlyMovie(item.id, "KR").then((v) => {
+      if (!mounted) return;
+      setOttOnly(v);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [candidateNowPlaying, mediaType, item.id]);
+
+  const showNowPlaying = !!candidateNowPlaying && !ottOnly;
+
   const showUpcoming =
     !showNowPlaying &&
     mediaType === "movie" &&
     ((typeof item.isUpcoming === "boolean" ? item.isUpcoming : undefined) ??
       (typeof meta?.isUpcoming === "boolean" ? meta?.isUpcoming : undefined) ??
+      (screeningUpcoming ? true : undefined) ??
       fallbackLikelyUpcoming(item, mediaType));
 
+  // ✅ 매칭 배지: picky에서 기본 표시, 그 외 화면은 showMatchBadge=true일 때만 표시
   const showMatch =
-    context === "picky" &&
     typeof item.matchScore === "number" &&
-    Number.isFinite(item.matchScore);
+    Number.isFinite(item.matchScore) &&
+    (context === "picky" || item.showMatchBadge === true);
 
+  // ✅ 트렌드 배지
+  const showTrend =
+    typeof item.trendRank === "number" && Number.isFinite(item.trendRank);
+
+  // ✅ OTT 로고/텍스트
   const providerLogos = providers
     .map((p) => {
       const name = p.provider_name ?? p.providerName ?? p.name ?? "";
@@ -456,6 +690,11 @@ export function ContentCard({
     })
     .filter((x) => !!x.name && !!x.path);
 
+  const providerNamesOnly = providers
+    .map((p) => p.provider_name ?? p.providerName ?? p.name ?? "")
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
   const MAX_PROVIDER_BADGES = 3;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER_BADGES);
   const hiddenCount = Math.max(
@@ -463,7 +702,9 @@ export function ContentCard({
     providerLogos.length - visibleProviders.length
   );
 
-  const hasProviders = visibleProviders.length > 0;
+  const visibleProviderNames = providerNamesOnly.slice(0, 2);
+
+  const hasProviders = providerLogos.length > 0 || providerNamesOnly.length > 0;
   const hasAge = ageValue !== "—";
 
   // ✅ 로그인 안 하면 하트 숨김
@@ -501,7 +742,7 @@ export function ContentCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/15" />
 
         {/* 좌상단 */}
-        <div className="absolute top-2 left-2 z-20 flex flex-col items-start">
+        <div className="absolute top-2 left-2 z-20 flex flex-col items-start gap-1">
           {onRemove && (
             <button
               type="button"
@@ -520,13 +761,31 @@ export function ContentCard({
             <Chip tone="dark">{typeText}</Chip>
           </div>
 
+          {/* ✅ 트렌드 랭킹 배지 */}
+          {showTrend && (
+            <div
+              className="self-start"
+              title={`트렌드 점수 ${item.trendScore ?? "-"}`}
+            >
+              <Chip tone="purple">
+                {item.trendRank === 1
+                  ? "🥇"
+                  : item.trendRank === 2
+                  ? "🥈"
+                  : item.trendRank === 3
+                  ? "🥉"
+                  : "🔥"}{" "}
+                #{item.trendRank}
+              </Chip>
+            </div>
+          )}
+
           {showNowPlaying && (
             <div className="self-start">
               <Chip tone="green">상영중</Chip>
             </div>
           )}
 
-          {/* ✅ 추가: 상영 예정 */}
           {showUpcoming && (
             <div className="self-start">
               <Chip tone="blue">상영 예정</Chip>
@@ -535,7 +794,7 @@ export function ContentCard({
 
           {showMatch && (
             <div className="self-start">
-              <Chip tone="purple">{Math.round(item.matchScore!)}% 매칭</Chip>
+              <Chip tone="dark">{Math.round(item.matchScore!)}% 매칭</Chip>
             </div>
           )}
         </div>
@@ -561,43 +820,55 @@ export function ContentCard({
           </div>
         )}
 
-        {/* 우하단 */}
+        {/* 우하단: OTT/연령 등 */}
         {(hasProviders || hasAge) && (
           <div className="absolute bottom-2 right-2 z-20 flex flex-col items-end gap-1">
-            {hasProviders && hasAge && <AgeBadge value={ageValue} />}
+            {hasAge && <AgeBadge value={ageValue} />}
 
             {hasProviders ? (
-              <div className="flex items-center gap-1 flex-nowrap">
-                {visibleProviders.map((p) => (
-                  <div
-                    key={p.name}
-                    className="w-[22px] h-[22px] rounded-[4px] bg-black/45 backdrop-blur-sm overflow-hidden flex items-center justify-center shadow-sm"
-                    title={p.name}
-                    aria-label={p.name}
-                  >
-                    <img
-                      src={logoUrl(p.path!, "w92")}
-                      srcSet={`${logoUrl(p.path!, "w92")} 1x, ${logoUrl(
-                        p.path!,
-                        "w185"
-                      )} 2x`}
-                      alt={p.name}
-                      className="w-full h-full object-contain"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
-                ))}
+              providerLogos.length > 0 ? (
+                <div className="flex items-center gap-1 flex-nowrap">
+                  {visibleProviders.map((p) => (
+                    <div
+                      key={p.name}
+                      className="w-[22px] h-[22px] rounded-[4px] bg-black/45 backdrop-blur-sm overflow-hidden flex items-center justify-center shadow-sm"
+                      title={p.name}
+                      aria-label={p.name}
+                    >
+                      <img
+                        src={logoUrl(p.path!, "w92")}
+                        srcSet={`${logoUrl(p.path!, "w92")} 1x, ${logoUrl(
+                          p.path!,
+                          "w185"
+                        )} 2x`}
+                        alt={p.name}
+                        className="w-full h-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </div>
+                  ))}
 
-                {hiddenCount > 0 && (
-                  <span className="w-[30px] h-[30px] rounded-[5px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
-                    +{hiddenCount}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <AgeBadge value={ageValue} />
-            )}
+                  {hiddenCount > 0 && (
+                    <span className="w-[30px] h-[30px] rounded-[5px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
+                      +{hiddenCount}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  {visibleProviderNames.map((n) => (
+                    <span
+                      key={n}
+                      className="max-w-[120px] truncate px-2 py-1 rounded-[6px] bg-black/45 backdrop-blur-sm text-[10px] font-semibold text-white/85"
+                      title={n}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              )
+            ) : null}
           </div>
         )}
       </div>
@@ -607,6 +878,12 @@ export function ContentCard({
         <div className="text-sm font-semibold text-white line-clamp-1">
           {title}
         </div>
+
+        {item.recommendReason && (
+          <div className="mt-1 text-[11px] text-white/55 line-clamp-1">
+            {item.recommendReason}
+          </div>
+        )}
 
         <div className="mt-1 text-xs text-white/70 flex items-center justify-between">
           <span className="flex items-center gap-1">

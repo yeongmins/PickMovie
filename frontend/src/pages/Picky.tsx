@@ -11,8 +11,11 @@ import { motion } from "framer-motion";
 import { Search, X, Loader2, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-// ✅ 실시간 검색어 제거: keywordPool 사용
+// ✅ 키워드 풀
 import { pickRandomKeywords } from "../features/picky/data/keywordPool";
+
+// ✅ 트렌드 키워드 주입
+import { getKrTrends, extractTrendKeywords } from "../lib/trends";
 
 // ✅ 서버가 추론/확장/랭킹 전담 → 프론트는 “검색 호출 + 결과 렌더”만
 import { usePickySearch } from "../features/picky/hooks/usePickySearch";
@@ -27,29 +30,32 @@ export type PickyPageProps = {
 
 type ViewMode = "start" | "results";
 
-const EXIT_MS = 260; // ✅ 닫힘 애니메이션 후 navigate 딜레이
+const EXIT_MS = 260;
 
 export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
   const navigate = useNavigate();
 
-  // ✅ PC(md 이상) / Tablet(md 미만)
   const [isTablet, setIsTablet] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia("(max-width: 767px)").matches;
   });
 
-  // ✅ 닫힘 애니메이션용
   const [closing, setClosing] = useState(false);
-
-  // ✅ 모드: 시작(키워드 구름) / 결과
   const [mode, setMode] = useState<ViewMode>("start");
 
-  // ✅ 키워드 구름
+  // ✅ 트렌드 키워드/날짜
+  const [trendKeywords, setTrendKeywords] = useState<string[]>([]);
+  const [trendDate, setTrendDate] = useState<string>("");
+
+  // ✅ 키워드 구름 (트렌드 섞기)
   const [displayedKeywords, setDisplayedKeywords] = useState<string[]>(() =>
     pickRandomKeywords(10)
   );
 
-  // ✅ 검색 상태/결과 (hook)
+  const trendSet = useMemo(() => {
+    return new Set(trendKeywords.map((k) => String(k).trim()).filter(Boolean));
+  }, [trendKeywords]);
+
   const {
     loading: searchLoading,
     error: searchError,
@@ -61,8 +67,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
   } = usePickySearch();
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-  // ✅ 패널 영역 ref (여백 클릭 닫기용)
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   // ✅ PC/Tablet 감지
@@ -83,13 +87,38 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     };
   }, []);
 
-  // ✅ 실제 navigate (애니메이션 이후)
+  // ✅ 트렌드 키워드 로드(실패하면 그냥 기존 풀로)
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const r = await getKrTrends(12);
+        if (!mounted) return;
+
+        const items = Array.isArray(r?.items) ? r.items : [];
+        const kws = extractTrendKeywords(items, 12);
+
+        setTrendKeywords(kws);
+        setTrendDate(String(r?.date || "").trim());
+
+        // 트렌드 포함해서 즉시 갱신
+        setDisplayedKeywords(pickRandomKeywords(10, kws));
+      } catch {
+        // 트렌드 불가해도 Picky는 정상 동작
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const doNavigateClose = useCallback(() => {
     if (window.history.length > 1) navigate(-1);
     else navigate("/", { replace: true });
   }, [navigate]);
 
-  // ✅ 닫기 요청(버튼/배경/ESC) -> 애니메이션 -> navigate
   const requestClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
@@ -97,13 +126,11 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
 
   useEffect(() => {
     if (!closing) return;
-    // 닫힐 때 진행중 검색 취소(레이스/상태 꼬임 방지)
     cancel();
     const t = window.setTimeout(() => doNavigateClose(), EXIT_MS);
     return () => window.clearTimeout(t);
   }, [closing, doNavigateClose, cancel]);
 
-  // ✅ ESC 닫기
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") requestClose();
@@ -112,7 +139,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     return () => document.removeEventListener("keydown", onKey);
   }, [requestClose]);
 
-  // ✅ 여백 클릭 시 닫기 (검색바/패널 제외)
   const onRootMouseDown = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       const t = e.target as Node | null;
@@ -123,10 +149,10 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     [requestClose]
   );
 
-  // ✅ 키워드 새로고침
+  // ✅ 키워드 새로고침(트렌드 계속 섞임)
   const refreshKeywords = useCallback(() => {
-    setDisplayedKeywords(pickRandomKeywords(10));
-  }, []);
+    setDisplayedKeywords(pickRandomKeywords(10, trendKeywords));
+  }, [trendKeywords]);
 
   // ✅ 입력이 완전히 비면 시작 모드로 복귀 + 결과 초기화
   useEffect(() => {
@@ -143,12 +169,11 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
       if (!query || searchLoading) return;
 
       setMode("results");
-      await search(query); // hook 내부에서 성공/실패 상태 반영
+      await search(query);
     },
     [search, searchLoading]
   );
 
-  // ✅ Enter / 검색버튼
   const onSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -157,7 +182,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     [executeSearch, searchQuery]
   );
 
-  // ✅ 키워드 클릭 -> 검색
   const onPickKeyword = useCallback(
     (t: string) => {
       const q = (t || "").trim();
@@ -172,7 +196,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [onSearchChange]);
 
-  // ✅ 결과 패널에서 넓어지도록
   const containerClass = useMemo(() => {
     const base = ["mx-auto w-full", isTablet ? "px-4 pt-4" : "px-4 pt-6"].join(
       " "
@@ -183,18 +206,10 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
     );
   }, [isTablet, mode]);
 
-  // ✅ “확-펼쳐지는” 느낌: scale + blur 키프레임
-  // ✅ 닫힐 때도: scale down + blur + fade
   const panelAnimate = useMemo(() => {
     if (closing) {
-      return {
-        opacity: 0,
-        y: -10,
-        scale: 0.985,
-        filter: "blur(10px)",
-      };
+      return { opacity: 0, y: -10, scale: 0.985, filter: "blur(10px)" };
     }
-
     if (mode === "results") {
       return {
         opacity: 1,
@@ -203,14 +218,7 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
         filter: ["blur(10px)", "blur(3px)", "blur(0px)"],
       };
     }
-
-    // start 화면은 안정감 있게
-    return {
-      opacity: 1,
-      y: 0,
-      scale: 1,
-      filter: "blur(0px)",
-    };
+    return { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" };
   }, [closing, mode]);
 
   const overlayAnimate = useMemo(() => {
@@ -252,7 +260,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
           }}
           className={containerClass}
         >
-          {/* panelRef: 검색바 + 패널 영역 */}
           <div ref={panelRef}>
             {/* search bar */}
             <div className="h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl flex items-center gap-2 px-3">
@@ -277,7 +284,6 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
                   className="flex-1 bg-transparent outline-none text-white placeholder-white/50 text-sm"
                 />
 
-                {/* ✅ Picky 톤 “전체 지우기” */}
                 {(searchQuery || "").trim().length > 0 && (
                   <button
                     type="button"
@@ -324,6 +330,8 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
                 {mode === "start" ? (
                   <StartPanel
                     displayedKeywords={displayedKeywords}
+                    trendSet={trendSet}
+                    trendDate={trendDate}
                     onPick={onPickKeyword}
                     onRefresh={refreshKeywords}
                   />
@@ -357,18 +365,31 @@ export default function Picky({ searchQuery, onSearchChange }: PickyPageProps) {
 
 function StartPanel({
   displayedKeywords,
+  trendSet,
+  trendDate,
   onPick,
   onRefresh,
 }: {
   displayedKeywords: string[];
+  trendSet: Set<string>;
+  trendDate: string;
   onPick: (title: string) => void;
   onRefresh: () => void;
 }) {
+  const hasTrends = trendSet.size > 0;
+
   return (
     <div className="p-3">
       <div className="flex items-center justify-between px-1">
-        <div className="text-sm font-semibold text-white/90">
-          Picky 이용 방법 ✨
+        <div>
+          <div className="text-sm font-semibold text-white/90">
+            Picky 이용 방법 ✨
+          </div>
+          {hasTrends && (
+            <div className="mt-1 text-xs text-white/45">
+              🔥 오늘의 트렌드 키워드가 섞여 있어요
+            </div>
+          )}
         </div>
 
         <button
@@ -405,25 +426,34 @@ function StartPanel({
         transition={{ type: "spring", stiffness: 520, damping: 42, mass: 0.8 }}
         className="mt-5 px-1 flex flex-wrap justify-center gap-2 pb-1"
       >
-        {displayedKeywords.map((k) => (
-          <motion.button
-            key={k}
-            layout="position"
-            transition={{
-              type: "spring",
-              stiffness: 520,
-              damping: 42,
-              mass: 0.8,
-            }}
-            style={{ willChange: "transform" }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onPick(k)}
-            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-xs text-white/75 hover:text-white transition"
-            aria-label={`추천 키워드: ${k}`}
-          >
-            {k}
-          </motion.button>
-        ))}
+        {displayedKeywords.map((k) => {
+          const isTrend = trendSet.has(k);
+          return (
+            <motion.button
+              key={k}
+              layout="position"
+              transition={{
+                type: "spring",
+                stiffness: 520,
+                damping: 42,
+                mass: 0.8,
+              }}
+              style={{ willChange: "transform" }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onPick(k)}
+              className={[
+                "px-3 py-1.5 rounded-full border text-xs transition",
+                isTrend
+                  ? "bg-purple-600/15 hover:bg-purple-600/25 border-purple-400/30 hover:border-purple-300/40 text-white/85"
+                  : "bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20 text-white/75 hover:text-white",
+              ].join(" ")}
+              aria-label={`추천 키워드: ${k}`}
+              title={isTrend ? "오늘의 트렌드 키워드" : "추천 키워드"}
+            >
+              {isTrend ? `🔥 ${k}` : k}
+            </motion.button>
+          );
+        })}
       </motion.div>
     </div>
   );
@@ -528,6 +558,7 @@ function ResultsPanel({
                 onToggleFavorite={() => {}}
                 onClick={() => {}}
                 context="picky"
+                canFavorite={false} // ✅ 하트 숨김(아직 찜 연결 안 했으니 UI 혼선 방지)
               />
             ))}
           </div>

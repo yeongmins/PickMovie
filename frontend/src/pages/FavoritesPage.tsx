@@ -745,7 +745,7 @@ export default function FavoritesPage({
     );
   }
 
-  const shellClass = "mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10";
+  const shellClass = "mx-auto w-full px-4 mt-4";
 
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden">

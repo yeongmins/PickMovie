@@ -15,19 +15,19 @@ enum MediaType {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  username     String   @unique
-  email        String?  @unique
+  id           Int     @id @default(autoincrement())
+  username     String  @unique
+  email        String? @unique
   nickname     String?
   passwordHash String
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
 
-  emailVerifiedAt DateTime?
+  emailVerifiedAt         DateTime?
   emailVerificationTokens EmailVerificationToken[]
 
   // ✅ 찜(서버 동기화 MVP)
@@ -38,9 +38,9 @@ model User {
 }
 
 model Favorite {
-  id        Int       @id @default(autoincrement())
-  userId    Int
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   tmdbId    Int
   mediaType MediaType
@@ -51,15 +51,15 @@ model Favorite {
 }
 
 model Playlist {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items     PlaylistItem[]
+  items PlaylistItem[]
 
   @@index([userId])
 }
@@ -69,21 +69,21 @@ model PlaylistItem {
   playlistId Int
   playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  tmdbId     Int
-  mediaType  MediaType
-  addedAt    DateTime @default(now())
+  tmdbId    Int
+  mediaType MediaType
+  addedAt   DateTime  @default(now())
 
   @@unique([playlistId, tmdbId, mediaType], name: "playlistId_tmdbId_mediaType")
   @@index([playlistId])
 }
 
 model RefreshToken {
-  id        Int      @id @default(autoincrement())
-  tokenHash String   @unique
+  id        Int    @id @default(autoincrement())
+  tokenHash String @unique
   userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   expiresAt DateTime
   revokedAt DateTime?
 
@@ -99,12 +99,12 @@ model RefreshToken {
 }
 
 model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  tokenHash String   @unique
+  id        Int    @id @default(autoincrement())
+  tokenHash String @unique
   userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   expiresAt DateTime
   usedAt    DateTime?
 
@@ -116,14 +116,14 @@ model PasswordResetToken {
 }
 
 model EmailVerificationToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 enum TrendSource {
@@ -140,33 +140,45 @@ enum TrendMediaType {
   unknown
 }
 
+/**
+ * ✅ 기존: 소스에서 들어온 키워드(Seed)
+ * - v2에서 topicId를 추가해 "작품/주제(Topic)"로 통합
+ */
 model TrendSeed {
-  id        Int           @id @default(autoincrement())
+  id        Int            @id @default(autoincrement())
   keyword   String
   source    TrendSource
   mediaType TrendMediaType @default(unknown)
 
-  tmdbId    Int?
-  year      Int?
-  raw       Json?
+  tmdbId Int?
+  year   Int?
+  raw    Json?
+
+  // ✅ 추가: 정규화 Topic 연결
+  topicId Int?
+  topic   TrendTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ranks     TrendRank[]
+  ranks TrendRank[]
 
   @@unique([keyword, source, mediaType])
   @@index([source, mediaType])
   @@index([updatedAt])
+  @@index([topicId])
 }
 
+/**
+ * ✅ 기존: 일자별 랭킹(Seed 기준) - 엔드포인트 호환 유지
+ */
 model TrendRank {
-  id        Int      @id @default(autoincrement())
-  seedId    Int
-  seed      TrendSeed @relation(fields: [seedId], references: [id], onDelete: Cascade)
+  id     Int       @id @default(autoincrement())
+  seedId Int
+  seed   TrendSeed @relation(fields: [seedId], references: [id], onDelete: Cascade)
 
   // ✅ 타임존 꼬임 방지용: YYYYMMDD 문자열(정렬도 그대로 먹힘)
-  date      String   // e.g. "20251229"
+  date String // e.g. "20251229"
 
   rank      Int
   score     Float
@@ -176,4 +188,136 @@ model TrendRank {
 
   @@unique([seedId, date])
   @@index([date, score])
+}
+
+/**
+ * =====================================
+ * Trend DB v2 (고도화)
+ * =====================================
+ */
+
+enum TrendRunStatus {
+  running
+  success
+  failed
+}
+
+model TrendIngestRun {
+  id     Int            @id @default(autoincrement())
+  date   String // YYYYMMDD
+  region String         @default("KR")
+  status TrendRunStatus @default(running)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  meta       Json?
+
+  snapshots TrendSnapshot[]
+
+  @@unique([date, region])
+  @@index([status, startedAt])
+}
+
+model TrendSnapshot {
+  id    Int            @id @default(autoincrement())
+  runId Int
+  run   TrendIngestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  source   TrendSource
+  endpoint String?
+  request  Json?
+  response Json?
+
+  fetchedAt DateTime @default(now())
+
+  @@index([runId, source])
+  @@index([source, fetchedAt])
+}
+
+/**
+ * ✅ 작품/주제(Topic) 단위로 통합
+ * - Picky/온보딩은 "Topic"을 참조하도록 설계
+ */
+model TrendTopic {
+  id        Int            @id @default(autoincrement())
+  mediaType TrendMediaType @default(unknown)
+
+  tmdbId Int?
+  year   Int?
+
+  canonicalTitle String
+  normTitle      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  aliases TrendTopicAlias[]
+  seeds   TrendSeed[]
+  metrics TrendMetric[]
+  scores  TrendScore[]
+
+  @@unique([mediaType, normTitle])
+  @@index([tmdbId])
+  @@index([updatedAt])
+}
+
+model TrendTopicAlias {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  alias      String
+  normAlias  String
+  source     TrendSource?
+  confidence Float        @default(0.5)
+
+  @@unique([topicId, normAlias])
+  @@index([normAlias])
+}
+
+/**
+ * ✅ 메트릭(row) 저장: 재가공/재스코어링/분석이 쉬움
+ * metric 예: "kobis.invRank", "naver.blogTotal", "yt.totalResults"
+ */
+model TrendMetric {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  date     String // YYYYMMDD
+  source   TrendSource
+  metric   String
+  value    Float
+  valueLog Float?
+  z        Float?
+  raw      Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([topicId, date, source, metric])
+  @@index([date, metric])
+  @@index([source, metric, date])
+}
+
+/**
+ * ✅ 알고리즘 버전별 최종 점수/랭크(Topic 기준)
+ * - Picky boost는 이 테이블을 조회하면 됨
+ */
+model TrendScore {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  date        String // YYYYMMDD
+  algoVersion String @default("kr.daily.v1")
+
+  rank      Int
+  score     Float
+  breakdown Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([topicId, date, algoVersion])
+  @@index([date, algoVersion, score])
 }
