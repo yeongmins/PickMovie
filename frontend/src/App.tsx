@@ -1,11 +1,17 @@
 // frontend/src/App.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  useNavigate,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
 
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
 import FavoritesPage from "./pages/FavoritesPage";
-import { PickyPage } from "./pages/PickyPage";
+import Picky from "./pages/Picky";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
@@ -17,13 +23,11 @@ export interface FavoriteItem {
 }
 
 const STORAGE_KEYS = {
-  // ✅ favorites는 더 이상 저장/로드 안 함 (DB만 사용)
   PREFERENCES: "pickmovie_preferences",
   ACCESS: "pickmovie_access_token",
   USER: "pickmovie_user",
 } as const;
 
-// ✅ 이벤트명 통합(둘 다 수신/발신)
 const AUTH_EVENT = "pickmovie-auth-changed" as const;
 const LEGACY_AUTH_EVENT = "pickmovie:auth" as const;
 
@@ -43,18 +47,14 @@ type MeUser = {
   nickname: string | null;
 };
 
-function readStoredUser(): MeUser | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!raw) return null;
-    return JSON.parse(raw) as MeUser;
-  } catch {
-    return null;
-  }
-}
+type ApiError = Error & { status?: number; data?: any };
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ✅ 모달 라우트: backgroundLocation이 있으면 "그 페이지 위에" /picky를 오버레이로 띄움
+  const backgroundLocation = (location.state as any)?.backgroundLocation;
 
   const API_BASE = useMemo(() => {
     return (
@@ -69,7 +69,9 @@ export default function App() {
   );
   const [me, setMe] = useState<MeUser | null>(null);
 
-  // ✅ bootstrap 중 이벤트 재진입 방지
+  // ✅ Picky에서만 쓰는 검색 입력 상태
+  const [pickyQuery, setPickyQuery] = useState("");
+
   const bootingRef = useRef(false);
 
   const emitAuthChanged = useCallback(() => {
@@ -126,28 +128,53 @@ export default function App() {
 
   const bootstrapAuthAndFavorites = useCallback(async () => {
     if (bootingRef.current) return;
-
     bootingRef.current = true;
+
+    const currentToken = localStorage.getItem(STORAGE_KEYS.ACCESS);
+
     try {
-      // 1) refresh로 accessToken 갱신(쿠키 기반)
-      const refreshed = await postJson("/auth/refresh");
-      const accessToken = (refreshed?.accessToken as string | null) ?? null;
+      let accessToken: string | null = currentToken;
+
+      if (!accessToken) {
+        const refreshed = await postJson("/auth/refresh");
+        accessToken = (refreshed?.accessToken as string | null) ?? null;
+
+        if (accessToken) localStorage.setItem(STORAGE_KEYS.ACCESS, accessToken);
+      }
 
       if (!accessToken) {
         clearAuthLocal();
         setMe(null);
         setFavorites([]);
-        // ✅ Header 등 즉시 동기화
         emitAuthChanged();
         return;
       }
 
-      localStorage.setItem(STORAGE_KEYS.ACCESS, accessToken);
+      let meRes: any;
+      try {
+        meRes = await getJson("/auth/me");
+      } catch (e) {
+        const err = e as ApiError;
+        if (err?.status === 401 || err?.status === 403) {
+          const refreshed = await postJson("/auth/refresh");
+          const newToken = (refreshed?.accessToken as string | null) ?? null;
 
-      // 2) me 조회
-      const meRes = await getJson("/auth/me");
+          if (!newToken) {
+            clearAuthLocal();
+            setMe(null);
+            setFavorites([]);
+            emitAuthChanged();
+            return;
+          }
+
+          localStorage.setItem(STORAGE_KEYS.ACCESS, newToken);
+          meRes = await getJson("/auth/me");
+        } else {
+          throw err;
+        }
+      }
+
       const user = (meRes?.user as MeUser | null) ?? null;
-
       if (!user) {
         clearAuthLocal();
         setMe(null);
@@ -159,28 +186,36 @@ export default function App() {
       setMe(user);
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
 
-      // 3) ✅ favorites는 DB에서만 가져옴
-      const favRes = await getJson("/auth/favorites");
-      const serverItems = Array.isArray(favRes?.items)
-        ? (favRes.items as FavoriteItem[])
-        : [];
+      try {
+        const favRes = await getJson("/auth/favorites");
+        const serverItems = Array.isArray(favRes?.items)
+          ? (favRes.items as FavoriteItem[])
+          : [];
+        setFavorites(serverItems);
+      } catch {
+        setFavorites([]);
+      }
 
-      setFavorites(serverItems);
-
-      // ✅ 자동 로그인/갱신 시 Header도 즉시 반영
       emitAuthChanged();
-    } catch {
-      // 네트워크/서버 오류 시: 로그인 상태 확정 못하니 안전하게 비움
-      clearAuthLocal();
-      setMe(null);
-      setFavorites([]);
-      emitAuthChanged();
+    } catch (e) {
+      const err = e as ApiError;
+      if (err?.status === 401 || err?.status === 403) {
+        clearAuthLocal();
+        setMe(null);
+        setFavorites([]);
+        emitAuthChanged();
+      } else {
+        if (!localStorage.getItem(STORAGE_KEYS.ACCESS)) {
+          setMe(null);
+          setFavorites([]);
+          emitAuthChanged();
+        }
+      }
     } finally {
       bootingRef.current = false;
     }
   }, [clearAuthLocal, emitAuthChanged, getJson, postJson]);
 
-  // 초기 로드 (preferences만 localStorage 유지)
   useEffect(() => {
     try {
       const savedPreferences = localStorage.getItem(STORAGE_KEYS.PREFERENCES);
@@ -201,7 +236,6 @@ export default function App() {
     }
   }, [userPreferences, isLoading]);
 
-  // ✅ 앱 시작/로그인/로그아웃 이벤트마다 동기화
   useEffect(() => {
     if (isLoading) return;
 
@@ -211,16 +245,11 @@ export default function App() {
       if (bootingRef.current) return;
 
       const token = localStorage.getItem(STORAGE_KEYS.ACCESS);
-      const storedUser = readStoredUser();
-
-      // ✅ 로그아웃 이벤트면 즉시 UI에서 제거 (refresh로 다시 로그인 시도하지 않음)
-      if (!token || !storedUser) {
+      if (!token) {
         setMe(null);
         setFavorites([]);
         return;
       }
-
-      // ✅ 로그인(또는 다른 탭에서 로그인) -> 서버 기준으로 재조회
       void bootstrapAuthAndFavorites();
     };
 
@@ -244,12 +273,9 @@ export default function App() {
     }
 
     setFavorites([]);
-    void postJson("/auth/favorites/sync", { items: [] }).catch(() => {
-      // ignore
-    });
+    void postJson("/auth/favorites/sync", { items: [] }).catch(() => {});
   }, [me, postJson]);
 
-  // ✅ 찜 토글: 로그인 상태에서만 DB 반영
   const handleToggleFavorite = useCallback(
     (id: number, mediaType: "movie" | "tv" = "movie") => {
       if (!me) {
@@ -270,7 +296,6 @@ export default function App() {
           mediaType,
           isFavorite: !exists,
         }).catch(() => {
-          // 실패 시 롤백
           setFavorites(prev);
         });
 
@@ -283,80 +308,92 @@ export default function App() {
   const isAuthed = !!me;
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
-      <Route path="/verify-email" element={<VerifyEmailPage />} />
-      <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
+    <>
+      {/* ✅ 기본 화면 라우트: backgroundLocation이 있으면 "그 화면"을 그대로 보여줌 */}
+      <Routes location={backgroundLocation || location}>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
 
-      <Route path="/mypage" element={<MyPage />} />
+        <Route path="/mypage" element={<MyPage />} />
 
-      <Route
-        path="/picky"
-        element={
-          <PickyPage
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            isAuthed={isAuthed}
+        {/* ✅ 직접 /picky 접근(새로고침 등)도 가능 */}
+        <Route
+          path="/picky"
+          element={
+            <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
+          }
+        />
+
+        <Route
+          path="/"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/")}
+              initialSection="home"
+              isAuthed={isAuthed}
+            />
+          }
+        />
+
+        <Route
+          path="/favorites"
+          element={
+            <FavoritesPage
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onResetFavorites={handleResetFavorites}
+            />
+          }
+        />
+
+        <Route
+          path="/popular-movies"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/")}
+              initialSection="popular-movies"
+              isAuthed={isAuthed}
+            />
+          }
+        />
+
+        <Route
+          path="/popular-tv"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/")}
+              initialSection="popular-tv"
+              isAuthed={isAuthed}
+            />
+          }
+        />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+
+      {/* ✅ 모달 오버레이 라우트: backgroundLocation이 있을 때만 "덮어서" 렌더 */}
+      {backgroundLocation ? (
+        <Routes>
+          <Route
+            path="/picky"
+            element={
+              <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
+            }
           />
-        }
-      />
-
-      <Route
-        path="/"
-        element={
-          <MainScreen
-            userPreferences={userPreferences}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onReanalyze={() => navigate("/")}
-            initialSection="home"
-            isAuthed={isAuthed}
-          />
-        }
-      />
-
-      <Route
-        path="/favorites"
-        element={
-          <FavoritesPage
-            userPreferences={userPreferences}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onResetFavorites={handleResetFavorites}
-          />
-        }
-      />
-
-      <Route
-        path="/popular-movies"
-        element={
-          <MainScreen
-            userPreferences={userPreferences}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onReanalyze={() => navigate("/")}
-            initialSection="popular-movies"
-            isAuthed={isAuthed}
-          />
-        }
-      />
-
-      <Route
-        path="/popular-tv"
-        element={
-          <MainScreen
-            userPreferences={userPreferences}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onReanalyze={() => navigate("/")}
-            initialSection="popular-tv"
-            isAuthed={isAuthed}
-          />
-        }
-      />
-
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        </Routes>
+      ) : null}
+    </>
   );
 }

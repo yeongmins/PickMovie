@@ -35,6 +35,10 @@ export type ContentCardItem = {
   genre_ids?: number[];
 
   isNowPlaying?: boolean;
+
+  // ✅ 추가: 상영 예정(페이지에서 명시적으로 주면 최우선)
+  isUpcoming?: boolean;
+
   providers?: ProviderBadge[];
   platform?: string;
   ageRating?: string;
@@ -63,13 +67,24 @@ const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
+// ✅ metaCache 확장: isNowPlaying + isUpcoming 포함
 const metaCache = new Map<
   string,
-  { providers: ProviderBadge[]; ageRating: string }
+  {
+    providers: ProviderBadge[];
+    ageRating: string;
+    isNowPlaying?: boolean;
+    isUpcoming?: boolean;
+  }
 >();
 const inflight = new Map<
   string,
-  Promise<{ providers: ProviderBadge[]; ageRating: string }>
+  Promise<{
+    providers: ProviderBadge[];
+    ageRating: string;
+    isNowPlaying?: boolean;
+    isUpcoming?: boolean;
+  }>
 >();
 
 const AUTH_KEYS = {
@@ -196,12 +211,80 @@ function pickAgeFromResponse(r: any): string {
   return s || "—";
 }
 
+// ✅ meta 응답에서 상영중 플래그 추출(있으면 정확하게 사용)
+function pickNowPlayingFromResponse(r: any): boolean | undefined {
+  const v =
+    r?.isNowPlaying ??
+    r?.nowPlaying ??
+    r?.is_now_playing ??
+    r?.now_playing ??
+    undefined;
+
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "yes" || s === "y") return true;
+    if (s === "false" || s === "0" || s === "no" || s === "n") return false;
+  }
+  return undefined;
+}
+
+// ✅ meta 응답에서 상영 예정 플래그 추출(있으면 정확하게 사용)
+function pickUpcomingFromResponse(r: any): boolean | undefined {
+  const v =
+    r?.isUpcoming ??
+    r?.upcoming ??
+    r?.is_upcoming ??
+    r?.comingSoon ??
+    r?.is_coming_soon ??
+    undefined;
+
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1" || s === "yes" || s === "y") return true;
+    if (s === "false" || s === "0" || s === "no" || s === "n") return false;
+  }
+  return undefined;
+}
+
+// ✅ meta도 없을 때 최소 fallback: 개봉 후 56일 이내면 상영중으로 간주
+function fallbackLikelyNowPlaying(item: ContentCardItem, mediaType: MediaType) {
+  if (mediaType !== "movie") return false;
+  const d = (item.release_date || "").trim();
+  if (!d) return false;
+
+  const rd = new Date(d);
+  if (!Number.isFinite(rd.getTime())) return false;
+
+  const now = new Date();
+  if (rd.getTime() > now.getTime()) return false;
+
+  const diffDays = (now.getTime() - rd.getTime()) / 86400000;
+  return diffDays <= 56;
+}
+
+// ✅ fallback: 개봉일이 미래면 상영 예정으로 간주
+function fallbackLikelyUpcoming(item: ContentCardItem, mediaType: MediaType) {
+  if (mediaType !== "movie") return false;
+  const d = (item.release_date || "").trim();
+  if (!d) return false;
+
+  const rd = new Date(d);
+  if (!Number.isFinite(rd.getTime())) return false;
+
+  const now = new Date();
+  return rd.getTime() > now.getTime();
+}
+
 function Chip({
   children,
   tone = "dark",
 }: {
   children: React.ReactNode;
-  tone?: "dark" | "green" | "purple";
+  tone?: "dark" | "green" | "purple" | "blue";
 }) {
   const base =
     "inline-flex items-center h-[20px] rounded-[5px] text-[10px] font-bold leading-none " +
@@ -212,6 +295,8 @@ function Chip({
       ? "bg-green-500/90 text-white"
       : tone === "purple"
       ? "bg-purple-600/90 text-white"
+      : tone === "blue"
+      ? "bg-sky-500/90 text-white"
       : "bg-black/45 text-white";
 
   return <div className={`${base} ${cls}`}>{children}</div>;
@@ -242,15 +327,36 @@ export function ContentCard({
   const [meta, setMeta] = useState<{
     providers: ProviderBadge[];
     ageRating: string;
+    isNowPlaying?: boolean;
+    isUpcoming?: boolean;
   } | null>(() => metaCache.get(cacheKey) ?? null);
 
+  // ✅ 상영중/상영예정 플래그가 없다면 meta를 통해 보강하도록 needsMeta 조건 확장
   const needsMeta = useMemo(() => {
     const hasProviders =
       Array.isArray(item.providers) && item.providers.length > 0;
+
     const rawAge = (item.ageRating || "").trim();
     const hasAge = !!rawAge && rawAge !== "-" && rawAge !== "—";
-    return !(hasProviders && hasAge);
-  }, [item.providers, item.ageRating]);
+
+    const needsNowPlaying =
+      mediaType === "movie" && typeof item.isNowPlaying !== "boolean";
+
+    // 개봉일이 없고 isUpcoming도 없으면 meta에 기대(있다면)
+    const needsUpcoming =
+      mediaType === "movie" &&
+      typeof item.isUpcoming !== "boolean" &&
+      !(item.release_date || "").trim();
+
+    return !hasProviders || !hasAge || needsNowPlaying || needsUpcoming;
+  }, [
+    item.providers,
+    item.ageRating,
+    item.isNowPlaying,
+    item.isUpcoming,
+    item.release_date,
+    mediaType,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -271,7 +377,10 @@ export function ContentCard({
               r?.providers ?? r?.providerList ?? []
             );
             const ageRating = pickAgeFromResponse(r);
-            const safe = { providers, ageRating };
+            const isNowPlaying = pickNowPlayingFromResponse(r);
+            const isUpcoming = pickUpcomingFromResponse(r);
+
+            const safe = { providers, ageRating, isNowPlaying, isUpcoming };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -279,7 +388,12 @@ export function ContentCard({
             if ((import.meta as any).env?.DEV) {
               console.warn("[ContentCard] meta fetch failed:", cacheKey, e);
             }
-            const safe = { providers: [], ageRating: "—" };
+            const safe = {
+              providers: [],
+              ageRating: "—",
+              isNowPlaying: undefined,
+              isUpcoming: undefined,
+            };
             metaCache.set(cacheKey, safe);
             return safe;
           })
@@ -305,7 +419,29 @@ export function ContentCard({
       : meta?.providers) ?? [];
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
-  const showNowPlaying = item.isNowPlaying === true;
+
+  // ✅ 상영중 표시 우선순위:
+  // 1) item.isNowPlaying (페이지에서 명시적으로 준 값)
+  // 2) meta.isNowPlaying (/tmdb/meta가 제공)
+  // 3) fallback (개봉 후 56일 이내)
+  const showNowPlaying =
+    (typeof item.isNowPlaying === "boolean" ? item.isNowPlaying : undefined) ??
+    (typeof meta?.isNowPlaying === "boolean"
+      ? meta?.isNowPlaying
+      : undefined) ??
+    fallbackLikelyNowPlaying(item, mediaType);
+
+  // ✅ 상영 예정 표시 우선순위:
+  // - 상영중이면 예정은 숨김
+  // 1) item.isUpcoming
+  // 2) meta.isUpcoming
+  // 3) fallback (개봉일이 미래)
+  const showUpcoming =
+    !showNowPlaying &&
+    mediaType === "movie" &&
+    ((typeof item.isUpcoming === "boolean" ? item.isUpcoming : undefined) ??
+      (typeof meta?.isUpcoming === "boolean" ? meta?.isUpcoming : undefined) ??
+      fallbackLikelyUpcoming(item, mediaType));
 
   const showMatch =
     context === "picky" &&
@@ -387,6 +523,13 @@ export function ContentCard({
           {showNowPlaying && (
             <div className="self-start">
               <Chip tone="green">상영중</Chip>
+            </div>
+          )}
+
+          {/* ✅ 추가: 상영 예정 */}
+          {showUpcoming && (
+            <div className="self-start">
+              <Chip tone="blue">상영 예정</Chip>
             </div>
           )}
 

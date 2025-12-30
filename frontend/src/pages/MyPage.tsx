@@ -44,10 +44,6 @@ function readFavoritesRaw(): any[] {
   }
 }
 
-function readFavoriteCount(): number {
-  return readFavoritesRaw().length;
-}
-
 function getFavoriteLabel(item: any): string {
   if (item == null) return "—";
   if (typeof item === "string" || typeof item === "number") return String(item);
@@ -67,7 +63,6 @@ function getFavoriteLabel(item: any): string {
 export function MyPage() {
   const navigate = useNavigate();
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
   const [favorites, setFavorites] = useState<any[]>(() => readFavoritesRaw());
 
@@ -118,12 +113,7 @@ export function MyPage() {
 
   return (
     <div className="min-h-screen bg-[#0b0b12]">
-      {/* ✅ 마이페이지에도 Header */}
-      <Header
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        currentSection="mypage"
-      />
+      <Header currentSection="mypage" />
 
       {/* 배경 */}
       <div className="pointer-events-none fixed inset-0 -z-10">
@@ -134,7 +124,6 @@ export function MyPage() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0),rgba(0,0,0,0.72))]" />
       </div>
 
-      {/* Header fixed padding */}
       <div className="pt-20 px-6 pb-12">
         <div className="mx-auto w-full max-w-[980px]">
           <h1 className="text-2xl font-extrabold text-white">마이페이지</h1>
@@ -143,19 +132,17 @@ export function MyPage() {
           </p>
 
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* 계정 정보 */}
             <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)]">
               <div className="p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-4 min-w-0">
-                    {/* ✅ 프로필(닉) 박스 제거 → 단순 아이콘 */}
                     <div className="h-12 w-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
                       <UserRound className="h-6 w-6 text-white/75" />
                     </div>
 
                     <div className="min-w-0">
                       <div className="text-lg font-bold text-white truncate">
-                        {displayName}님
+                        {displayName}
                       </div>
 
                       <div className="mt-1 text-sm text-white/55">
@@ -173,8 +160,7 @@ export function MyPage() {
                       </div>
 
                       <div className="mt-3 text-xs text-white/35">
-                        계정 관련 설정(닉네임 변경/비밀번호 변경/프로필
-                        꾸미기)은 추후 “설정” 메뉴로 확장될 예정입니다.
+                        계정 관련 설정은 추후 “설정” 메뉴로 확장될 예정입니다.
                       </div>
                     </div>
                   </div>
@@ -189,7 +175,6 @@ export function MyPage() {
                   </Button>
                 </div>
 
-                {/* ✅ 찜 미리보기(나열) */}
                 <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -229,14 +214,12 @@ export function MyPage() {
                   )}
 
                   <div className="mt-3 text-xs text-white/35">
-                    * 현재 찜/플레이리스트는 로컬스토리지 기반으로 유지됩니다.
-                    (추후 계정 기반 동기화/커뮤니티 공개 기능 확장 가능)
+                    * 현재 찜/플레이리스트는 로컬스토리지 기반입니다.
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 활동 요약 */}
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)]">
               <div className="p-6">
                 <div className="text-sm font-semibold text-white">
@@ -261,17 +244,6 @@ export function MyPage() {
                   >
                     찜/플레이리스트로 이동
                   </Button>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="text-sm font-semibold text-white">
-                    커뮤니티 확장 대비(추후)
-                  </div>
-                  <ul className="mt-2 text-xs text-white/55 list-disc pl-4 space-y-1">
-                    <li>내 리뷰/댓글/좋아요 히스토리</li>
-                    <li>내 취향 태그(장르/분위기) 자동 요약</li>
-                    <li>프로필 공개/비공개 설정</li>
-                  </ul>
                 </div>
               </div>
             </div>

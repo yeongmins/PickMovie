@@ -6,14 +6,14 @@ import {
   useMemo,
   lazy,
   Suspense,
-  useRef,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, LogOut } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-import { ContentCard } from "../components/content/ContentCard";
 import type { UserPreferences } from "../features/onboarding/Onboarding";
 import type { FavoriteItem } from "../App";
+
+import { apiGet } from "../lib/apiClient";
 
 import {
   getPopularMovies,
@@ -59,7 +59,6 @@ export interface MainScreenProps {
   onReanalyze?: () => void;
   onToggleFavorite?: (movieId: number, mediaType?: MediaType) => void;
   initialSection: Section;
-
   isAuthed?: boolean;
 }
 
@@ -91,25 +90,34 @@ function buildGenreString(details: any): string {
   return "";
 }
 
-function LoggedOutCarouselPlaceholder() {
-  return (
-    <div className="relative h-main-carousel mb-5 overflow-hidden bg-gradient-to-b from-purple-900/15 via-black/20 to-transparent">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(168,85,247,0.12),transparent_55%)]" />
-      <div className="relative h-full flex items-center justify-center px-6">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
-            <LogOut className="h-7 w-7 text-white/75" />
-          </div>
-          <div className="text-lg font-semibold text-white/90">
-            로그아웃되었습니다
-          </div>
-          <div className="mt-2 text-sm text-white/60">
-            내 찜 목록을 새로 고쳤어요. 로그인하면 다시 볼 수 있어요.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const AUTH_KEYS = {
+  ACCESS: "pickmovie_access_token",
+  USER: "pickmovie_user",
+} as const;
+
+const AUTH_EVENT = "pickmovie-auth-changed";
+
+function isLoggedInFallback(): boolean {
+  try {
+    return (
+      !!localStorage.getItem(AUTH_KEYS.ACCESS) ||
+      !!localStorage.getItem(AUTH_KEYS.USER)
+    );
+  } catch {
+    return false;
+  }
+}
+
+// ✅ 한국 기준 옵션
+const KR = { region: "KR", language: "ko-KR" } as const;
+
+// ✅ lib/tmdb 함수 시그니처가 달라도 깨지지 않게
+async function safeCall<T>(fn: any, args: any): Promise<T> {
+  try {
+    return (await fn(args)) as T;
+  } catch {
+    return (await fn()) as T;
+  }
 }
 
 export function MainScreen({
@@ -117,25 +125,14 @@ export function MainScreen({
   favorites,
   onToggleFavorite,
   initialSection,
-  isAuthed,
 }: MainScreenProps) {
   const currentSection = initialSection;
 
-  // ✅ isAuthed가 안 내려오는 상황도 대비(보통 App에서 내려줌)
-  const authed =
-    typeof isAuthed === "boolean"
-      ? isAuthed
-      : (() => {
-          try {
-            return !!localStorage.getItem("pickmovie_user");
-          } catch {
-            return false;
-          }
-        })();
-
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // ✅ auth 상태
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => isLoggedInFallback());
 
   // Data States
   const [favoriteMovies, setFavoriteMovies] = useState<MovieWithScore[]>([]);
@@ -147,74 +144,38 @@ export function MainScreen({
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  // ✅ (부드러운 로그아웃 전환)
-  const [logoutFxOn, setLogoutFxOn] = useState(false);
-  const [carouselSnapshot, setCarouselSnapshot] = useState<
-    MovieWithScore[] | null
-  >(null);
-  const prevAuthedRef = useRef<boolean>(authed);
-  const favoriteMoviesRef = useRef<MovieWithScore[]>([]);
-
-  useEffect(() => {
-    favoriteMoviesRef.current = favoriteMovies;
-  }, [favoriteMovies]);
-
-  // ✅ 로그아웃 순간: "현재 캐러셀 프레임"을 잠깐 유지하고, 오버레이 → 페이드아웃 → 로그아웃 UI로 전환
-  useEffect(() => {
-    const prev = prevAuthedRef.current;
-
-    // 로그인 -> 로그아웃 전환
-    if (prev === true && authed === false) {
-      setSelectedMovie(null); // ✅ 로그아웃 시 모달 닫기
-      setCarouselSnapshot(favoriteMoviesRef.current);
-      setLogoutFxOn(true);
-
-      const t = window.setTimeout(() => {
-        setLogoutFxOn(false);
-        setCarouselSnapshot(null);
-      }, 700);
-
-      prevAuthedRef.current = authed;
-      return () => window.clearTimeout(t);
-    }
-
-    // 로그아웃 -> 로그인 전환 (즉시 정상 모드)
-    if (prev === false && authed === true) {
-      setLogoutFxOn(false);
-      setCarouselSnapshot(null);
-    }
-
-    prevAuthedRef.current = authed;
-  }, [authed]);
-
-  // ✅ 로그아웃 상태면 favorites를 무조건 비움(즉시 하트/캐러셀 동기화)
-  const effectiveFavorites = useMemo(
-    () => (authed ? favorites : []),
-    [authed, favorites]
-  );
+  // ✅ 로그인 시 하단 차트(Trends)
+  const [trendChartMovies, setTrendChartMovies] = useState<any[]>([]);
 
   const favoriteKeySet = useMemo(() => {
-    return new Set(effectiveFavorites.map((f) => `${f.mediaType}:${f.id}`));
-  }, [effectiveFavorites]);
+    return new Set(favorites.map((f) => `${f.mediaType}:${f.id}`));
+  }, [favorites]);
 
-  const favoriteIdList = useMemo(
-    () => effectiveFavorites.map((f) => f.id),
-    [effectiveFavorites]
-  );
+  const favoriteIdList = useMemo(() => favorites.map((f) => f.id), [favorites]);
+
+  useEffect(() => {
+    const sync = () => setLoggedIn(isLoggedInFallback());
+    window.addEventListener(AUTH_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(AUTH_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentSection]);
 
+  // ✅ 상단 찜 캐러셀용
   const loadFavoriteMoviesDetails = useCallback(async () => {
-    // ✅ 로그아웃이면 즉시 비움(네트워크 호출 방지)
-    if (!authed || !effectiveFavorites.length) {
+    if (!favorites.length) {
       setFavoriteMovies([]);
       return;
     }
 
     try {
-      const detailPromises = effectiveFavorites.map(async (item) => {
+      const detailPromises = favorites.map(async (item) => {
         try {
           const detail =
             item.mediaType === "tv"
@@ -238,17 +199,18 @@ export function MainScreen({
     } catch (error) {
       console.error(error);
     }
-  }, [authed, effectiveFavorites, userPreferences]);
+  }, [favorites, userPreferences]);
 
   const loadAllData = useCallback(async () => {
     setLoading(true);
 
     try {
       const [popular, tv, topRated, latest, rec] = await Promise.all([
-        getPopularMovies(),
-        getPopularTVShows(),
-        getTopRatedMovies(),
-        getNowPlayingMovies(),
+        safeCall<TMDBMovie[]>(getPopularMovies, KR),
+        safeCall<TMDBMovie[]>(getPopularTVShows, KR),
+        safeCall<TMDBMovie[]>(getTopRatedMovies, KR),
+        safeCall<TMDBMovie[]>(getNowPlayingMovies, KR),
+
         (async () => {
           const genreIds = userPreferences.genres
             .map((g) => GENRE_IDS[g])
@@ -256,7 +218,12 @@ export function MainScreen({
 
           if (!genreIds.length) return [];
 
-          const movies = await discoverMovies({ genres: genreIds, page: 1 });
+          const movies = await safeCall<TMDBMovie[]>(discoverMovies, {
+            genres: genreIds,
+            page: 1,
+            ...KR,
+          });
+
           return movies.map((m) =>
             withMatchScore(
               { ...(m as any), media_type: "movie" } as TMDBMovie,
@@ -295,6 +262,61 @@ export function MainScreen({
   useEffect(() => {
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
+
+  // ✅ 로그인 시: 오늘의 PickMovie 인기 차트(Trends 10개)
+  useEffect(() => {
+    if (!loggedIn) {
+      setTrendChartMovies([]);
+      return;
+    }
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        const r = await apiGet<{
+          date: string;
+          items: Array<{
+            tmdbId: number | null;
+            keyword: string;
+            rank: number;
+            score: number;
+          }>;
+        }>("/trends/kr", { limit: 10 });
+
+        const items = Array.isArray(r?.items) ? r.items : [];
+        const targets = items.filter(
+          (x) => typeof x.tmdbId === "number" && x.tmdbId
+        );
+
+        const details = await Promise.all(
+          targets.map(async (it) => {
+            try {
+              const d = await getMovieDetails(it.tmdbId as number);
+              if (!d) return null;
+
+              return {
+                ...(d as any),
+                media_type: "movie",
+                trendRank: it.rank,
+                trendScore: it.score,
+              };
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        if (mounted) setTrendChartMovies(details.filter(Boolean));
+      } catch {
+        if (mounted) setTrendChartMovies([]);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loggedIn]);
 
   const handleMovieClick = useCallback(
     async (movie: any) => {
@@ -347,159 +369,51 @@ export function MainScreen({
     );
   }
 
-  const filteredContent = searchQuery
-    ? [...recommendedMovies, ...popularMovies, ...popularTV].filter((m: any) =>
-        (m.title || m.name || "")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase())
-      )
-    : null;
-
-  const currentViewKey = filteredContent ? "search" : currentSection;
-
-  // ✅ 로그아웃 전환 중에는 스냅샷을 보여주고, 아니면 실제 favoriteMovies
-  const carouselMoviesToRender = carouselSnapshot ?? favoriteMovies;
-
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden flex flex-col">
       <Suspense fallback={<div className="h-16" />}>
-        <Header searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+        <Header currentSection={currentSection} />
       </Suspense>
 
-      {currentSection === "home" && !filteredContent && (
+      {currentSection === "home" && (
         <section className="relative z-20">
-          <AnimatePresence mode="wait">
-            {/* ✅ 1) 로그인 상태 or 로그아웃 전환 중: 캐러셀 유지 + 페이드/블러 + 오버레이 */}
-            {(authed || logoutFxOn || carouselSnapshot) && (
-              <motion.div
-                key="fav-carousel"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                  filter: logoutFxOn ? "blur(1.5px)" : "blur(0px)",
-                }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.35, ease: "easeOut" }}
-                className="relative"
-              >
-                {/* 오버레이 */}
-                <AnimatePresence>
-                  {logoutFxOn && (
-                    <motion.div
-                      key="logout-overlay"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.22 }}
-                      className="absolute inset-0 z-40 flex items-center justify-center"
-                    >
-                      <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" />
-                      <motion.div
-                        initial={{ scale: 0.98, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.98, opacity: 0 }}
-                        transition={{ duration: 0.22 }}
-                        className="relative z-10 rounded-2xl border border-white/10 bg-black/60 px-5 py-4 shadow-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Loader2 className="h-5 w-5 animate-spin text-purple-400" />
-                          <div className="text-sm text-white/90 font-semibold">
-                            세션을 종료하는 중…
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs text-white/55">
-                          내 찜 목록을 새로고침하고 있어요
-                        </div>
-                      </motion.div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* 캐러셀 본체 */}
-                <motion.div
-                  animate={{ opacity: logoutFxOn ? 0.78 : 1 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  <Suspense fallback={<div className="h-[260px]" />}>
-                    <FavoritesCarousel
-                      movies={carouselMoviesToRender}
-                      onMovieClick={handleMovieClick}
-                      onToggleFavorite={(id, type) => toggleFav(id, type)}
-                    />
-                  </Suspense>
-                </motion.div>
-              </motion.div>
-            )}
-
-            {/* ✅ 2) 로그아웃 상태(전환 끝) : 로그아웃 전용 플레이스홀더로 부드럽게 */}
-            {!authed && !logoutFxOn && !carouselSnapshot && (
-              <motion.div
-                key="fav-loggedout"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.35, ease: "easeOut" }}
-              >
-                <LoggedOutCarouselPlaceholder />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <Suspense fallback={<div className="h-[260px]" />}>
+            <FavoritesCarousel
+              movies={favoriteMovies as any}
+              onMovieClick={handleMovieClick}
+              onToggleFavorite={(id, type) => toggleFav(id, type)}
+            />
+          </Suspense>
         </section>
       )}
 
       <main className="page-fade-in pb-20 flex-1">
         <AnimatePresence mode="wait">
           <motion.div
-            key={currentViewKey}
+            key={currentSection}
             variants={sectionVariants}
             initial="initial"
             animate="animate"
             exit="exit"
             transition={{ duration: 0.25, ease: "easeOut" }}
           >
-            {/* 검색 결과 */}
-            {filteredContent && (
-              <section className="pt-24">
-                <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10">
-                  <h2 className="text-xl mb-4">검색 결과</h2>
-
-                  <div className="grid gap-4 justify-center [grid-template-columns:repeat(auto-fit,minmax(160px,240px))]">
-                    {filteredContent.map((m: any) => {
-                      const mt = (m.media_type || "movie") as MediaType;
-                      const k = `${mt}:${m.id}`;
-                      return (
-                        <ContentCard
-                          key={k}
-                          item={m}
-                          isFavorite={favoriteKeySet.has(k)}
-                          onClick={() => handleMovieClick(m)}
-                          onToggleFavorite={() => toggleFav(m.id, mt)}
-                          context="default"
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* 홈 섹션 */}
-            {!filteredContent && currentSection === "home" && (
+            {/* 홈 */}
+            {currentSection === "home" && (
               <>
-                <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
-                    title="당신을 위한 추천"
-                    movies={recommendedMovies as any}
-                    favorites={favoriteIdList}
-                    favoriteKeySet={favoriteKeySet}
-                    onToggleFavorite={(id: number, type?: MediaType) =>
-                      toggleFav(id, type)
-                    }
-                    onMovieClick={handleMovieClick}
-                    showMatchScore={false}
-                  />
-                </Suspense>
+                {loggedIn && trendChartMovies.length > 0 && (
+                  <Suspense fallback={<div className="h-40" />}>
+                    <MovieRow
+                      title="✨ PickMovie 인기 영화"
+                      movies={trendChartMovies as any}
+                      favorites={favoriteIdList}
+                      favoriteKeySet={favoriteKeySet}
+                      onToggleFavorite={(id: number, type?: MediaType) =>
+                        toggleFav(id, type)
+                      }
+                      onMovieClick={handleMovieClick}
+                    />
+                  </Suspense>
+                )}
 
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -542,8 +456,8 @@ export function MainScreen({
               </>
             )}
 
-            {/* 인기 영화 섹션 */}
-            {!filteredContent && currentSection === "popular-movies" && (
+            {/* 인기 영화 */}
+            {currentSection === "popular-movies" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -573,8 +487,8 @@ export function MainScreen({
               </section>
             )}
 
-            {/* 인기 TV 섹션 */}
-            {!filteredContent && currentSection === "popular-tv" && (
+            {/* 인기 TV */}
+            {currentSection === "popular-tv" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -595,7 +509,7 @@ export function MainScreen({
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 bg-[#111118]">
+      <footer className="bg-[#111118]">
         <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10 py-10">
           <div className="grid gap-8 md:grid-cols-3">
             <div>

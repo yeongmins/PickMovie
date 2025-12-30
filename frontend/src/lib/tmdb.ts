@@ -3,8 +3,13 @@
 // ✅ 백엔드 API 주소 (Vite 환경변수 또는 로컬호스트)
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+
 // 이미지는 여전히 TMDB CDN에서 직접 가져옵니다.
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/";
+
+// ✅ 기본값: “한국 기준”
+const DEFAULT_REGION = "KR";
+const DEFAULT_LANGUAGE = "ko-KR";
 
 // =========================
 // 타입 정의
@@ -29,6 +34,12 @@ export interface TMDBMovie {
   vote_count?: number;
   adult?: boolean;
   video?: boolean;
+
+  // ✅ UI에서 쓰는 확장 필드(있어도 되고 없어도 됨)
+  isNowPlaying?: boolean;
+  ageRating?: string;
+  providers?: any[];
+  platform?: string;
 }
 
 export interface TMDBGenre {
@@ -108,26 +119,72 @@ export const PROVIDER_IDS: Record<string, number> = {
 };
 
 // =========================
-// 내부 헬퍼: 백엔드 요청
+// 내부 헬퍼: 백엔드 요청(안전한 쿼리 변환)
 // =========================
+
+function safeInt(v: unknown, fallback = 1): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  const f = Math.floor(n);
+  return f > 0 ? f : fallback;
+}
+
+function normalizeBackendParam(key: string, value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (value === "") return null;
+
+  // 배열 → "a,b,c"
+  if (Array.isArray(value)) {
+    const filtered = value
+      .map((v) => (v === undefined || v === null ? "" : String(v)))
+      .filter(Boolean);
+    return filtered.length ? filtered.join(",") : null;
+  }
+
+  // 객체가 들어오면 [object Object] 방지
+  if (typeof value === "object") {
+    // page에 객체가 들어오면 최대한 숫자로 복구 시도
+    if (key === "page") {
+      const v: any = value as any;
+      const cand = v?.page ?? v?.value ?? v?.current ?? v?.index;
+      if (cand !== undefined) return String(safeInt(cand, 1));
+      // 복구 불가면 page 자체를 빼서 서버 기본값 사용
+      return null;
+    }
+
+    // 그 외 객체는 쿼리에 넣지 않음(콘솔 경고도 출력하지 않음)
+    return null;
+  }
+
+  return String(value);
+}
 
 async function fetchFromBackend<T>(
   path: string,
-  params: Record<string, string | number | undefined> = {}
+  params: Record<string, unknown> = {}
 ): Promise<T> {
   const url = new URL(`${API_BASE_URL}${path}`);
 
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== "") {
-      url.searchParams.append(key, String(value));
-    }
+    const normalized = normalizeBackendParam(key, value);
+    if (normalized === null) return;
+    url.searchParams.set(key, normalized);
   });
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    credentials: "include",
+  });
+
   if (!res.ok) {
-    throw new Error(`Backend Request Failed: ${res.status} ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Backend Request Failed: ${res.status} ${res.statusText}${
+        text ? ` - ${text}` : ""
+      }`
+    );
   }
-  return await res.json();
+
+  return (await res.json()) as T;
 }
 
 // =========================
@@ -204,31 +261,67 @@ export function calculateMatchScore(
 }
 
 // =========================
+// ✅ 리스트 API 공통 옵션(숫자/옵션 모두 지원)
+// =========================
+
+type ListOptions = {
+  page?: number;
+  region?: string; // "KR"
+  language?: string; // "ko-KR"
+};
+
+// getPopularMovies(1) / getPopularMovies({region, language}) 모두 OK
+function normalizeListArg(arg?: number | ListOptions): Required<ListOptions> {
+  if (typeof arg === "number") {
+    return {
+      page: safeInt(arg, 1),
+      region: DEFAULT_REGION,
+      language: DEFAULT_LANGUAGE,
+    };
+  }
+
+  return {
+    page: safeInt(arg?.page, 1),
+    region: arg?.region ?? DEFAULT_REGION,
+    language: arg?.language ?? DEFAULT_LANGUAGE,
+  };
+}
+
+// =========================
 // API 함수들 (Backend Proxy 사용)
 // =========================
 
 export async function discoverMovies(options: {
   genres?: number[];
-  language?: string;
+  language?: string; // 예: "ko-KR" (기존 로직 유지)
   year?: string;
   page?: number;
   providers?: number[];
   sort_by?: string;
+
+  // ✅ 추가: 한국 기준 강제/오버라이드 가능
+  region?: string;
 }): Promise<TMDBMovie[]> {
-  const params: any = {
-    page: options.page || 1,
+  const page = safeInt(options.page, 1);
+
+  const params: Record<string, unknown> = {
+    page,
     sort_by: options.sort_by || "popularity.desc",
+
+    // ✅ 한국 기준
+    region: options.region ?? DEFAULT_REGION,
+    language: options.language ?? DEFAULT_LANGUAGE,
   };
 
-  // 파라미터 변환 (배열 -> 쉼표 구분 문자열 등)
+  // 파라미터 변환 (배열 -> 문자열)
   if (options.genres && options.genres.length > 0)
     params.genre = options.genres.join(",");
+  // ✅ 기존 코드 유지: 백엔드가 languageCode를 기대하는 경우 대비
   if (options.language) params.languageCode = options.language.split("-")[0];
   if (options.year) params.year = options.year;
   if (options.providers && options.providers.length > 0)
     params.providers = options.providers.join("|");
 
-  // 백엔드 엔드포인트 호출
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/discover",
     params
@@ -236,54 +329,83 @@ export async function discoverMovies(options: {
   return data.results || [];
 }
 
-export async function getPopularMovies(page = 1): Promise<TMDBMovie[]> {
+export async function getPopularMovies(
+  arg: number | ListOptions = 1
+): Promise<TMDBMovie[]> {
+  const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/popular",
-    { page }
+    { page: opt.page, region: opt.region, language: opt.language }
   );
   return data.results || [];
 }
 
-export async function getTopRatedMovies(page = 1): Promise<TMDBMovie[]> {
+export async function getTopRatedMovies(
+  arg: number | ListOptions = 1
+): Promise<TMDBMovie[]> {
+  const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/top_rated",
-    { page }
+    { page: opt.page, region: opt.region, language: opt.language }
   );
   return data.results || [];
 }
 
-export async function getNowPlayingMovies(page = 1): Promise<TMDBMovie[]> {
+export async function getNowPlayingMovies(
+  arg: number | ListOptions = 1
+): Promise<TMDBMovie[]> {
+  const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/now_playing",
-    { page }
+    { page: opt.page, region: opt.region, language: opt.language }
   );
   return data.results || [];
 }
 
-export async function getPopularTVShows(page = 1): Promise<TMDBMovie[]> {
+export async function getPopularTVShows(
+  arg: number | ListOptions = 1
+): Promise<TMDBMovie[]> {
+  const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/tv/popular",
-    { page }
+    { page: opt.page, region: opt.region, language: opt.language }
   );
   return data.results || [];
 }
 
-export async function getMovieDetails(id: number): Promise<MovieDetails> {
+export async function getMovieDetails(
+  id: number,
+  opts?: { region?: string; language?: string }
+): Promise<MovieDetails> {
   return await fetchFromBackend<MovieDetails>(`/movies/${id}`, {
     type: "movie",
+    region: opts?.region ?? DEFAULT_REGION,
+    language: opts?.language ?? DEFAULT_LANGUAGE,
   });
 }
 
-export async function getTVDetails(id: number): Promise<TVDetails> {
-  return await fetchFromBackend<TVDetails>(`/movies/${id}`, { type: "tv" });
+export async function getTVDetails(
+  id: number,
+  opts?: { region?: string; language?: string }
+): Promise<TVDetails> {
+  return await fetchFromBackend<TVDetails>(`/movies/${id}`, {
+    type: "tv",
+    region: opts?.region ?? DEFAULT_REGION,
+    language: opts?.language ?? DEFAULT_LANGUAGE,
+  });
 }
 
 // MovieDetailModal 등에서 사용하는 통합 함수
 export async function getContentDetails(
   id: number,
-  mediaType: "movie" | "tv" = "movie"
+  mediaType: "movie" | "tv" = "movie",
+  opts?: { region?: string; language?: string }
 ): Promise<MovieDetails | TVDetails> {
-  return await fetchFromBackend(`/movies/${id}`, { type: mediaType });
+  return await fetchFromBackend(`/movies/${id}`, {
+    type: mediaType,
+    region: opts?.region ?? DEFAULT_REGION,
+    language: opts?.language ?? DEFAULT_LANGUAGE,
+  });
 }
 
 export function normalizeTVToMovie(tv: any): TMDBMovie {
@@ -306,7 +428,7 @@ export function normalizeTVToMovie(tv: any): TMDBMovie {
 }
 
 // =========================
-// ✅ 추가: Providers / Age Rating (TMDB 직접 호출 + 캐시)
+// ✅ Providers / Age Rating (TMDB 직접 호출 + 캐시)
 // - VITE_TMDB_API_KEY가 있어야 동작
 // =========================
 
@@ -339,7 +461,7 @@ async function tmdbDirectFetch(path: string) {
 export async function getWatchProviders(
   mediaType: "movie" | "tv",
   id: number,
-  region: string = "KR"
+  region: string = DEFAULT_REGION
 ): Promise<ProviderBadge[]> {
   const key = `${mediaType}:${id}:${region}`;
   if (_providersCache.has(key)) return _providersCache.get(key)!;
@@ -374,14 +496,13 @@ export async function getWatchProviders(
 export async function getAgeRating(
   mediaType: "movie" | "tv",
   id: number,
-  region: string = "KR"
+  region: string = DEFAULT_REGION
 ): Promise<string> {
   const key = `${mediaType}:${id}:${region}`;
   if (_ageCache.has(key)) return _ageCache.get(key)!;
 
   try {
     if (mediaType === "movie") {
-      // /movie/{id}/release_dates
       const json = await tmdbDirectFetch(`/movie/${id}/release_dates`);
       const results = Array.isArray(json?.results) ? json.results : [];
       const kr = results.find((r: any) => r?.iso_3166_1 === region);
@@ -394,7 +515,6 @@ export async function getAgeRating(
       return value;
     }
 
-    // tv: /tv/{id}/content_ratings
     const json = await tmdbDirectFetch(`/tv/${id}/content_ratings`);
     const results = Array.isArray(json?.results) ? json.results : [];
     const kr = results.find((r: any) => r?.iso_3166_1 === region);

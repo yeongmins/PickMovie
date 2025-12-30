@@ -12,6 +12,8 @@ import { firstValueFrom } from 'rxjs';
 
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '../generated/prisma';
+import { TmdbService } from '../tmdb/tmdb.service';
+import type { TmdbMovieResult } from '../tmdb/tmdb.types';
 
 type TrendSource = 'kobis' | 'youtube' | 'naver' | 'netflix';
 type TrendMediaType = 'movie' | 'tv' | 'anime' | 'unknown';
@@ -100,6 +102,7 @@ function zScore(value: number, mean: number, std: number): number {
   return (value - mean) / (std || 1);
 }
 
+// ✅ ESLint no-unsafe-assignment 방지: new Array<R>()
 async function mapLimit<T, R>(
   items: T[],
   limit: number,
@@ -119,6 +122,19 @@ async function mapLimit<T, R>(
   return results;
 }
 
+function normTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[~`!@#$%^&*()_+\-={}[\]|\\:;"'<>,.?/·•…：]/g, '');
+}
+
+function yearFromReleaseDate(v?: string): number | null {
+  if (!v) return null;
+  const m = /^(\d{4})-\d{2}-\d{2}$/.exec(v);
+  return m ? Number(m[1]) : null;
+}
+
 @Injectable()
 export class TrendsService {
   private readonly logger = new Logger(TrendsService.name);
@@ -127,6 +143,7 @@ export class TrendsService {
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
     private readonly config: ConfigService,
+    private readonly tmdb: TmdbService,
   ) {}
 
   assertIngestToken(token?: string): void {
@@ -187,7 +204,7 @@ export class TrendsService {
     return this.ingestDailyKrTrends(targetDt);
   }
 
-  // ✅ KOBIS seed + NAVER(커뮤니티/뉴스) + YouTube(예고편/관심) 결합 점수 저장
+  // ✅ KOBIS seed + NAVER + YouTube 결합 점수 저장 + TMDB 매칭(tmdbId 저장)
   async ingestDailyKrTrends(
     targetDt?: string,
   ): Promise<{ date: string; total: number }> {
@@ -209,6 +226,7 @@ export class TrendsService {
           id: number;
           keyword: string;
           year: number | null;
+          tmdbId: number | null;
           kobisRank: number;
           audiAcc: number;
           movieCd: string;
@@ -243,14 +261,19 @@ export class TrendsService {
             id: seed.id,
             keyword,
             year: seed.year ?? null,
+            tmdbId: seed.tmdbId ?? null,
             kobisRank,
             audiAcc,
             movieCd: item.movieCd,
           });
         }
+
         return created;
       },
     );
+
+    // ✅ (중요) tmdbId 없는 것만 매칭해서 저장
+    await this.matchAndStoreTmdbIds(seeds);
 
     const naverSearch = await this.collectNaverSearch(
       seeds.map((s) => s.keyword),
@@ -377,6 +400,129 @@ export class TrendsService {
 
     this.logger.log(`KR Trends ingest done: ${result.date} (${result.total})`);
     return result;
+  }
+
+  // ✅ TMDB 매칭해서 TrendSeed.tmdbId 저장
+  private async matchAndStoreTmdbIds(
+    seeds: Array<{
+      id: number;
+      keyword: string;
+      year: number | null;
+      tmdbId: number | null;
+    }>,
+  ): Promise<void> {
+    const targets = seeds.filter((s) => !s.tmdbId);
+    if (targets.length === 0) return;
+
+    // 과호출 방지: 동시 2개 정도면 안정적
+    const matched = await mapLimit(targets, 2, async (s) => {
+      const found = await this.findBestTmdbMovie(s.keyword, s.year);
+      return { seedId: s.id, tmdbId: found?.id ?? null };
+    });
+
+    const toUpdate = matched.filter((m) => m.tmdbId !== null);
+    if (toUpdate.length === 0) return;
+
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      for (const m of toUpdate) {
+        await tx.trendSeed.update({
+          where: { id: m.seedId },
+          data: { tmdbId: m.tmdbId },
+        });
+      }
+    });
+  }
+
+  private async findBestTmdbMovie(
+    keyword: string,
+    year: number | null,
+  ): Promise<TmdbMovieResult | null> {
+    const q = keyword.trim();
+    if (!q) return null;
+
+    const lang = process.env.TMDB_LANGUAGE ?? 'ko-KR';
+    const region = process.env.TMDB_REGION ?? 'KR';
+
+    // 1) year 기반 검색 먼저 (정확도 ↑)
+    const try1 = await this.safeSearchMovie(q, lang, region, year);
+    const best1 = this.pickBestMovie(q, year, try1);
+    if (best1) return best1;
+
+    // 2) year 없이 한번 더
+    const try2 = await this.safeSearchMovie(q, lang, region, null);
+    return this.pickBestMovie(q, year, try2);
+  }
+
+  private async safeSearchMovie(
+    query: string,
+    language: string,
+    region: string,
+    year: number | null,
+  ): Promise<TmdbMovieResult[]> {
+    try {
+      const res = await this.tmdb.searchMovie({
+        query,
+        page: 1,
+        language,
+        region,
+        includeAdult: false,
+        year: year ?? undefined,
+        primaryReleaseYear: year ?? undefined,
+      });
+      return Array.isArray(res.results) ? res.results : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private pickBestMovie(
+    keyword: string,
+    year: number | null,
+    candidates: TmdbMovieResult[],
+  ): TmdbMovieResult | null {
+    if (candidates.length === 0) return null;
+
+    const nk = normTitle(keyword);
+
+    let best: { item: TmdbMovieResult; score: number } | null = null;
+
+    for (const c of candidates) {
+      const title = c.title ?? '';
+      const org = c.original_title ?? '';
+      const nt = normTitle(title);
+      const no = normTitle(org);
+
+      let score = 0;
+
+      // 제목 매칭
+      if (nt === nk) score += 120;
+      else if (nt.includes(nk) || nk.includes(nt)) score += 70;
+
+      if (no && (no === nk || no.includes(nk) || nk.includes(no))) score += 40;
+
+      // 연도 매칭
+      if (year) {
+        const cy = yearFromReleaseDate(c.release_date) ?? null;
+        if (cy !== null) {
+          const diff = Math.abs(cy - year);
+          if (diff === 0) score += 35;
+          else if (diff === 1) score += 15;
+          else if (diff >= 3) score -= 15;
+        }
+      }
+
+      // 보조 점수(인기도/투표수)
+      score += (c.popularity ?? 0) * 0.05;
+      score += Math.log10((c.vote_count ?? 0) + 1) * 3;
+
+      if (!best || score > best.score) best = { item: c, score };
+    }
+
+    // 너무 약한 매칭은 저장하지 않음
+    if (!best) return null;
+    if (best.score < 60) return null;
+
+    return best.item;
   }
 
   private async fetchKobisDaily(

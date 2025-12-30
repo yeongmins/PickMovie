@@ -144,6 +144,30 @@ export class TmdbService {
     });
   }
 
+  // ✅ 영화 전용 검색 (인제스트 TMDB 매칭용)
+  async searchMovie(opts: {
+    query: string;
+    page?: number;
+    language?: string;
+    region?: string;
+    includeAdult?: boolean;
+    year?: number;
+    primaryReleaseYear?: number;
+  }): Promise<TmdbPagedResponse<TmdbMovieResult>> {
+    const language = opts.language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
+    const region = opts.region ?? process.env.TMDB_REGION ?? 'KR';
+
+    return await this.get<TmdbPagedResponse<TmdbMovieResult>>('/search/movie', {
+      query: opts.query,
+      page: opts.page ?? 1,
+      include_adult: opts.includeAdult ?? false,
+      language,
+      region,
+      year: opts.year,
+      primary_release_year: opts.primaryReleaseYear,
+    });
+  }
+
   async discoverMovies(query: TmdbQuery): Promise<unknown> {
     const type =
       String(query.type ?? query.mediaType ?? query.media_type ?? 'movie') ===

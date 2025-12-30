@@ -235,7 +235,6 @@ const PlaylistRow = memo(function PlaylistRow({
 type FavoritesPlaylistsSectionProps = {
   favorites: string[]; // "movie:1"
   favoriteItems: MediaItem[]; // 전체(플레이리스트 매칭용)
-  searchQuery: string; // 내 찜 탭에서만 필터링
   onToggleFavorite: (id: number, mediaType?: MediaType) => void;
   onOpenDetail: (item: MediaItem) => void;
   onResetFavorites: () => void;
@@ -244,7 +243,6 @@ type FavoritesPlaylistsSectionProps = {
 function FavoritesPlaylistsSection({
   favorites,
   favoriteItems,
-  searchQuery,
   onToggleFavorite,
   onOpenDetail,
   onResetFavorites,
@@ -268,14 +266,6 @@ function FavoritesPlaylistsSection({
     }
     return map;
   }, [favoriteItems]);
-
-  const visibleFavorites = useMemo(() => {
-    if (!searchQuery) return favoriteItems;
-    const q = searchQuery.toLowerCase();
-    return favoriteItems.filter((m) =>
-      (m.title || m.name || "").toLowerCase().includes(q)
-    );
-  }, [favoriteItems, searchQuery]);
 
   useEffect(() => {
     setPlaylists(loadPlaylists());
@@ -342,7 +332,7 @@ function FavoritesPlaylistsSection({
     onResetFavorites();
   };
 
-  // ✅ (개선 2.1) 중앙 몰림 방지: justify-center 제거 → justify-start + w-full
+  // ✅ 중앙 몰림 방지
   const cardsGridClass =
     "w-full grid gap-4 justify-start content-start [grid-template-columns:repeat(auto-fit,minmax(160px,240px))]";
   const playlistCardsGridClass =
@@ -388,7 +378,6 @@ function FavoritesPlaylistsSection({
           </button>
         </div>
 
-        {/* ✅ (개선 2) 내 찜 탭에서는 플레이리스트명/저장하기 숨김 */}
         {tab === "playlists" && (
           <form
             className="flex w-full sm:w-auto items-center gap-2 min-w-0"
@@ -412,13 +401,13 @@ function FavoritesPlaylistsSection({
 
       {tab === "favorites" ? (
         <>
-          {visibleFavorites.length === 0 ? (
+          {favoriteItems.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center text-white/60">
               아직 찜한 콘텐츠가 없어.
             </div>
           ) : (
             <div className={cardsGridClass}>
-              {visibleFavorites.map((item) => {
+              {favoriteItems.map((item) => {
                 const k = toKey(item.id, item.media_type);
                 const isFav =
                   favoriteKeySet.has(k) || favoriteKeySet.has(String(item.id));
@@ -599,8 +588,6 @@ export default function FavoritesPage({
   onToggleFavorite,
   onResetFavorites,
 }: FavoritesPageProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-
   const [favoriteItems, setFavoriteItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
@@ -616,7 +603,7 @@ export default function FavoritesPage({
   const loadFavoriteItems = useCallback(async () => {
     if (!favorites.length) {
       setFavoriteItems([]);
-      itemCacheRef.current.clear(); // ✅ 로그아웃/초기화 시 캐시 정리
+      itemCacheRef.current.clear();
       setLoading(false);
       hasLoadedOnceRef.current = true;
       return;
@@ -693,11 +680,11 @@ export default function FavoritesPage({
       );
 
       for (const r of fetched) {
-        if (r.item) cache.set(r.key, r.item);
+        if (r.item) itemCacheRef.current.set(r.key, r.item);
       }
 
       const finalList = wantedKeys
-        .map((k) => cache.get(k) ?? null)
+        .map((k) => itemCacheRef.current.get(k) ?? null)
         .filter(Boolean) as MediaItem[];
 
       setFavoriteItems(finalList);
@@ -713,9 +700,7 @@ export default function FavoritesPage({
 
   useEffect(() => {
     if (favorites.length === 0) {
-      // ✅ 로그아웃/초기화 순간에 즉시 화면 상태 정리
       setSelectedMovie(null);
-      setSearchQuery("");
       setFavoriteItems([]);
       itemCacheRef.current.clear();
     }
@@ -765,14 +750,13 @@ export default function FavoritesPage({
   return (
     <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden">
       <Suspense fallback={<div className="h-16" />}>
-        <Header searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+        <Header currentSection="favorites" />
       </Suspense>
 
       <main className={`page-fade-in pt-24 pb-20 ${shellClass}`}>
         <FavoritesPlaylistsSection
           favorites={favoriteKeys}
           favoriteItems={favoriteItems}
-          searchQuery={searchQuery}
           onToggleFavorite={(id, type) =>
             onToggleFavorite(id, (type ?? "movie") as "movie" | "tv")
           }
