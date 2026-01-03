@@ -865,6 +865,10 @@
     margin-bottom: calc(var(--spacing) * 16);
   }
 
+  .mb-30 {
+    margin-bottom: calc(var(--spacing) * 30);
+  }
+
   .line-clamp-3 {
     -webkit-line-clamp: 3;
     line-clamp: 3;
@@ -961,6 +965,10 @@
 
   .h-12 {
     height: calc(var(--spacing) * 12);
+  }
+
+  .h-15 {
+    height: calc(var(--spacing) * 15);
   }
 
   .h-16 {

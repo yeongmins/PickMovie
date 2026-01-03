@@ -64,7 +64,6 @@ export class TmdbService {
     }
   }
 
-  // ---------- 기본 리스트 ----------
   getPopularMovies(page = 1, language?: string) {
     const lang = language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
     return this.get<TmdbPagedResponse<TmdbMovieResult>>('/movie/popular', {
@@ -91,6 +90,16 @@ export class TmdbService {
     });
   }
 
+  getUpcomingMovies(page = 1, region?: string, language?: string) {
+    const lang = language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
+    const reg = region ?? process.env.TMDB_REGION ?? 'KR';
+    return this.get<TmdbPagedResponse<TmdbMovieResult>>('/movie/upcoming', {
+      page,
+      language: lang,
+      region: reg,
+    });
+  }
+
   getPopularTVShows(page = 1, language?: string) {
     const lang = language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
     return this.get<TmdbPagedResponse<TmdbTvResult>>('/tv/popular', {
@@ -99,7 +108,6 @@ export class TmdbService {
     });
   }
 
-  // ---------- 상세 ----------
   getMovieDetails(id: number, language?: string) {
     const lang = language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
     return this.get<unknown>(`/movie/${id}`, { language: lang });
@@ -110,7 +118,6 @@ export class TmdbService {
     return this.get<unknown>(`/tv/${id}`, { language: lang });
   }
 
-  // ---------- ✅ 유사작 ----------
   async getSimilar<T extends MediaType>(
     mediaType: T,
     id: number,
@@ -128,7 +135,6 @@ export class TmdbService {
     >(path, { page, language: lang });
   }
 
-  // ---------- 검색/디스커버 ----------
   async searchMulti(opts: {
     query: string;
     page?: number;
@@ -144,7 +150,6 @@ export class TmdbService {
     });
   }
 
-  // ✅ 영화 전용 검색 (인제스트 TMDB 매칭용)
   async searchMovie(opts: {
     query: string;
     page?: number;
@@ -192,7 +197,6 @@ export class TmdbService {
     });
   }
 
-  // ---------- OTT / 등급 ----------
   async getWatchProviders(opts: {
     mediaType: MediaType;
     id: number;
@@ -275,13 +279,11 @@ export class TmdbService {
     return { details, providers, ageRating };
   }
 
-  // ---------- 프록시 ----------
   async proxy(path: string, query: TmdbQuery): Promise<unknown> {
     const safePath = path.startsWith('/') ? path : `/${path}`;
     return await this.get<unknown>(safePath, query);
   }
 
-  // --- Keyword 검색 ---
   async searchKeyword(query: string, page = 1) {
     return await this.get<{ results: Array<{ id: number; name: string }> }>(
       '/search/keyword',
@@ -289,7 +291,6 @@ export class TmdbService {
     );
   }
 
-  // --- Company 검색 ---
   async searchCompany(query: string, page = 1) {
     return await this.get<{ results: Array<{ id: number; name: string }> }>(
       '/search/company',
@@ -297,7 +298,6 @@ export class TmdbService {
     );
   }
 
-  // --- Network 검색 (TV용) ---
   async searchNetwork(query: string, page = 1) {
     return await this.get<{ results: Array<{ id: number; name: string }> }>(
       '/search/network',
@@ -305,11 +305,26 @@ export class TmdbService {
     );
   }
 
-  // --- Collection 검색 (프랜차이즈/시리즈 묶음) ---
   async searchCollection(query: string, page = 1) {
     return await this.get<{ results: Array<{ id: number; name: string }> }>(
       '/search/collection',
       { query, page },
     );
+  }
+
+  async getImages(
+    mediaType: MediaType,
+    id: number,
+    opts?: { includeImageLanguage?: string },
+  ) {
+    return await this.get<unknown>(`/${mediaType}/${id}/images`, {
+      include_image_language: opts?.includeImageLanguage ?? 'ko,en,null',
+    });
+  }
+
+  // ✅✅✅ 완전 안정화: Videos 전용
+  getVideos(mediaType: MediaType, id: number, language?: string) {
+    const lang = language ?? process.env.TMDB_LANGUAGE ?? 'ko-KR';
+    return this.get<unknown>(`/${mediaType}/${id}/videos`, { language: lang });
   }
 }

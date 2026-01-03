@@ -742,12 +742,12 @@ export function ContentCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/15" />
 
         {/* 좌상단 */}
-        <div className="absolute top-2 left-2 z-20 flex flex-col items-start gap-1">
+        <div className="absolute top-2 left-2 z-20 flex flex-col items-start">
           {onRemove && (
             <button
               type="button"
               aria-label="플레이리스트에서 제거"
-              className="w-[30px] h-[30px] rounded-[5px] bg-black/55 hover:bg-black/70 flex items-center justify-center"
+              className="w-[22px] h-[22px] rounded-[4px] bg-black/55 hover:bg-black/70 flex items-center justify-center"
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove();
@@ -792,11 +792,11 @@ export function ContentCard({
             </div>
           )}
 
-          {showMatch && (
+          {/* {showMatch && (
             <div className="self-start">
               <Chip tone="dark">{Math.round(item.matchScore!)}% 매칭</Chip>
             </div>
-          )}
+          )} */}
         </div>
 
         {/* 우상단 하트 (로그인 시에만 노출) */}
@@ -850,7 +850,7 @@ export function ContentCard({
                   ))}
 
                   {hiddenCount > 0 && (
-                    <span className="w-[30px] h-[30px] rounded-[5px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
+                    <span className="w-[24px] h-[24px] rounded-[4px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
                       +{hiddenCount}
                     </span>
                   )}

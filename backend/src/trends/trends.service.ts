@@ -219,7 +219,14 @@ export class TrendsService {
     }>;
 
     const rows = await this.prisma.trendRank.findMany({
-      where: { date, seed: { source: 'kobis', mediaType: 'movie' } },
+      where: {
+        date,
+        seed: {
+          source: 'kobis',
+          mediaType: 'movie',
+          tmdbId: { not: null }, // ✅ tmdbId 없으면 완전 제외
+        },
+      },
       orderBy: [{ score: 'desc' }, { rank: 'asc' }],
       take: limit,
       include: {
@@ -233,17 +240,17 @@ export class TrendsService {
 
     return {
       date,
-      items: (rows as Row[]).map((r) => ({
+      items: (rows as Row[]).map((r, idx) => ({
         id: r.seed.id,
         keyword: r.seed.keyword,
         source: r.seed.source as TrendSource,
         mediaType: r.seed.mediaType as TrendMediaType,
-        rank: r.rank,
-        score: r.score,
-        tmdbId: r.seed.tmdbId ?? null,
-        year: r.seed.year ?? null,
 
-        // ✅ Topic은 “보조 정보”로만
+        rank: idx + 1, // ✅ 여기서 “연속 랭크”로 재부여 (6 다음이 7로 내려감)
+
+        score: r.score,
+        tmdbId: r.seed.tmdbId!, // not null 조건이라 항상 존재
+        year: r.seed.year ?? null,
         topicId: r.seed.topicId ?? null,
         topicTitle: r.seed.topic?.canonicalTitle ?? null,
       })),

@@ -51,7 +51,6 @@ function getActiveSection(pathname: string) {
   return "home";
 }
 
-// ✅ PC <-> 태블릿 브레이크포인트 전환을 "자연스럽게" (resize 시에도 부드럽게)
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -76,7 +75,7 @@ function useMediaQuery(query: string) {
 }
 
 export function Header({ onNavigate, currentSection }: HeaderProps) {
-  const [scrolled, setScrolled] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -90,14 +89,29 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
     [location.pathname]
   );
 
-  // tailwind md = 768px
   const isMdUp = useMediaQuery("(min-width: 768px)");
 
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 10);
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener("scroll", handleScroll);
+    if (typeof window === "undefined") return;
+
+    const MAX = 72; // 0% -> 100% 채워지는 스크롤 범위(감도 조절)
+    let raf = 0;
+
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const y = window.scrollY || 0;
+        const p = Math.min(1, Math.max(0, y / MAX));
+        setScrollProgress(p);
+      });
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   useEffect(() => {
@@ -189,20 +203,32 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full">
-      <div className="relative w-full px-6 h-16 flex items-center justify-between">
+      <div className="relative w-full px-6 h-15 flex items-center justify-between">
         <div
-          className="absolute inset-0 bg-gradient-to-b from-black/50 to-transparent transition-opacity duration-300"
-          style={{ opacity: scrolled ? 0 : 1 }}
-          aria-hidden="true"
-        />
-        <div
-          className="absolute inset-0 bg-[#1a1a24]/95 backdrop-blur-md shadow-lg transition-opacity duration-300"
-          style={{ opacity: scrolled ? 1 : 0 }}
+          className={[
+            "pointer-events-none absolute top-0 left-0 right-0",
+            "h-[60px]",
+            "bg-[radial-gradient(120%_85%_at_50%_0%,rgba(0,0,0,0.38)_0%,rgba(0,0,0,0.14)_55%,rgba(0,0,0,0)_78%),linear-gradient(to_bottom,rgba(0,0,0,0.42)_0%,rgba(0,0,0,0.18)_60%,rgba(0,0,0,0)_100%)]",
+            "will-change-[opacity]",
+          ].join(" ")}
+          style={{ opacity: 1 - scrollProgress }}
           aria-hidden="true"
         />
 
-        <div className="relative z-10 w-full flex items-center justify-between">
-          {/* 좌측 */}
+        <div
+          className={[
+            "pointer-events-none absolute inset-0",
+            "bg-[#1a1a24]/90 backdrop-blur-md",
+            "will-change-[opacity,box-shadow]",
+          ].join(" ")}
+          style={{
+            opacity: scrollProgress,
+            boxShadow: `0 10px 30px rgba(0,0,0,${0.1 * scrollProgress})`,
+          }}
+          aria-hidden="true"
+        />
+
+        <div className="relative z-10 w-full flex items-center justify-between [text-shadow:0_1px_2px_rgba(0,0,0,0.65)]">
           <div className="flex items-center gap-8 h-full">
             <button
               onClick={() => go("home")}
@@ -212,7 +238,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
               <Logo size="sm" />
             </button>
 
-            {/* ✅ PC<->태블릿 전환 시 페이드로 자연스럽게 */}
             <AnimatePresence initial={false}>
               {isMdUp ? (
                 <motion.nav
@@ -237,9 +262,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
             </AnimatePresence>
           </div>
 
-          {/* 우측 */}
           <div className="flex items-center gap-2 flex-1 justify-end ml-3">
-            {/* ✅ Picky 버튼 */}
             <div className="relative group">
               <motion.button
                 type="button"
@@ -265,7 +288,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                 </motion.span>
               </motion.button>
 
-              {/* ✅ 툴팁: 프로필 토글을 가리지 않도록 '오른쪽 정렬' + 꼬리 위치도 버튼을 향하게 */}
               <div
                 id={tooltipId}
                 role="tooltip"
@@ -281,7 +303,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                   <div className="text-xs font-semibold text-white/90 whitespace-nowrap">
                     Picky에게 추천받기
                   </div>
-                  {/* 말머리(꼬리): 버튼 중심을 향하도록 오른쪽 쪽에 배치 */}
                   <div className="absolute right-4 -top-1 h-2 w-2 rotate-45 border-t border-l border-purple-500/20 bg-black/75" />
                 </div>
               </div>
@@ -295,7 +316,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                 onClick={() => navigate("/login")}
               >
                 <User className="w-4 h-4" />
-                <span className="hidden md:inline font-medium">로그인</span>
+                <span className="hidden md:inline font-bold">로그인</span>
               </Button>
             ) : (
               <div className="relative" ref={popoverRef}>
@@ -338,7 +359,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                         </div>
 
                         <div className="mt-4 grid gap-2">
-                          {/* ✅ md 이하에서만 노출 + 전환 시 자연스러운 애니메이션 */}
                           <AnimatePresence initial={false}>
                             {!isMdUp ? (
                               <motion.div

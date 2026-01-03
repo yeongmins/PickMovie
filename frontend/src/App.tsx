@@ -16,6 +16,9 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import { MyPage } from "./pages/MyPage";
+import { Info } from "./pages/support/info";
+import { Notices } from "./pages/support/Notices";
+import { Legal } from "./pages/support/Legal";
 
 export interface FavoriteItem {
   id: number;
@@ -135,7 +138,20 @@ export default function App() {
     try {
       let accessToken: string | null = currentToken;
 
+      // ✅ accessToken이 없을 때: "이전에 로그인한 적이 있는 경우에만" refresh 시도
       if (!accessToken) {
+        const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+
+        // 저장된 user도 없으면 => 애초에 로그인 상태가 아니므로 refresh 요청 자체를 보내지 않음
+        if (!storedUser) {
+          clearAuthLocal();
+          setMe(null);
+          setFavorites([]);
+          emitAuthChanged();
+          return;
+        }
+
+        // 저장된 user가 있으면 => 세션 복구(refresh) 시도
         const refreshed = await postJson("/auth/refresh");
         accessToken = (refreshed?.accessToken as string | null) ?? null;
 
@@ -315,6 +331,10 @@ export default function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
+        <Route path="/info" element={<Info />} />
+        <Route path="/notices" element={<Notices />} />
+        <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
+        <Route path="/legal/:section" element={<Legal />} />
 
         <Route path="/mypage" element={<MyPage />} />
 

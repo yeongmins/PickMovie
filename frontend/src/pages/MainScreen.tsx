@@ -11,6 +11,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Footer } from "../components/layout/Footer";
 
 import type { UserPreferences } from "../features/onboarding/Onboarding";
 import type { FavoriteItem } from "../App";
@@ -31,23 +32,31 @@ import {
   type TMDBMovie,
 } from "../lib/tmdb";
 
-// Lazy Components
 const Header = lazy(() =>
   import("../components/layout/Header").then((m) => ({ default: m.Header }))
 );
+
 const FavoritesCarousel = lazy(() =>
   import("../features/favorites/components/FavoritesCarousel").then((m) => ({
     default: m.FavoritesCarousel,
   }))
 );
+
 const MovieRow = lazy(() =>
   import("../features/movies/components/MovieRow").then((m) => ({
     default: m.MovieRow,
   }))
 );
+
 const MovieDetailModal = lazy(() =>
   import("../features/movies/components/MovieDetailModal").then((m) => ({
     default: m.MovieDetailModal,
+  }))
+);
+
+const TrailerOverlay = lazy(() =>
+  import("../features/favorites/components/TrailerOverlay").then((m) => ({
+    default: m.TrailerOverlay,
   }))
 );
 
@@ -109,16 +118,10 @@ function isLoggedInFallback(): boolean {
   }
 }
 
-// ✅ 신규가입자용 온보딩 모달 제어 키
-// - 회원가입 성공 시(로그인 직후) 아래 NEW_USER_FLAG 를 "1"로 세팅해두면,
-//   메인(home) 진입 시 1회만 모달이 뜹니다.
-const NEW_USER_FLAG = "pickmovie_new_signup"; // "1"이면 신규가입자 플래그로 간주
-const ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen"; // "1"이면 다시 안뜸
-
-// ✅ 한국 기준 옵션
+const NEW_USER_FLAG = "pickmovie_new_signup";
+const ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
 const KR = { region: "KR", language: "ko-KR" } as const;
 
-// ✅ lib/tmdb 함수 시그니처가 달라도 깨지지 않게
 async function safeCall<T>(fn: any, args: any): Promise<T> {
   try {
     return (await fn(args)) as T;
@@ -173,7 +176,6 @@ function OnboardingPromptModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          {/* overlay */}
           <motion.div
             className="absolute inset-0 bg-black/55 backdrop-blur-md"
             initial={{ opacity: 0 }}
@@ -182,7 +184,6 @@ function OnboardingPromptModal({
             onMouseDown={onLater}
           />
 
-          {/* modal */}
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.98, filter: "blur(8px)" }}
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
@@ -252,28 +253,28 @@ export function MainScreen({
 
   const [selectedMovie, setSelectedMovie] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
-  // ✅ auth 상태
   const [loggedIn, setLoggedIn] = useState<boolean>(() => isLoggedInFallback());
 
-  // Data States
   const [favoriteMovies, setFavoriteMovies] = useState<MovieWithScore[]>([]);
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularTV, setPopularTV] = useState<TMDBMovie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  // ✅ (요구 1) 내 찜/데이터 기반 "당신을 위한 추천"
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
   const forYouOnceRef = useRef(false);
 
-  // ✅ (요구 2) PickMovie 인기차트 Top 20
   const [trendMoviesRaw, setTrendMoviesRaw] = useState<TMDBMovie[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
 
-  // ✅ (요구 4) 신규가입자 온보딩 모달
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
+
+  const [trailerTarget, setTrailerTarget] = useState<{
+    id: number;
+    mediaType: MediaType;
+    title?: string;
+  } | null>(null);
 
   const favoriteKeySet = useMemo(() => {
     return new Set(favorites.map((f) => `${f.mediaType}:${f.id}`));
@@ -295,13 +296,8 @@ export function MainScreen({
     window.scrollTo(0, 0);
   }, [currentSection]);
 
-  // ✅ 신규가입자: 메인(home) 진입 시 1회만 온보딩 모달 노출
   useEffect(() => {
-    if (!loggedIn) {
-      setShowOnboardingPrompt(false);
-      return;
-    }
-    if (currentSection !== "home") {
+    if (!loggedIn || currentSection !== "home") {
       setShowOnboardingPrompt(false);
       return;
     }
@@ -309,8 +305,7 @@ export function MainScreen({
     try {
       const isNew = localStorage.getItem(NEW_USER_FLAG) === "1";
       const seen = localStorage.getItem(ONBOARDING_PROMPT_SEEN) === "1";
-      if (isNew && !seen) setShowOnboardingPrompt(true);
-      else setShowOnboardingPrompt(false);
+      setShowOnboardingPrompt(isNew && !seen);
     } catch {
       setShowOnboardingPrompt(false);
     }
@@ -327,18 +322,17 @@ export function MainScreen({
   const startOnboarding = useCallback(() => {
     dismissOnboardingPrompt();
     if (onReanalyze) onReanalyze();
-    else navigate("/onboarding"); // 라우팅이 다르면 이 경로만 바꿔줘
+    else navigate("/onboarding");
   }, [dismissOnboardingPrompt, onReanalyze, navigate]);
 
-  // ✅ 상단 찜 캐러셀용 (찜 상세)
   const loadFavoriteMoviesDetails = useCallback(async () => {
     if (!favorites.length) {
       setFavoriteMovies([]);
       return;
     }
 
-    try {
-      const detailPromises = favorites.map(async (item) => {
+    const settled = await Promise.all(
+      favorites.map(async (item) => {
         try {
           const detail =
             item.mediaType === "tv"
@@ -349,22 +343,17 @@ export function MainScreen({
 
           const baseMovie =
             item.mediaType === "tv" ? normalizeTVToMovie(detail) : detail;
-
           const fixed = { ...(baseMovie as any), media_type: item.mediaType };
           return withMatchScore(fixed as TMDBMovie, userPreferences);
         } catch {
           return null;
         }
-      });
+      })
+    );
 
-      const settled = await Promise.all(detailPromises);
-      setFavoriteMovies(settled.filter((m): m is MovieWithScore => m !== null));
-    } catch (error) {
-      console.error(error);
-    }
+    setFavoriteMovies(settled.filter((m): m is MovieWithScore => m !== null));
   }, [favorites, userPreferences]);
 
-  // ✅ 공통 Row 데이터 로드 (인기/TV/평점/최신)
   const loadAllData = useCallback(async () => {
     setLoading(true);
 
@@ -377,31 +366,17 @@ export function MainScreen({
       ]);
 
       setPopularMovies(
-        (popular || []).map((m) => ({
-          ...(m as any),
-          media_type: "movie",
-        }))
+        (popular || []).map((m) => ({ ...(m as any), media_type: "movie" }))
       );
-
       setPopularTV(
         (tv || []).map((t) => ({ ...(t as any), media_type: "tv" }))
       );
-
       setTopRatedMovies(
-        (topRated || []).map((m) => ({
-          ...(m as any),
-          media_type: "movie",
-        }))
+        (topRated || []).map((m) => ({ ...(m as any), media_type: "movie" }))
       );
-
       setLatestMovies(
-        (latest || []).map((m) => ({
-          ...(m as any),
-          media_type: "movie",
-        }))
+        (latest || []).map((m) => ({ ...(m as any), media_type: "movie" }))
       );
-    } catch (error) {
-      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -415,7 +390,6 @@ export function MainScreen({
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
 
-  // ✅ (요구 2) PickMovie 인기차트 Top 20 로드
   useEffect(() => {
     if (currentSection !== "home") return;
 
@@ -450,11 +424,7 @@ export function MainScreen({
             try {
               const d = await getMovieDetails(it.tmdbId as number);
               if (!d) return null;
-
-              return {
-                ...(d as any),
-                media_type: "movie",
-              } as any;
+              return { ...(d as any), media_type: "movie" } as any;
             } catch {
               return null;
             }
@@ -462,9 +432,7 @@ export function MainScreen({
         );
 
         if (!mounted) return;
-
-        const cleaned = details.filter(Boolean).map((m: any) => ({ ...m }));
-        setTrendMoviesRaw(cleaned as any[]);
+        setTrendMoviesRaw(details.filter(Boolean) as any[]);
       } catch {
         if (mounted) setTrendMoviesRaw([]);
       } finally {
@@ -477,11 +445,6 @@ export function MainScreen({
     };
   }, [currentSection, loggedIn]);
 
-  const trendMovies = useMemo(() => {
-    return trendMoviesRaw || [];
-  }, [trendMoviesRaw]);
-
-  // ✅ (요구 1) 로그인 + 내 찜/데이터 기반 "당신을 위한 추천"
   useEffect(() => {
     if (forYouOnceRef.current) return;
     if (!loggedIn || currentSection !== "home") return;
@@ -495,19 +458,16 @@ export function MainScreen({
 
     (async () => {
       try {
-        // 1) 찜에서 장르 추출(상세 기반)
         const counts = new Map<number, number>();
         for (const f of favoriteMovies) {
           const ids = extractGenreIdsFromAny(f);
           for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
         }
 
-        // 2) prefs 장르도 약간 보조(정밀분석 결과가 있다면)
         const prefIds = (userPreferences?.genres || [])
           .map((g) => GENRE_IDS[g])
           .filter(Boolean) as number[];
 
-        // 3) Top 장르 선택
         const topFromFav = Array.from(counts.entries())
           .sort((a, b) => b[1] - a[1])
           .map(([id]) => id)
@@ -516,13 +476,11 @@ export function MainScreen({
         const seedGenreIds = Array.from(
           new Set([...topFromFav, ...prefIds])
         ).slice(0, 6);
-
         if (!seedGenreIds.length) {
           if (mounted) setForYouMovies([]);
           return;
         }
 
-        // 4) discover로 후보 수집(2페이지)
         const [p1, p2] = await Promise.all([
           safeCall<TMDBMovie[]>(discoverMovies, {
             genres: seedGenreIds,
@@ -538,7 +496,6 @@ export function MainScreen({
 
         const pool = [...(p1 || []), ...(p2 || [])];
 
-        // 5) 중복 제거 + 찜 제외
         const seen = new Set<number>();
         const favMovieIds = new Set(
           favorites.filter((x) => x.mediaType === "movie").map((x) => x.id)
@@ -553,12 +510,8 @@ export function MainScreen({
             seen.add(id);
             return true;
           })
-          .map((m) => ({
-            ...(m as any),
-            media_type: "movie",
-          })) as any[];
+          .map((m) => ({ ...(m as any), media_type: "movie" })) as any[];
 
-        // 6) 찜 장르 겹침 기반으로 점수 보강(“내 찜 기반” 체감 강화)
         const favGenreSet = new Set<number>();
         for (const f of favoriteMovies) {
           extractGenreIdsFromAny(f).forEach((id) => favGenreSet.add(id));
@@ -573,7 +526,6 @@ export function MainScreen({
                 ? gids.filter((id) => favGenreSet.has(id)).length / gids.length
                 : 0;
 
-            // 0~20 가중 (찜 기반 체감)
             const boosted = Math.max(0, Math.min(99, base + overlap * 20));
 
             return {
@@ -597,7 +549,7 @@ export function MainScreen({
     return () => {
       mounted = false;
     };
-  }, [loggedIn, currentSection, favorites.length, favoriteMovies.length]);
+  }, [loggedIn, currentSection, favorites, favoriteMovies, userPreferences]);
 
   const handleMovieClick = useCallback(
     async (movie: any) => {
@@ -608,7 +560,6 @@ export function MainScreen({
           mt === "tv"
             ? await getTVDetails(movie.id)
             : await getMovieDetails(movie.id);
-
         const merged = { ...movie, ...(details || {}) };
         const genre = buildGenreString(details);
 
@@ -639,6 +590,17 @@ export function MainScreen({
     [onToggleFavorite]
   );
 
+  const openTrailerFromCarousel = useCallback((movie: any) => {
+    const mt: MediaType = (movie?.media_type || "movie") as MediaType;
+    const title =
+      movie?.title ??
+      movie?.name ??
+      movie?.original_title ??
+      movie?.original_name ??
+      "";
+    setTrailerTarget({ id: Number(movie.id), mediaType: mt, title });
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#1a1a24] flex items-center justify-center">
@@ -665,20 +627,31 @@ export function MainScreen({
         onLater={dismissOnboardingPrompt}
       />
 
-      {/* 상단 큰 캐러셀 */}
+      <Suspense fallback={null}>
+        <TrailerOverlay
+          open={!!trailerTarget}
+          target={trailerTarget}
+          onClose={() => setTrailerTarget(null)}
+          topInset={60}
+        />
+      </Suspense>
+
       {currentSection === "home" && (
-        <section className="relative z-20">
-          <Suspense fallback={<div className="h-[260px]" />}>
-            <FavoritesCarousel
-              movies={favoriteMovies as any}
-              onMovieClick={handleMovieClick}
-              onToggleFavorite={(id, type) => toggleFav(id, type)}
-            />
-          </Suspense>
+        <section className="relative z-20 h-[80svh] min-h-[80svh] flex flex-col">
+          <div className="flex-1 min-h-0 relative">
+            <Suspense fallback={<div className="h-[80svh]" />}>
+              <FavoritesCarousel
+                movies={favoriteMovies as any}
+                onMovieClick={handleMovieClick as any}
+                onToggleFavorite={(id, type) => toggleFav(id, type)}
+                onTrailerClick={openTrailerFromCarousel}
+              />
+            </Suspense>
+          </div>
         </section>
       )}
 
-      <main className="page-fade-in pb-20 flex-1">
+      <main className="page-fade-in flex-1 z-20">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentSection}
@@ -688,29 +661,25 @@ export function MainScreen({
             exit="exit"
             transition={{ duration: 0.25, ease: "easeOut" }}
           >
-            {/* 홈 */}
             {currentSection === "home" && (
               <>
-                {/* =======================================================
-                    ✅ (요구 1) "당신을 위한 추천" — 하단 캐러셀 최상단 배치
-                    ======================================================= */}
                 {loggedIn && (
                   <>
                     <RowHeader
                       className="mt-10"
-                      title="당신을 위한 추천"
-                      desc="내 찜/플레이리스트 내역과 내 데이터를 기반으로 생성됐어요."
+                      title="❤️ 당신을 위한 추천"
+                      desc="내 찜/플레이리스트 기반으로 생성된 추천 목록입니다."
                     />
 
                     {forYouLoading ? (
                       <div className="mx-auto w-full px-4 mt-4">
                         <div className="h-24 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-sm text-white/60">
-                          추천을 생성 중이에요…{" "}
+                          새로고침 시 생성됩니다...{" "}
                           <Loader2 className="ml-2 h-4 w-4 animate-spin" />
                         </div>
                       </div>
                     ) : !canBuildForYou ? (
-                      <div className="mx-auto w-full px-4 mt-4">
+                      <div className="mx-auto w-full px-6 mt-4">
                         <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                           찜을{" "}
                           <span className="text-white/85 font-semibold">
@@ -742,9 +711,6 @@ export function MainScreen({
                   </>
                 )}
 
-                {/* =======================================================
-                    ✅ (요구 2) "✨ PickMovie 인기 영화" — 로그인 시에만 노출
-                    ======================================================= */}
                 {loggedIn && (
                   <>
                     <RowHeader
@@ -760,7 +726,7 @@ export function MainScreen({
                           <Loader2 className="ml-2 h-4 w-4 animate-spin" />
                         </div>
                       </div>
-                    ) : trendMovies.length === 0 ? (
+                    ) : trendMoviesRaw.length === 0 ? (
                       <div className="mx-auto w-full px-4 mt-4">
                         <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                           인기차트를 불러오지 못했어요. 잠시 후 다시 시도해
@@ -771,7 +737,7 @@ export function MainScreen({
                       <Suspense fallback={<div className="h-40" />}>
                         <MovieRow
                           title=""
-                          movies={trendMovies as any}
+                          movies={trendMoviesRaw as any}
                           favorites={favoriteIdList}
                           favoriteKeySet={favoriteKeySet}
                           onToggleFavorite={(id: number, type?: MediaType) =>
@@ -787,7 +753,7 @@ export function MainScreen({
                 <RowHeader
                   className="mt-10"
                   title="🔥 인기 영화"
-                  desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 영화예요."
+                  desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 영화입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -805,7 +771,7 @@ export function MainScreen({
                 <RowHeader
                   className="mt-10"
                   title="📺 인기 TV 프로그램"
-                  desc="요즘 반응 좋은 TV 프로그램을 모아 보여드려요."
+                  desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 TV 콘텐츠입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -823,7 +789,7 @@ export function MainScreen({
                 <RowHeader
                   className="mt-10"
                   title="🎬 최신 개봉작"
-                  desc="현재 상영중인 작품 중심으로 빠르게 모아봤어요."
+                  desc="현재 상영 중 / 재개봉 중인 작품입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <MovieRow
@@ -840,7 +806,6 @@ export function MainScreen({
               </>
             )}
 
-            {/* 인기 영화 */}
             {currentSection === "popular-movies" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
@@ -871,7 +836,6 @@ export function MainScreen({
               </section>
             )}
 
-            {/* 인기 TV */}
             {currentSection === "popular-tv" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
@@ -892,61 +856,8 @@ export function MainScreen({
         </AnimatePresence>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-[#111118]">
-        <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10 py-10">
-          <div className="grid gap-8 md:grid-cols-3">
-            <div>
-              <div className="text-lg font-semibold">PickMovie</div>
-              <p className="mt-2 text-sm text-white/60 leading-relaxed">
-                취향 기반 추천 + Picky AI 검색으로 지금 보고 싶은 콘텐츠를
-                빠르게 찾는 서비스입니다.
-              </p>
-            </div>
+      <Footer />
 
-            <div>
-              <div className="text-sm font-semibold text-white/80">
-                Data / APIs
-              </div>
-              <ul className="mt-2 space-y-2 text-sm text-white/60">
-                <li>• TMDB API (영화/TV 메타데이터, 포스터, 평점, 장르)</li>
-                <li>• KOBIS API (박스오피스/영화 정보 데이터)</li>
-                <li>• Naver API (트렌드/검색 데이터)</li>
-                <li>• YouTube Data API (예고편/영상 데이터)</li>
-                <li>• Google Gemini API (Picky 자연어 취향 분석/추천 보조)</li>
-              </ul>
-
-              <div className="mt-4 text-xs text-white/40 leading-relaxed">
-                This product uses the TMDB API but is not endorsed or certified
-                by TMDB.
-              </div>
-            </div>
-
-            <div>
-              <div className="text-sm font-semibold text-white/80">Contact</div>
-              <div className="mt-2 text-sm text-white/60">
-                문의:{" "}
-                <a
-                  className="text-purple-300 hover:text-purple-200 underline underline-offset-4"
-                  href="mailto:yeongmins123@gmail.com"
-                >
-                  yeongmins123@gmail.com
-                </a>
-              </div>
-              <div className="mt-3 text-xs text-white/40">
-                오류/개선 제안은 이메일로 편하게 보내주세요.
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/35">
-            <span>© {new Date().getFullYear()} PickMovie</span>
-            <span>Sources: TMDB / KOBIS / Naver / YouTube / Google Gemini</span>
-          </div>
-        </div>
-      </footer>
-
-      {/* 모달 */}
       <AnimatePresence>
         {selectedMovie && (
           <Suspense fallback={null}>
