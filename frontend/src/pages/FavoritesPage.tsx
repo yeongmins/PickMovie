@@ -30,11 +30,6 @@ import {
 const Header = lazy(() =>
   import("../components/layout/Header").then((m) => ({ default: m.Header }))
 );
-const MovieDetailModal = lazy(() =>
-  import("../features/movies/components/MovieDetailModal").then((m) => ({
-    default: m.MovieDetailModal,
-  }))
-);
 
 type MediaType = "movie" | "tv";
 type FavoriteKey = string; // "movie:123" | "tv:456" | "123"
@@ -764,24 +759,6 @@ export default function FavoritesPage({
           onResetFavorites={onResetFavorites}
         />
       </main>
-
-      <AnimatePresence>
-        {selectedMovie && (
-          <Suspense fallback={null}>
-            <MovieDetailModal
-              movie={selectedMovie}
-              onClose={() => setSelectedMovie(null)}
-              isFavorite={favoriteKeys.includes(
-                `${selectedMovie.mediaType}:${selectedMovie.id}`
-              )}
-              onToggleFavorite={() =>
-                onToggleFavorite(selectedMovie.id, selectedMovie.mediaType)
-              }
-              userPreferences={userPreferences}
-            />
-          </Suspense>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

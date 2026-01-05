@@ -16,9 +16,10 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import { MyPage } from "./pages/MyPage";
-import { Info } from "./pages/support/info";
+import { Info } from "./pages/support/Info";
 import { Notices } from "./pages/support/Notices";
 import { Legal } from "./pages/support/Legal";
+import ContentDetailModal from "./pages/detail/ContentDetailModal";
 
 export interface FavoriteItem {
   id: number;
@@ -56,7 +57,7 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ✅ 모달 라우트: backgroundLocation이 있으면 "그 페이지 위에" /picky를 오버레이로 띄움
+  // ✅ 모달 라우팅: backgroundLocation이 있으면 "그 페이지 위에" 오버레이로 띄움
   const backgroundLocation = (location.state as any)?.backgroundLocation;
 
   const API_BASE = useMemo(() => {
@@ -142,7 +143,6 @@ export default function App() {
       if (!accessToken) {
         const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
 
-        // 저장된 user도 없으면 => 애초에 로그인 상태가 아니므로 refresh 요청 자체를 보내지 않음
         if (!storedUser) {
           clearAuthLocal();
           setMe(null);
@@ -151,7 +151,6 @@ export default function App() {
           return;
         }
 
-        // 저장된 user가 있으면 => 세션 복구(refresh) 시도
         const refreshed = await postJson("/auth/refresh");
         accessToken = (refreshed?.accessToken as string | null) ?? null;
 
@@ -325,7 +324,7 @@ export default function App() {
 
   return (
     <>
-      {/* ✅ 기본 화면 라우트: backgroundLocation이 있으면 "그 화면"을 그대로 보여줌 */}
+      {/* ✅ 기본 화면 라우트 */}
       <Routes location={backgroundLocation || location}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
@@ -338,7 +337,19 @@ export default function App() {
 
         <Route path="/mypage" element={<MyPage />} />
 
-        {/* ✅ 직접 /picky 접근(새로고침 등)도 가능 */}
+        {/* ✅ 상세 URL: 직접 접근/새로고침도 가능 */}
+        <Route
+          path="/title/:mediaType/:id"
+          element={
+            <ContentDetailModal
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              isAuthed={isAuthed}
+            />
+          }
+        />
+
+        {/* ✅ 직접 /picky 접근도 가능 */}
         <Route
           path="/picky"
           element={
@@ -403,13 +414,23 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* ✅ 모달 오버레이 라우트: backgroundLocation이 있을 때만 "덮어서" 렌더 */}
+      {/* ✅ 오버레이 라우트: backgroundLocation이 있을 때만 "덮어서" 렌더 */}
       {backgroundLocation ? (
         <Routes>
           <Route
             path="/picky"
             element={
               <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
+            }
+          />
+          <Route
+            path="/title/:mediaType/:id"
+            element={
+              <ContentDetailModal
+                favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
+                isAuthed={isAuthed}
+              />
             }
           />
         </Routes>

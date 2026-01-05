@@ -1,3 +1,4 @@
+// backend/src/tmdb/tmdb.controller.ts
 import {
   BadRequestException,
   Controller,
@@ -53,7 +54,7 @@ export class TmdbController {
     });
   }
 
-  // ✅✅✅ 완전 안정화: Videos 전용 엔드포인트
+  // ✅✅✅ 안정화: Videos 전용 엔드포인트
   // GET /tmdb/videos/movie/1084242?language=ko-KR
   @Get('videos/:type/:id')
   videos(
@@ -65,6 +66,76 @@ export class TmdbController {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
     return this.tmdb.getVideos(type, id, language);
+  }
+
+  /* =========================
+     ✅ Legacy aliases (404 방지)
+     - 프론트가 예전 경로로 호출해도 TMDB proxy로 연결
+  ========================= */
+
+  // /tmdb/watch/providers/movie/123 -> /movie/123/watch/providers
+  @Get('watch/providers/:type/:id')
+  legacyWatchProviders(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() raw: RawQuery,
+  ): Promise<unknown> {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+  }
+
+  // /tmdb/providers/movie/123 -> /movie/123/watch/providers
+  @Get('providers/:type/:id')
+  legacyProviders(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() raw: RawQuery,
+  ): Promise<unknown> {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+  }
+
+  // /tmdb/watch/movie/123 -> /movie/123/watch/providers
+  @Get('watch/:type/:id')
+  legacyWatch(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() raw: RawQuery,
+  ): Promise<unknown> {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+  }
+
+  // /tmdb/reviews/movie/123 -> /movie/123/reviews
+  @Get('reviews/:type/:id')
+  legacyReviews(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() raw: RawQuery,
+  ): Promise<unknown> {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+    return this.tmdb.proxy(`${type}/${id}/reviews`, toTmdbQuery(raw));
+  }
+
+  // /tmdb/movie/123/reviews -> /movie/123/reviews
+  @Get(':type/:id/reviews')
+  legacyTypeReviews(
+    @Param('type') type: string,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() raw: RawQuery,
+  ): Promise<unknown> {
+    if (type !== 'movie' && type !== 'tv') {
+      throw new BadRequestException('type must be "movie" or "tv"');
+    }
+    return this.tmdb.proxy(`${type}/${id}/reviews`, toTmdbQuery(raw));
   }
 
   // ✅ 프록시(호환 안정화): proxy/*path 만 사용
@@ -81,7 +152,7 @@ export class TmdbController {
       if (typeof v === 'string') path = v;
     }
 
-    // 2) ✅ params가 비어도 무조건 동작: originalUrl에서 강제 추출
+    // 2) ✅ params가 비어도 동작: originalUrl에서 강제 추출
     if (!path) {
       const url = String(req.originalUrl || req.url || '').split('?')[0];
       const marker = '/tmdb/proxy/';

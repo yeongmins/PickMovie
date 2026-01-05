@@ -1,3 +1,4 @@
+// src/features/favorites/components/favoritesCarousel.shared.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Trophy, Medal } from "lucide-react";
@@ -392,10 +393,10 @@ export function getAiringChip(
   metaNowPlaying: boolean | undefined,
   sets: ScreeningSets | null,
   ottOnly: boolean
-): { label: string; tone: "green" | "blue" } | null {
+): { label: string; tone: "dark" | "blue" } | null {
   const mt = inferMediaType(item);
 
-  const NOW = { label: "상영중", tone: "green" as const };
+  const NOW = { label: "상영중", tone: "dark" as const };
   const UPCOMING = { label: "상영예정", tone: "blue" as const };
 
   const today = new Date();

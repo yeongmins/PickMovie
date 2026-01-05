@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { TmdbService } from './tmdb.service';
 import { TmdbController } from './tmdb.controller';
+import { ReviewsController } from './reviews.controller';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { TmdbController } from './tmdb.controller';
       },
     }),
   ],
-  controllers: [TmdbController],
+  controllers: [TmdbController, ReviewsController],
   providers: [TmdbService],
   exports: [TmdbService],
 })

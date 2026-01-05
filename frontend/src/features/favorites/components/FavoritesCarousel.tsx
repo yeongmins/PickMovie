@@ -1,3 +1,4 @@
+// src/features/favorites/components/FavoritesCarousel.tsx
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {

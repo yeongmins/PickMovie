@@ -1,8 +1,8 @@
-// frontend/src/features/movies/components/MovieRow.tsx
+// frontend/src/features/content/components/ContentRow.tsx
 import { useState, useRef, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { ContentCard } from "../../../components/content/ContentCard";
+import { ContentCard } from "./ContentCard";
 
 interface Movie {
   id: number;
@@ -21,25 +21,23 @@ interface Movie {
   media_type?: "movie" | "tv";
   genre_ids?: number[];
 
-  // 7항목 슬롯(없으면 카드에서 '—')
   providers?: any[];
   platform?: string;
   ageRating?: string;
   isNowPlaying?: boolean;
+  isUpcoming?: boolean;
 }
 
 interface MovieRowProps {
   title: string;
   movies: Movie[];
 
-  // ✅ 호환/확장: 기존 number[]도 받고, movie/tv 충돌 방지용 Set<string>도 받을 수 있게
   favorites?: number[];
   favoriteKeySet?: Set<string>;
 
   onToggleFavorite: (movieId: number, mediaType?: "movie" | "tv") => void;
   onMovieClick: (movie: Movie) => void;
 
-  // ✅ TS 오류 방지(필요하면 내려도 되고, Row에서는 사용 안 해도 됨)
   showMatchScore?: boolean;
 }
 
@@ -58,7 +56,7 @@ export function MovieRow({
 
   const uniqueMovies = useMemo(() => {
     const deduped = Array.from(new Map(movies.map((m) => [m.id, m])).values());
-    return deduped.filter((movie) => !!movie.poster_path);
+    return deduped;
   }, [movies]);
 
   const scroll = (direction: "left" | "right") => {
@@ -77,7 +75,6 @@ export function MovieRow({
 
   if (uniqueMovies.length === 0) return null;
 
-  // ✅ (개선 1) 메인 캐러셀 좌/우 padding 최적화: lg:px-10 → lg:px-6
   const sectionPad = "px-4 sm:px-6 lg:px-6";
 
   return (
@@ -101,7 +98,7 @@ export function MovieRow({
 
         <div
           ref={scrollContainerRef}
-          className={`flex gap-3 overflow-x-auto scrollbar-hide ${sectionPad} scroll-smooth py-2`}
+          className={`flex gap-2 overflow-x-auto scrollbar-hide ${sectionPad} scroll-smooth py-2`}
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           onScroll={(e) => setScrollPosition(e.currentTarget.scrollLeft)}
         >
@@ -117,7 +114,7 @@ export function MovieRow({
             return (
               <div
                 key={`${mt}:${movie.id}`}
-                className="flex-shrink-0 w-[160px] sm:w-[180px] md:w-[200px] lg:w-[220px] transition-transform duration-300 hover:scale-[1.03]"
+                className="flex-shrink-0 w-[200px] transition-transform duration-300 hover:scale-[1.03]"
               >
                 <ContentCard
                   item={movie}

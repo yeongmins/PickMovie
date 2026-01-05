@@ -1,7 +1,7 @@
 // frontend/src/components/content/ContentCard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
-import { getPosterUrl } from "../../lib/tmdb";
+import { getPosterUrl, getTVDetails } from "../../lib/tmdb";
 import { apiGet } from "../../lib/apiClient";
 
 type MediaType = "movie" | "tv";
@@ -35,8 +35,6 @@ export type ContentCardItem = {
   genre_ids?: number[];
 
   isNowPlaying?: boolean;
-
-  // ✅ 상영 예정(페이지에서 명시적으로 주면 최우선)
   isUpcoming?: boolean;
 
   providers?: ProviderBadge[];
@@ -45,14 +43,11 @@ export type ContentCardItem = {
 
   matchScore?: number;
 
-  // ✅ 트렌드 배지(메인/트렌드 Row에서 주입)
   trendRank?: number;
   trendScore?: number;
 
-  // ✅ 추천 이유(선택)
   recommendReason?: string;
 
-  // ✅ 매칭 배지를 picky 외 화면에서도 보여주고 싶을 때
   showMatchBadge?: boolean;
 };
 
@@ -68,7 +63,6 @@ export type ContentCardProps = {
 
   className?: string;
 
-  // ✅ 로그인 안 하면 하트 숨김
   canFavorite?: boolean;
 };
 
@@ -76,7 +70,6 @@ const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-// ✅ metaCache: 성공/실패 캐시 + TTL(실패 영구 고정 방지)
 type MetaPayload = {
   providers: ProviderBadge[];
   ageRating: string;
@@ -135,11 +128,15 @@ function typeLabelOf(item: ContentCardItem): "Movie" | "TV" | "Ani" {
   return "Movie";
 }
 
-function yearOf(item: ContentCardItem) {
-  const d = item.release_date || item.first_air_date || "";
-  if (!d) return "";
-  const y = new Date(d).getFullYear();
+function yearFromDate(d: string | null | undefined) {
+  const s = String(d || "").trim();
+  if (!s) return "";
+  const y = new Date(s).getFullYear();
   return Number.isFinite(y) ? String(y) : "";
+}
+
+function yearOfItem(item: ContentCardItem) {
+  return yearFromDate(item.release_date || item.first_air_date || "");
 }
 
 function normalizeAge(age?: string) {
@@ -256,7 +253,6 @@ function pickUpcomingFromResponse(r: any): boolean | undefined {
   return undefined;
 }
 
-// ✅ meta도 없을 때 최소 fallback: 개봉 후 56일 이내면 상영중으로 간주
 function fallbackLikelyNowPlaying(item: ContentCardItem, mediaType: MediaType) {
   if (mediaType !== "movie") return false;
   const d = (item.release_date || "").trim();
@@ -272,7 +268,6 @@ function fallbackLikelyNowPlaying(item: ContentCardItem, mediaType: MediaType) {
   return diffDays <= 56;
 }
 
-// ✅ fallback: 개봉일이 미래면 상영 예정으로 간주
 function fallbackLikelyUpcoming(item: ContentCardItem, mediaType: MediaType) {
   if (mediaType !== "movie") return false;
   const d = (item.release_date || "").trim();
@@ -308,10 +303,6 @@ function Chip({
   return <div className={`${base} ${cls}`}>{children}</div>;
 }
 
-// =========================
-// ✅ "상영중/상영예정" 확정용: now_playing/upcoming ID Set 캐시
-// =========================
-
 type ScreeningSets = {
   nowPlaying: Set<number>;
   upcoming: Set<number>;
@@ -322,7 +313,7 @@ let screeningCache: ScreeningSets | null = null;
 let screeningInFlight: Promise<ScreeningSets> | null = null;
 
 async function loadScreeningSets(): Promise<ScreeningSets> {
-  const OK_TTL = 30 * 60 * 1000; // 30분
+  const OK_TTL = 30 * 60 * 1000;
   const now = Date.now();
 
   if (screeningCache && now - screeningCache.fetchedAt < OK_TTL) {
@@ -385,10 +376,7 @@ async function loadScreeningSets(): Promise<ScreeningSets> {
   return screeningInFlight;
 }
 
-// =========================
-// ✅ OTT 전용이면 "상영중" 제거 (TMDB release_dates direct)
-// =========================
-
+// movie OTT-only 판단은 기존 로직 그대로 유지
 const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
   | string
   | undefined;
@@ -452,6 +440,92 @@ async function isOttOnlyMovie(
   return p;
 }
 
+// ✅ TV 최신 시즌 보정 캐시
+type TvLatestPayload = {
+  posterPath: string | null;
+  year: string;
+  fetchedAt: number;
+  isError?: boolean;
+};
+
+const tvLatestCache = new Map<string, TvLatestPayload>();
+const tvLatestInFlight = new Map<string, Promise<TvLatestPayload>>();
+
+function pickLatestSeason(seasons: any[]): any | null {
+  const list = (Array.isArray(seasons) ? seasons : [])
+    .filter((s) => typeof s?.season_number === "number" && s.season_number > 0)
+    .map((s) => {
+      const t = Date.parse(String(s?.air_date || "").trim());
+      const date = Number.isFinite(t) ? t : -1;
+      const sn = typeof s?.season_number === "number" ? s.season_number : -1;
+      return { s, date, sn };
+    })
+    .sort((a, b) => {
+      if (b.date !== a.date) return b.date - a.date;
+      return b.sn - a.sn;
+    });
+
+  return list[0]?.s ?? null;
+}
+
+async function loadTvLatest(id: number): Promise<TvLatestPayload> {
+  const key = `tv:${id}`;
+  const now = Date.now();
+  const OK_TTL = 6 * 60 * 60 * 1000;
+
+  const cached = tvLatestCache.get(key);
+  if (cached && !cached.isError && now - cached.fetchedAt < OK_TTL)
+    return cached;
+
+  const inflight = tvLatestInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    const json: any = await getTVDetails(id);
+
+    const seasons = Array.isArray(json?.seasons) ? json.seasons : [];
+    const latest = pickLatestSeason(seasons);
+
+    const seasonPoster: string | null =
+      (latest?.poster_path as string | null) ?? null;
+
+    const fallbackPoster: string | null =
+      (json?.poster_path as string | null) ?? null;
+
+    const seasonYear = yearFromDate(latest?.air_date);
+    const lastAirYear = yearFromDate(json?.last_air_date);
+
+    const safe: TvLatestPayload = {
+      posterPath: seasonPoster ?? fallbackPoster ?? null,
+      year: seasonYear || lastAirYear || "",
+      fetchedAt: Date.now(),
+      isError: false,
+    };
+
+    tvLatestCache.set(key, safe);
+    return safe;
+  })()
+    .catch((e) => {
+      if ((import.meta as any).env?.DEV) {
+        console.warn("[ContentCard] tv latest fetch failed:", key, e);
+      }
+      const safe: TvLatestPayload = {
+        posterPath: null,
+        year: "",
+        fetchedAt: Date.now(),
+        isError: true,
+      };
+      tvLatestCache.set(key, safe);
+      return safe;
+    })
+    .finally(() => {
+      tvLatestInFlight.delete(key);
+    });
+
+  tvLatestInFlight.set(key, p);
+  return p;
+}
+
 export function ContentCard({
   item,
   isFavorite,
@@ -468,12 +542,10 @@ export function ContentCard({
   const title = getDisplayTitle(item);
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
-  const y = yearOf(item);
 
   const mediaType = inferMediaType(item);
   const typeText = typeLabelOf(item);
 
-  const posterUrl = getPosterUrl(item.poster_path, "w500");
   const cacheKey = `${mediaType}:${item.id}`;
 
   const [meta, setMeta] = useState<MetaPayload | null>(() => {
@@ -488,7 +560,10 @@ export function ContentCard({
     return _ottOnlyCache.get(`${item.id}:KR`) ?? false;
   });
 
-  // ✅ screening sets 로드 (한 번만)
+  const [tvLatest, setTvLatest] = useState<TvLatestPayload | null>(() => {
+    return tvLatestCache.get(`tv:${item.id}`) ?? null;
+  });
+
   useEffect(() => {
     let mounted = true;
 
@@ -509,9 +584,6 @@ export function ContentCard({
     };
   }, [mediaType]);
 
-  // ✅ meta 보강 조건:
-  // - providers / age 없으면
-  // - movie면 isNowPlaying / isUpcoming이 명시되지 않았다면(meta 우선)
   const needsMeta = useMemo(() => {
     const hasProviders =
       Array.isArray(item.providers) && item.providers.length > 0;
@@ -541,9 +613,8 @@ export function ContentCard({
     const now = Date.now();
     const cached = metaCache.get(cacheKey);
 
-    // ✅ 성공 캐시는 길게, 실패 캐시는 짧게 재시도
-    const OK_TTL = 30 * 60 * 1000; // 30분
-    const ERROR_TTL = 60 * 1000; // 60초
+    const OK_TTL = 30 * 60 * 1000;
+    const ERROR_TTL = 60 * 1000;
 
     const isFreshOk =
       cached && !cached.isError && now - cached.fetchedAt < OK_TTL;
@@ -551,10 +622,7 @@ export function ContentCard({
     const isFreshError =
       cached && cached.isError && now - cached.fetchedAt < ERROR_TTL;
 
-    // 즉시 반영(있으면)
     if (cached) setMeta(cached);
-
-    // 신선하면 fetch 불필요
     if (isFreshOk || isFreshError) return;
 
     if (!inflight.has(cacheKey)) {
@@ -611,6 +679,25 @@ export function ContentCard({
     };
   }, [cacheKey, needsMeta, mediaType, item.id]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    if (mediaType !== "tv") return;
+
+    const key = `tv:${item.id}`;
+    const cached = tvLatestCache.get(key);
+    if (cached) setTvLatest(cached);
+
+    loadTvLatest(item.id).then((r) => {
+      if (!mounted) return;
+      setTvLatest(r);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [mediaType, item.id]);
+
   const providers =
     (Array.isArray(item.providers) && item.providers.length
       ? item.providers
@@ -631,7 +718,6 @@ export function ContentCard({
     (mediaType === "movie" ? (screeningNow ? true : undefined) : undefined) ??
     fallbackLikelyNowPlaying(item, mediaType);
 
-  // ✅ OTT 전용이면 "상영중" 제거 (candidateNowPlaying이 true일 때만 판단)
   useEffect(() => {
     let mounted = true;
 
@@ -661,27 +747,6 @@ export function ContentCard({
     };
   }, [candidateNowPlaying, mediaType, item.id]);
 
-  const showNowPlaying = !!candidateNowPlaying && !ottOnly;
-
-  const showUpcoming =
-    !showNowPlaying &&
-    mediaType === "movie" &&
-    ((typeof item.isUpcoming === "boolean" ? item.isUpcoming : undefined) ??
-      (typeof meta?.isUpcoming === "boolean" ? meta?.isUpcoming : undefined) ??
-      (screeningUpcoming ? true : undefined) ??
-      fallbackLikelyUpcoming(item, mediaType));
-
-  // ✅ 매칭 배지: picky에서 기본 표시, 그 외 화면은 showMatchBadge=true일 때만 표시
-  const showMatch =
-    typeof item.matchScore === "number" &&
-    Number.isFinite(item.matchScore) &&
-    (context === "picky" || item.showMatchBadge === true);
-
-  // ✅ 트렌드 배지
-  const showTrend =
-    typeof item.trendRank === "number" && Number.isFinite(item.trendRank);
-
-  // ✅ OTT 로고/텍스트
   const providerLogos = providers
     .map((p) => {
       const name = p.provider_name ?? p.providerName ?? p.name ?? "";
@@ -697,19 +762,40 @@ export function ContentCard({
 
   const MAX_PROVIDER_BADGES = 3;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER_BADGES);
-  const hiddenCount = Math.max(
-    0,
-    providerLogos.length - visibleProviders.length
-  );
-
   const visibleProviderNames = providerNamesOnly.slice(0, 2);
 
   const hasProviders = providerLogos.length > 0 || providerNamesOnly.length > 0;
   const hasAge = ageValue !== "—";
 
-  // ✅ 로그인 안 하면 하트 숨김
+  const providersPresent =
+    providerLogos.length > 0 || providerNamesOnly.length > 0;
+
+  const showNowPlaying = !!candidateNowPlaying && !ottOnly && !providersPresent;
+
+  const showUpcoming =
+    !showNowPlaying &&
+    mediaType === "movie" &&
+    ((typeof item.isUpcoming === "boolean" ? item.isUpcoming : undefined) ??
+      (typeof meta?.isUpcoming === "boolean" ? meta?.isUpcoming : undefined) ??
+      (screeningUpcoming ? true : undefined) ??
+      fallbackLikelyUpcoming(item, mediaType));
+
+  const showTrend =
+    typeof item.trendRank === "number" && Number.isFinite(item.trendRank);
+
   const canFav =
     typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
+
+  const baseYear = yearOfItem(item);
+  const effectiveYear =
+    mediaType === "tv" ? tvLatest?.year || baseYear : baseYear;
+
+  const effectivePosterPath =
+    mediaType === "tv"
+      ? tvLatest?.posterPath ?? item.poster_path
+      : item.poster_path;
+
+  const posterUrl = getPosterUrl(effectivePosterPath, "w500");
 
   return (
     <div
@@ -719,10 +805,12 @@ export function ContentCard({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}
-      className={`group cursor-pointer select-none w-full ${className ?? ""}`}
+      className={`group cursor-pointer select-none ${
+        className ?? ""
+      } w-[200px]`}
       aria-label={`${title} 상세 보기`}
     >
-      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
+      <div className="relative w-[200px] h-[300px] overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
         {posterUrl ? (
           <img
             src={posterUrl}
@@ -741,7 +829,6 @@ export function ContentCard({
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/15" />
 
-        {/* 좌상단 */}
         <div className="absolute top-2 left-2 z-20 flex flex-col items-start">
           {onRemove && (
             <button
@@ -761,7 +848,6 @@ export function ContentCard({
             <Chip tone="dark">{typeText}</Chip>
           </div>
 
-          {/* ✅ 트렌드 랭킹 배지 */}
           {showTrend && (
             <div
               className="self-start"
@@ -782,24 +868,17 @@ export function ContentCard({
 
           {showNowPlaying && (
             <div className="self-start">
-              <Chip tone="green">상영중</Chip>
+              <Chip tone="dark">상영중</Chip>
             </div>
           )}
 
           {showUpcoming && (
             <div className="self-start">
-              <Chip tone="blue">상영 예정</Chip>
+              <Chip tone="dark">상영 예정</Chip>
             </div>
           )}
-
-          {/* {showMatch && (
-            <div className="self-start">
-              <Chip tone="dark">{Math.round(item.matchScore!)}% 매칭</Chip>
-            </div>
-          )} */}
         </div>
 
-        {/* 우상단 하트 (로그인 시에만 노출) */}
         {canFav && (
           <div className="absolute top-2 right-2 z-20">
             <button
@@ -820,7 +899,6 @@ export function ContentCard({
           </div>
         )}
 
-        {/* 우하단: OTT/연령 등 */}
         {(hasProviders || hasAge) && (
           <div className="absolute bottom-2 right-2 z-20 flex flex-col items-end gap-1">
             {hasAge && <AgeBadge value={ageValue} />}
@@ -848,12 +926,6 @@ export function ContentCard({
                       />
                     </div>
                   ))}
-
-                  {hiddenCount > 0 && (
-                    <span className="w-[24px] h-[24px] rounded-[4px] bg-black/45 backdrop-blur-sm px-[6px] text-[12px] font-bold text-white/90 flex items-center shadow-sm">
-                      +{hiddenCount}
-                    </span>
-                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-1">
@@ -873,8 +945,7 @@ export function ContentCard({
         )}
       </div>
 
-      {/* 텍스트 */}
-      <div className="mt-3 px-1">
+      <div className="mt-3 px-1 w-[200px]">
         <div className="text-sm font-semibold text-white line-clamp-1">
           {title}
         </div>
@@ -890,7 +961,7 @@ export function ContentCard({
             <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
             {rating}
           </span>
-          <span className="text-white/50">{y || "—"}</span>
+          <span className="text-white/50">{effectiveYear || "—"}</span>
         </div>
       </div>
     </div>

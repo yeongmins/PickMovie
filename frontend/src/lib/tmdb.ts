@@ -242,6 +242,136 @@ export function getBackdropUrl(
 }
 
 // =========================
+// ✅ 상세페이지 “최신 포스터(ko 우선 → en)” 선택
+// - TMDB images는 업로드 날짜가 없어서 “최신”을 100% 보장 못함
+// - 실무적으로: (1) 언어 우선 + (2) 해상도 큰 포스터 우선(리마스터/재개봉에 더 잘 맞음)
+// =========================
+
+export type TmdbImageAsset = {
+  file_path: string;
+  iso_639_1: string | null;
+  width: number;
+  height: number;
+  vote_average: number;
+  vote_count: number;
+};
+
+export type TmdbImagesResponse = {
+  posters?: TmdbImageAsset[];
+  logos?: TmdbImageAsset[];
+  backdrops?: TmdbImageAsset[];
+};
+
+function normLang(v: string | null | undefined) {
+  return (v ?? "").trim().toLowerCase();
+}
+
+function pickBestPosterFromGroup(
+  posters: TmdbImageAsset[],
+  lang: "ko" | "en" | "null"
+) {
+  const group =
+    lang === "null"
+      ? posters.filter((p) => !p.iso_639_1)
+      : posters.filter((p) => normLang(p.iso_639_1) === lang);
+
+  if (!group.length) return null;
+
+  // ✅ “최신” 근사치: 보통 리마스터/재개봉 포스터가 큰 해상도인 경우가 많음
+  //    해상도(면적) → vote_count → vote_average 우선
+  group.sort((a, b) => {
+    const areaA = (a.width ?? 0) * (a.height ?? 0);
+    const areaB = (b.width ?? 0) * (b.height ?? 0);
+    if (areaB !== areaA) return areaB - areaA;
+
+    const vc = (b.vote_count ?? 0) - (a.vote_count ?? 0);
+    if (vc !== 0) return vc;
+
+    return (b.vote_average ?? 0) - (a.vote_average ?? 0);
+  });
+
+  return group[0]?.file_path ?? null;
+}
+
+async function fetchImagesSafeForPoster(
+  mediaType: "movie" | "tv",
+  id: number
+): Promise<TmdbImagesResponse | null> {
+  // ✅ backend 우선(키 없어도 됨) → 실패하면 direct(키 있을 때만)
+  try {
+    return await fetchFromBackend<TmdbImagesResponse>(
+      `/tmdb/images/${mediaType}/${id}`,
+      { include_image_language: "ko,en,null" }
+    );
+  } catch {
+    const json = await tmdbDirectFetch(
+      `/${mediaType}/${id}/images?include_image_language=ko,en,null`
+    );
+    return (json as TmdbImagesResponse) ?? null;
+  }
+}
+
+const _preferredPosterCache = new Map<string, string | null>();
+const _preferredPosterInFlight = new Map<string, Promise<string | null>>();
+
+export async function fetchPreferredPosterPath(
+  mediaType: "movie" | "tv",
+  id: number
+): Promise<string | null> {
+  const key = `${mediaType}:${id}:preferredPoster`;
+  if (_preferredPosterCache.has(key))
+    return _preferredPosterCache.get(key) ?? null;
+
+  const inflight = _preferredPosterInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    try {
+      const data = await fetchImagesSafeForPoster(mediaType, id);
+      const posters = (data?.posters ?? []).filter((p) => !!p?.file_path);
+
+      if (!posters.length) {
+        _preferredPosterCache.set(key, null);
+        return null;
+      }
+
+      const ko = pickBestPosterFromGroup(posters, "ko");
+      if (ko) {
+        _preferredPosterCache.set(key, ko);
+        return ko;
+      }
+
+      const en = pickBestPosterFromGroup(posters, "en");
+      if (en) {
+        _preferredPosterCache.set(key, en);
+        return en;
+      }
+
+      const any = pickBestPosterFromGroup(posters, "null");
+      _preferredPosterCache.set(key, any ?? null);
+      return any ?? null;
+    } catch {
+      _preferredPosterCache.set(key, null);
+      return null;
+    } finally {
+      _preferredPosterInFlight.delete(key);
+    }
+  })();
+
+  _preferredPosterInFlight.set(key, p);
+  return p;
+}
+
+export async function fetchPreferredPosterUrl(
+  mediaType: "movie" | "tv",
+  id: number,
+  size: TMDBImageSize = "w500"
+): Promise<string | null> {
+  const path = await fetchPreferredPosterPath(mediaType, id);
+  return path ? getPosterUrl(path, size) : null;
+}
+
+// =========================
 // 매칭 점수 계산 로직 (프론트엔드에서 수행)
 // =========================
 
