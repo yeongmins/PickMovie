@@ -195,7 +195,7 @@ function FittedTitleText({
   maxWidth?: number;
 }) {
   const { wrapRef, textRef, fontPx, scaleX } = useFitSingleLineNoEllipsis({
-    maxFontPx: 40,
+    maxFontPx: 35,
     minFontPx: 14,
   });
 

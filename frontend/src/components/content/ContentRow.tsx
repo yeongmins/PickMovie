@@ -2,7 +2,7 @@
 import { useState, useRef, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { ContentCard } from "./ContentCard";
+import { ContentCard } from "../../components/content/ContentCard";
 
 interface Movie {
   id: number;
@@ -55,8 +55,7 @@ export function MovieRow({
   const [hiddenMovieIds, setHiddenMovieIds] = useState<number[]>([]);
 
   const uniqueMovies = useMemo(() => {
-    const deduped = Array.from(new Map(movies.map((m) => [m.id, m])).values());
-    return deduped;
+    return Array.from(new Map(movies.map((m) => [m.id, m])).values());
   }, [movies]);
 
   const scroll = (direction: "left" | "right") => {

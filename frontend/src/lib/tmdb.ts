@@ -67,6 +67,10 @@ export interface MovieDetails extends TMDBMovie {
   similar?: {
     results: TMDBMovie[];
   };
+
+  // (백엔드가 TV 상세에서 내려주면 런타임에 존재할 수 있음)
+  seasons?: any[];
+  last_air_date?: string;
 }
 
 export type TVDetails = MovieDetails;
@@ -152,7 +156,7 @@ function normalizeBackendParam(key: string, value: unknown): string | null {
       return null;
     }
 
-    // 그 외 객체는 쿼리에 넣지 않음(콘솔 경고도 출력하지 않음)
+    // 그 외 객체는 쿼리에 넣지 않음
     return null;
   }
 
@@ -243,8 +247,6 @@ export function getBackdropUrl(
 
 // =========================
 // ✅ 상세페이지 “최신 포스터(ko 우선 → en)” 선택
-// - TMDB images는 업로드 날짜가 없어서 “최신”을 100% 보장 못함
-// - 실무적으로: (1) 언어 우선 + (2) 해상도 큰 포스터 우선(리마스터/재개봉에 더 잘 맞음)
 // =========================
 
 export type TmdbImageAsset = {
@@ -277,8 +279,6 @@ function pickBestPosterFromGroup(
 
   if (!group.length) return null;
 
-  // ✅ “최신” 근사치: 보통 리마스터/재개봉 포스터가 큰 해상도인 경우가 많음
-  //    해상도(면적) → vote_count → vote_average 우선
   group.sort((a, b) => {
     const areaA = (a.width ?? 0) * (a.height ?? 0);
     const areaB = (b.width ?? 0) * (b.height ?? 0);
@@ -297,7 +297,6 @@ async function fetchImagesSafeForPoster(
   mediaType: "movie" | "tv",
   id: number
 ): Promise<TmdbImagesResponse | null> {
-  // ✅ backend 우선(키 없어도 됨) → 실패하면 direct(키 있을 때만)
   try {
     return await fetchFromBackend<TmdbImagesResponse>(
       `/tmdb/images/${mediaType}/${id}`,
@@ -372,7 +371,7 @@ export async function fetchPreferredPosterUrl(
 }
 
 // =========================
-// 매칭 점수 계산 로직 (프론트엔드에서 수행)
+// 매칭 점수 계산 로직
 // =========================
 
 export function calculateMatchScore(
@@ -381,7 +380,6 @@ export function calculateMatchScore(
 ): number {
   let score = 50;
 
-  // 장르 매칭
   if (prefs.genres.length && movie.genre_ids?.length) {
     const preferredGenreIds = prefs.genres
       .map((g) => GENRE_IDS[g])
@@ -393,7 +391,6 @@ export function calculateMatchScore(
     score += Math.min(30, matched.length * 10);
   }
 
-  // 개봉 연도 매칭
   const dateString = movie.release_date || movie.first_air_date;
   if (dateString && prefs.releaseYear) {
     const year = new Date(dateString).getFullYear();
@@ -408,7 +405,6 @@ export function calculateMatchScore(
     else if (prefs.releaseYear === "고전" && year < 2000) score += 4;
   }
 
-  // 평점 보정
   const rating = movie.vote_average || 0;
   score += Math.min(10, Math.max(0, (rating - 5) * 2));
 
@@ -416,16 +412,15 @@ export function calculateMatchScore(
 }
 
 // =========================
-// ✅ 리스트 API 공통 옵션(숫자/옵션 모두 지원)
+// ✅ 리스트 API 공통 옵션
 // =========================
 
 type ListOptions = {
   page?: number;
-  region?: string; // "KR"
-  language?: string; // "ko-KR"
+  region?: string;
+  language?: string;
 };
 
-// getPopularMovies(1) / getPopularMovies({region, language}) 모두 OK
 function normalizeListArg(arg?: number | ListOptions): Required<ListOptions> {
   if (typeof arg === "number") {
     return {
@@ -471,18 +466,39 @@ async function promisePool<T, R>(
 }
 
 // =========================
+// ✅ 핵심: TV 결과를 항상 “UI 공통 포맷”으로 정규화
+// - TV에서도 release_date가 항상 존재하도록(first_air_date로 채움)
+// - media_type도 항상 tv로 고정
+// =========================
+
+function normalizeTvResult<T extends Record<string, any>>(tv: T): T {
+  const fa = (tv as any)?.first_air_date ?? (tv as any)?.release_date ?? "";
+  return {
+    ...tv,
+    media_type: "tv",
+    first_air_date: fa,
+    release_date: fa,
+  } as T;
+}
+
+function normalizeMovieResult<T extends Record<string, any>>(m: T): T {
+  return {
+    ...m,
+    media_type: (m as any)?.media_type ?? "movie",
+  } as T;
+}
+
+// =========================
 // API 함수들 (Backend Proxy 사용)
 // =========================
 
 export async function discoverMovies(options: {
   genres?: number[];
-  language?: string; // 예: "ko-KR" (기존 로직 유지)
+  language?: string;
   year?: string;
   page?: number;
   providers?: number[];
   sort_by?: string;
-
-  // ✅ 추가: 한국 기준 강제/오버라이드 가능
   region?: string;
 }): Promise<TMDBMovie[]> {
   const page = safeInt(options.page, 1);
@@ -490,16 +506,12 @@ export async function discoverMovies(options: {
   const params: Record<string, unknown> = {
     page,
     sort_by: options.sort_by || "popularity.desc",
-
-    // ✅ 한국 기준
     region: options.region ?? DEFAULT_REGION,
     language: options.language ?? DEFAULT_LANGUAGE,
   };
 
-  // 파라미터 변환 (배열 -> 문자열)
   if (options.genres && options.genres.length > 0)
     params.genre = options.genres.join(",");
-  // ✅ 기존 코드 유지: 백엔드가 languageCode를 기대하는 경우 대비
   if (options.language) params.languageCode = options.language.split("-")[0];
   if (options.year) params.year = options.year;
   if (options.providers && options.providers.length > 0)
@@ -510,7 +522,8 @@ export async function discoverMovies(options: {
     params
   );
 
-  return filterKoreanTitles(data.results || []);
+  const base = (data.results || []).map((m) => normalizeMovieResult(m));
+  return filterKoreanTitles(base);
 }
 
 export async function getPopularMovies(
@@ -521,7 +534,9 @@ export async function getPopularMovies(
     "/movies/popular",
     { page: opt.page, region: opt.region, language: opt.language }
   );
-  return filterKoreanTitles(data.results || []);
+
+  const base = (data.results || []).map((m) => normalizeMovieResult(m));
+  return filterKoreanTitles(base);
 }
 
 export async function getTopRatedMovies(
@@ -532,7 +547,9 @@ export async function getTopRatedMovies(
     "/movies/top_rated",
     { page: opt.page, region: opt.region, language: opt.language }
   );
-  return filterKoreanTitles(data.results || []);
+
+  const base = (data.results || []).map((m) => normalizeMovieResult(m));
+  return filterKoreanTitles(base);
 }
 
 export async function getNowPlayingMovies(
@@ -545,8 +562,7 @@ export async function getNowPlayingMovies(
   );
 
   const base = (data.results || []).map((m) => ({
-    ...m,
-    media_type: (m.media_type ?? "movie") as "movie" | "tv",
+    ...normalizeMovieResult(m),
     isNowPlaying: true,
   }));
 
@@ -562,29 +578,38 @@ export async function getPopularTVShows(
     "/movies/tv/popular",
     { page: opt.page, region: opt.region, language: opt.language }
   );
-  return filterKoreanTitles(data.results || []);
+
+  // ✅ 여기서 TV 정규화가 핵심: release_date/first_air_date/media_type 통일
+  const base = (data.results || []).map((tv) => normalizeTvResult(tv));
+  return filterKoreanTitles(base);
 }
 
 export async function getMovieDetails(
   id: number,
   opts?: { region?: string; language?: string }
 ): Promise<MovieDetails> {
-  return await fetchFromBackend<MovieDetails>(`/movies/${id}`, {
+  const detail = await fetchFromBackend<MovieDetails>(`/movies/${id}`, {
     type: "movie",
     region: opts?.region ?? DEFAULT_REGION,
     language: opts?.language ?? DEFAULT_LANGUAGE,
   });
+
+  // ✅ movie도 media_type 기본값 고정
+  return normalizeMovieResult(detail) as MovieDetails;
 }
 
 export async function getTVDetails(
   id: number,
   opts?: { region?: string; language?: string }
 ): Promise<TVDetails> {
-  return await fetchFromBackend<TVDetails>(`/movies/${id}`, {
+  const detail = await fetchFromBackend<TVDetails>(`/movies/${id}`, {
     type: "tv",
     region: opts?.region ?? DEFAULT_REGION,
     language: opts?.language ?? DEFAULT_LANGUAGE,
   });
+
+  // ✅ TV 상세도 release_date가 항상 존재하도록 통일 (UI가 release_date만 봐도 깨지지 않음)
+  return normalizeTvResult(detail) as TVDetails;
 }
 
 // MovieDetailModal 등에서 사용하는 통합 함수
@@ -593,11 +618,17 @@ export async function getContentDetails(
   mediaType: "movie" | "tv" = "movie",
   opts?: { region?: string; language?: string }
 ): Promise<MovieDetails | TVDetails> {
-  return await fetchFromBackend(`/movies/${id}`, {
+  const detail = await fetchFromBackend<any>(`/movies/${id}`, {
     type: mediaType,
     region: opts?.region ?? DEFAULT_REGION,
     language: opts?.language ?? DEFAULT_LANGUAGE,
   });
+
+  return (
+    mediaType === "tv"
+      ? (normalizeTvResult(detail) as TVDetails)
+      : (normalizeMovieResult(detail) as MovieDetails)
+  ) as MovieDetails | TVDetails;
 }
 
 export function normalizeTVToMovie(tv: any): TMDBMovie {
@@ -621,7 +652,6 @@ export function normalizeTVToMovie(tv: any): TMDBMovie {
 
 // =========================
 // ✅ Providers / Age Rating (TMDB 직접 호출 + 캐시)
-// - VITE_TMDB_API_KEY가 있어야 동작
 // =========================
 
 export type ProviderBadge = {
@@ -674,7 +704,6 @@ async function isOttOnlyMovie(
       .map((d: any) => d?.type)
       .filter((t: any) => typeof t === "number");
 
-    // TMDB release type: 2(극장 제한) / 3(극장) / 4(디지털)
     const hasTheatrical = types.some((t) => t === 2 || t === 3);
     const hasDigital = types.some((t) => t === 4);
 

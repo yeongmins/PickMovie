@@ -19,7 +19,9 @@ import { MyPage } from "./pages/MyPage";
 import { Info } from "./pages/support/Info";
 import { Notices } from "./pages/support/Notices";
 import { Legal } from "./pages/support/Legal";
+
 import ContentDetailModal from "./pages/detail/ContentDetailModal";
+import PersonDetail from "./pages/person/PersonDetail";
 
 export interface FavoriteItem {
   id: number;
@@ -322,6 +324,15 @@ export default function App() {
 
   const isAuthed = !!me;
 
+  // ✅ 상세 모달: 항상 동일 props로 렌더 (기본/오버레이 둘 다)
+  const detailModalElement = (
+    <ContentDetailModal
+      favorites={favorites}
+      onToggleFavorite={handleToggleFavorite}
+      isAuthed={isAuthed}
+    />
+  );
+
   return (
     <>
       {/* ✅ 기본 화면 라우트 */}
@@ -330,6 +341,7 @@ export default function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
+
         <Route path="/info" element={<Info />} />
         <Route path="/notices" element={<Notices />} />
         <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
@@ -338,18 +350,11 @@ export default function App() {
         <Route path="/mypage" element={<MyPage />} />
 
         {/* ✅ 상세 URL: 직접 접근/새로고침도 가능 */}
-        <Route
-          path="/title/:mediaType/:id"
-          element={
-            <ContentDetailModal
-              favorites={favorites}
-              onToggleFavorite={handleToggleFavorite}
-              isAuthed={isAuthed}
-            />
-          }
-        />
+        <Route path="/title/:mediaType/:id" element={detailModalElement} />
 
-        {/* ✅ 직접 /picky 접근도 가능 */}
+        {/* ✅ 배우 모달 URL: 직접 접근/새로고침도 가능 */}
+        <Route path="/person/:id" element={<PersonDetail />} />
+
         <Route
           path="/picky"
           element={
@@ -423,16 +428,9 @@ export default function App() {
               <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
             }
           />
-          <Route
-            path="/title/:mediaType/:id"
-            element={
-              <ContentDetailModal
-                favorites={favorites}
-                onToggleFavorite={handleToggleFavorite}
-                isAuthed={isAuthed}
-              />
-            }
-          />
+
+          <Route path="/title/:mediaType/:id" element={detailModalElement} />
+          <Route path="/person/:id" element={<PersonDetail />} />
         </Routes>
       ) : null}
     </>

@@ -1,6 +1,6 @@
 // frontend/src/pages/detail/ContentDetailHero.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Play, Share2, Star, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button } from "../../components/ui/button";
@@ -60,7 +60,6 @@ function pickBestPosterFilePath(posters?: TmdbImageAsset[]) {
     return filtered[0]?.file_path ?? null;
   };
 
-  // ✅ 한글 포스터 우선 → 영어 → 언어 없음
   return (
     pickFrom("ko") ??
     pickFrom("en") ??
@@ -74,21 +73,17 @@ async function fetchImagesSafe(
   mediaType: MediaType,
   id: number
 ): Promise<TmdbImagesResponse | null> {
-  // 1) backend
   try {
     return await apiGet<TmdbImagesResponse>(`/tmdb/images/${mediaType}/${id}`, {
-      // TMDB 규칙: "ko,en,null" 가능
       include_image_language: "ko,en,null",
     });
   } catch {
-    // 2) direct
     return await tmdbDirect<TmdbImagesResponse>(`/${mediaType}/${id}/images`, {
       include_image_language: "ko,en,null",
     });
   }
 }
 
-// ✅ TV 최신 시즌 포스터(있으면 최우선)
 function pickLatestSeasonPosterFromDetail(detail: any): string | null {
   const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
   if (!seasons.length) return null;
@@ -125,7 +120,6 @@ async function resolveBestPosterPath(
 
   const p = (async () => {
     try {
-      // ✅ TV: 최신 시즌 포스터가 있으면 그걸 우선
       if (mediaType === "tv") {
         const seasonPoster = pickLatestSeasonPosterFromDetail(detail as any);
         if (seasonPoster) {
@@ -134,11 +128,8 @@ async function resolveBestPosterPath(
         }
       }
 
-      // ✅ images에서 ko→en 우선
       const images = await fetchImagesSafe(mediaType, detail.id);
       const best = pickBestPosterFilePath(images?.posters);
-
-      // 그래도 없으면 기존 detail.poster_path fallback
       const finalPath = best ?? detail.poster_path ?? null;
 
       _detailPosterCache.set(key, finalPath);
@@ -225,28 +216,20 @@ function YouTubeTrailer({
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-0 right-0 top-0 h-14 bg-gradient-to-b from-black/70 via-black/25 to-transparent" />
         <div className="absolute bottom-0 right-0 h-24 w-44 bg-gradient-to-l from-black/75 via-black/25 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/35 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/40 to-transparent" />
       </div>
     </div>
   );
 }
 
-function ProviderPill({
-  provider,
-  label,
-  title,
-}: {
-  provider: ProviderItem | null;
-  label: "ORIGINAL" | "ONLY";
-  title?: string;
-}) {
+/* ✅ ORIGINAL만 유지 */
+function ProviderPill({ provider }: { provider: ProviderItem | null }) {
   if (!provider) return null;
-
   const hasLogo = !!provider.logo_path;
 
   return (
     <span
-      title={title}
+      title="OTT 오리지널(제작/방영 기준)"
       className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/35 border border-white/10 backdrop-blur-md"
     >
       {hasLogo ? (
@@ -268,7 +251,7 @@ function ProviderPill({
       )}
 
       <span className="text-[12px] font-extrabold tracking-wide text-white/90">
-        {label}
+        ORIGINAL
       </span>
     </span>
   );
@@ -279,7 +262,6 @@ export function ContentDetailHero({
   mediaType,
 
   providerOriginal,
-  providerExclusive,
   theatricalChip,
   typeText,
   yearText,
@@ -290,18 +272,19 @@ export function ContentDetailHero({
   trailerMuted,
   setTrailerOpen,
   setTrailerMuted,
+
+  isAuthed,
+  isFavorite,
+  onToggleFavorite,
 }: {
   detail: DetailBase;
   mediaType: MediaType;
 
   providerOriginal: ProviderItem | null;
-  providerExclusive: ProviderItem | null;
-
   theatricalChip: { label: string; tone: "dark" } | null;
 
   typeText: string;
   yearText: string;
-
   ageValue: string | null;
 
   trailerKey: string | null;
@@ -309,10 +292,13 @@ export function ContentDetailHero({
   trailerMuted: boolean;
   setTrailerOpen: (v: boolean) => void;
   setTrailerMuted: (v: boolean) => void;
+
+  isAuthed: boolean;
+  isFavorite: boolean;
+  onToggleFavorite: (id: number, mediaType?: "movie" | "tv") => void;
 }) {
   const title = getDisplayTitle(detail as any);
 
-  // ✅ "옛 포스터 잔상" 제거용: 최신 포스터를 preload 후에만 렌더
   const [posterPathResolved, setPosterPathResolved] = useState<string | null>(
     null
   );
@@ -321,7 +307,6 @@ export function ContentDetailHero({
   useEffect(() => {
     let alive = true;
 
-    // ✅ id 바뀔 때마다 "옛 포스터"를 절대 보여주지 않도록 초기화
     setPosterPathResolved(null);
     setPosterReady(false);
 
@@ -342,7 +327,6 @@ export function ContentDetailHero({
         return;
       }
 
-      // ✅ preload 끝난 후에만 실제로 poster를 렌더
       await preloadImage(src1x);
       if (!alive) return;
 
@@ -356,10 +340,8 @@ export function ContentDetailHero({
   }, [mediaType, detail.id]);
 
   const heroBackdropSrc = useMemo(() => {
-    // backdrop은 detail에 있으면 그걸 바로 사용(대부분 깜빡임 없음)
     if (detail.backdrop_path)
       return getBackdropUrl(detail.backdrop_path, "original");
-    // backdrop이 없으면 "최신 포스터"를 backdrop 대용으로(잔상 방지 위해 resolved만 사용)
     if (posterPathResolved)
       return getBackdropUrl(posterPathResolved, "original");
     return "";
@@ -387,9 +369,6 @@ export function ContentDetailHero({
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [layerMounted, setLayerMounted] = useState(false);
-
-  const isOttOriginal = !!providerOriginal;
-  const isOttExclusive = !isOttOriginal && !!providerExclusive;
 
   useEffect(() => {
     if (trailerOpen && trailerKey) {
@@ -437,12 +416,15 @@ export function ContentDetailHero({
     applyMuteState(next);
   };
 
+  const onClickFavorite = () => {
+    onToggleFavorite(detail.id, mediaType);
+  };
+
   return (
     <section
       className="relative w-full overflow-hidden rounded-t-[10px] rounded-b-none"
       style={{ height: "clamp(420px, 62vh, 680px)" }}
     >
-      {/* ✅ 히어로 배경 + 비네팅 */}
       <div className="absolute inset-0">
         {heroBackdropSrc ? (
           <img
@@ -461,9 +443,9 @@ export function ContentDetailHero({
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/85 via-black/45 to-transparent" />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_260px_rgba(0,0,0,0.72)]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#0b0b10] via-[#0b0b10]/70 to-transparent" />
       </div>
 
-      {/* ✅ 예고편 레이어 */}
       {layerMounted && trailerKey ? (
         <motion.div
           className="absolute inset-0 z-20"
@@ -485,26 +467,15 @@ export function ContentDetailHero({
       <div className="relative z-30 h-full px-4 sm:px-8 pb-8 sm:pb-10 flex items-end">
         <div className="w-full grid grid-cols-1 md:grid-cols-[1fr_auto] gap-5 md:gap-8 items-end">
           <div className="max-w-[720px]">
-            {/* ✅ 1) 타입 / 상영칩 / ORIGINAL(or ONLY) / 연령 */}
             <div className="flex items-center flex-wrap gap-1 mb-3">
               <Chip tone="dark">{typeText}</Chip>
 
-              {!isOttOriginal && !isOttExclusive && theatricalChip ? (
+              {theatricalChip ? (
                 <Chip tone={theatricalChip.tone}>{theatricalChip.label}</Chip>
               ) : null}
 
-              {isOttOriginal ? (
-                <ProviderPill
-                  provider={providerOriginal}
-                  label="ORIGINAL"
-                  title="OTT 오리지널(제작/방영 기준)"
-                />
-              ) : isOttExclusive ? (
-                <ProviderPill
-                  provider={providerExclusive}
-                  label="ONLY"
-                  title="국내 OTT 단독 스트리밍(독점)"
-                />
+              {providerOriginal ? (
+                <ProviderPill provider={providerOriginal} />
               ) : null}
 
               {ageValue === null ? (
@@ -514,12 +485,10 @@ export function ContentDetailHero({
               )}
             </div>
 
-            {/* ✅ 3) 제목 */}
             <div className="max-w-[720px]">
               <TitleLogoOrText detail={detail} mediaType={mediaType} />
             </div>
 
-            {/* ✅ 4) 별점 / 년도 / 장르 / 런타임 */}
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1 shrink-0">
                 <Star className="w-4 h-4 fill-current text-yellow-400" />
@@ -543,23 +512,44 @@ export function ContentDetailHero({
               ) : null}
             </div>
 
-            {/* ✅ 5) 버튼 */}
             <div className="mt-4">
               {!trailerOpen ? (
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     type="button"
                     size="lg"
-                    className="bg-white/10 hover:bg-white/20 text-white border-0"
+                    className="bg-white/15 hover:bg-white/30 text-white border-0"
+                    onClick={onClickFavorite}
                   >
-                    <Heart className="w-5 h-5 mr-2" />
-                    <span className="font-semibold">찜</span>
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      <motion.span
+                        key={isFavorite ? "fav-on" : "fav-off"}
+                        initial={{ scale: 0.85, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0.85, opacity: 0 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 520,
+                          damping: 28,
+                        }}
+                        className="mr-2 inline-flex"
+                      >
+                        <Heart
+                          className="w-5 h-5"
+                          fill={isFavorite ? "currentColor" : "none"}
+                        />
+                      </motion.span>
+                    </AnimatePresence>
+
+                    <span className="font-bold">
+                      {isFavorite ? "찜 해제" : "찜 하기"}
+                    </span>
                   </Button>
 
                   <Button
                     type="button"
                     size="lg"
-                    className="bg-white/10 hover:bg-white/20 text-white border-0"
+                    className="bg-white/15 hover:bg-white/30 text-white border-0"
                     onClick={() => {
                       const url = window.location.href;
                       if (navigator.share) {
@@ -570,19 +560,19 @@ export function ContentDetailHero({
                     }}
                   >
                     <Share2 className="w-5 h-5 mr-2" />
-                    <span className="font-semibold">공유</span>
+                    <span className="font-bold">공유</span>
                   </Button>
 
                   <Button
                     type="button"
                     size="lg"
-                    className="bg-white/10 hover:bg-white/20 text-white border-0"
+                    className="bg-white/15 hover:bg-white/30 text-white border-0"
                     onClick={onClickTrailer}
                     disabled={!trailerKey}
                     title={!trailerKey ? "예고편 정보가 없습니다" : undefined}
                   >
                     <Play className="w-5 h-5 mr-2 fill-current" />
-                    <span className="font-semibold">예고편 재생</span>
+                    <span className="font-bold">예고편 재생</span>
                   </Button>
                 </div>
               ) : (
@@ -617,7 +607,6 @@ export function ContentDetailHero({
             </div>
           </div>
 
-          {/* ✅ 오른쪽 포스터: "최신 포스터 준비된 뒤"에만 렌더 */}
           {!trailerOpen ? (
             <div className="hidden md:block shrink-0">
               {!posterReady ? (

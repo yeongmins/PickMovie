@@ -1,555 +1,654 @@
 // frontend/src/components/detail/DetailSections.tsx
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MutableRefObject,
-} from "react";
-import { ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { ChevronRight, ExternalLink } from "lucide-react";
+
 import { apiGet } from "../../lib/apiClient";
-import { getDisplayTitle } from "../../features/favorites/components/favoritesCarousel.shared";
+import { getPosterUrl } from "../../lib/tmdb";
+import type {
+  DetailBase,
+  MediaType,
+  WatchProviderRegion,
+} from "../../pages/detail/contentDetail.data";
+import {
+  getReleaseStatusKind,
+  isOttOnlyMovie,
+  loadScreeningSets,
+  peekOttOnlyMovie,
+  peekScreeningSets,
+  type ScreeningSets,
+} from "../../lib/contentMeta";
 
-type MediaType = "movie" | "tv";
-
-declare global {
-  interface Window {
-    YT?: any;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
-  | string
-  | undefined;
-
-const TMDB_DIRECT_BASE =
-  (import.meta as any)?.env?.VITE_TMDB_BASE_URL ||
-  "https://api.themoviedb.org/3";
-
-async function tmdbDirect(
-  path: string,
-  params: Record<string, string> = {}
-): Promise<any | null> {
-  if (!TMDB_API_KEY) return null;
-
-  try {
-    const url = new URL(`${TMDB_DIRECT_BASE}${path}`);
-    url.searchParams.set("api_key", TMDB_API_KEY);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-
-    const res = await fetch(url.toString());
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-/* =========================
-   OTT
-========================= */
-
-type Provider = {
-  provider_id?: number;
-  provider_name?: string;
-  logo_path?: string | null;
-};
-
-type WatchPayload = {
-  link?: string;
-  flatrate?: Provider[];
-  rent?: Provider[];
-  buy?: Provider[];
-};
-
-type WatchProviderRegionLike = {
-  link?: string;
-  flatrate?: Provider[];
-  rent?: Provider[];
-  buy?: Provider[];
-  free?: Provider[];
-  ads?: Provider[];
-};
-
-const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
-const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
-  `${TMDB_LOGO_CDN}${size}${path}`;
-
-function providerDeepLink(providerName: string, title: string) {
-  const q = encodeURIComponent(title);
-
-  const map: Record<string, string> = {
-    Netflix: `https://www.netflix.com/search?q=${q}`,
-    "Disney Plus": `https://www.disneyplus.com/search/${q}`,
-    "Disney+": `https://www.disneyplus.com/search/${q}`,
-    "Prime Video": `https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${q}`,
-    "Amazon Prime Video": `https://www.primevideo.com/search/ref=atv_nb_sr?phrase=${q}`,
-    "Apple TV": `https://tv.apple.com/search?term=${q}`,
-    "Apple TV+": `https://tv.apple.com/search?term=${q}`,
-    WATCHA: `https://watcha.com/search?query=${q}`,
-    왓챠: `https://watcha.com/search?query=${q}`,
-    TVING: `https://www.tving.com/search?query=${q}`,
-    티빙: `https://www.tving.com/search?query=${q}`,
-    wavve: `https://www.wavve.com/search?query=${q}`,
-    Wavve: `https://www.wavve.com/search?query=${q}`,
-    쿠팡플레이: `https://www.coupangplay.com/search?q=${q}`,
-    "Coupang Play": `https://www.coupangplay.com/search?q=${q}`,
-  };
-
-  const key = Object.keys(map).find((k) =>
-    providerName.toLowerCase().includes(k.toLowerCase())
-  );
-  return key ? map[key] : "";
-}
-
-function normalizeProviders(arr: any): Provider[] {
-  const list: any[] = Array.isArray(arr) ? arr : [];
-  return list
-    .map((p) => {
-      const name = p?.provider_name ?? p?.providerName ?? p?.name ?? "";
-      const logo = p?.logo_path ?? p?.logoPath ?? p?.logo ?? null;
-      const id = p?.provider_id ?? p?.providerId ?? undefined;
-      if (!name) return null;
-      return {
-        provider_id: id,
-        provider_name: name,
-        logo_path: logo,
-      } as Provider;
-    })
-    .filter(Boolean) as Provider[];
-}
-
-function normalizeWatchPayload(input: any): WatchPayload | null {
-  if (!input) return null;
-  const link = input?.link;
-  const flatrate = normalizeProviders(input?.flatrate);
-  const rent = normalizeProviders(input?.rent);
-  const buy = normalizeProviders(input?.buy);
-
-  if (link || flatrate.length || rent.length || buy.length) {
-    return { link, flatrate, rent, buy };
-  }
-  return null;
-}
-
-async function fetchWatchProviders(
-  mediaType: MediaType,
-  id: number
-): Promise<WatchPayload | null> {
-  const candidates = [
-    `/tmdb/watch/providers/${mediaType}/${id}`,
-    `/tmdb/watch/${mediaType}/${id}`,
-    `/tmdb/providers/${mediaType}/${id}`,
-    `/tmdb/meta/${mediaType}/${id}`,
-  ] as const;
-
-  for (const p of candidates) {
-    try {
-      const r = await apiGet<any>(p, { region: "KR", language: "ko-KR" });
-
-      const kr = r?.results?.KR ?? r?.KR ?? null;
-      const normalizedKr = normalizeWatchPayload(kr);
-      if (normalizedKr) return normalizedKr;
-
-      if (Array.isArray(r?.providers)) {
-        return {
-          link: r?.link,
-          flatrate: normalizeProviders(r.providers),
-        };
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const json = await tmdbDirect(`/${mediaType}/${id}/watch/providers`);
-  const kr = json?.results?.KR ?? null;
-  return normalizeWatchPayload(kr);
-}
-
-export function DetailOttSection({
-  mediaType,
-  id,
-  title,
-  prefetched,
-}: {
-  mediaType: MediaType;
+type TmdbCreditPerson = {
   id: number;
+  name?: string;
+  character?: string;
+  profile_path?: string | null;
+  order?: number;
+};
+
+type TmdbCreditsResponse = {
+  cast?: TmdbCreditPerson[];
+};
+
+type TmdbReviewItem = {
+  id: string;
+  author?: string;
+  content?: string;
+  created_at?: string;
+  updated_at?: string;
+  url?: string;
+  author_details?: { rating?: number | null };
+};
+
+type TmdbReviewsResponse = {
+  results?: TmdbReviewItem[];
+};
+
+function formatKoreanDate(ymd?: string) {
+  const raw = String(ymd || "").trim();
+  if (!raw) return "";
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return raw;
+  const d = new Date(t);
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
+function safeText(v: unknown) {
+  return String(v ?? "").trim();
+}
+
+function pickProviders(regionData: WatchProviderRegion | null) {
+  const rAny = regionData as any;
+  const region =
+    (rAny?.results?.KR as any) ||
+    (rAny?.results?.kr as any) ||
+    (rAny?.KR as any) ||
+    rAny ||
+    null;
+
+  const pools: any[] = [
+    ...(Array.isArray(region?.flatrate) ? region.flatrate : []),
+    ...(Array.isArray(region?.rent) ? region.rent : []),
+    ...(Array.isArray(region?.buy) ? region.buy : []),
+    ...(Array.isArray(region?.free) ? region.free : []),
+    ...(Array.isArray(region?.ads) ? region.ads : []),
+  ];
+
+  const uniq = new Map<number, any>();
+  for (const p of pools) {
+    const id = Number(p?.provider_id);
+    if (!Number.isFinite(id)) continue;
+    if (!uniq.has(id)) uniq.set(id, p);
+  }
+
+  const items = Array.from(uniq.values()).slice(0, 12);
+  return { items };
+}
+
+function yearFromYmd(ymd?: string | null): string | null {
+  const raw = String(ymd || "").trim();
+  if (raw.length < 4) return null;
+  const y = Number(raw.slice(0, 4));
+  if (!Number.isFinite(y) || y <= 0) return null;
+  return String(y);
+}
+
+/**
+ * TMDB Watch link(JustWatch)로 가지 않고,
+ * “해당 OTT 사이트”로 보내기:
+ * - 가능한 건 검색 URL
+ * - 확실하지 않은 건 공식 홈으로
+ */
+function providerOutboundUrl(provider: any, title: string) {
+  const nameRaw = safeText(provider?.provider_name);
+  const name = nameRaw.toLowerCase();
+  const q = encodeURIComponent(title || "");
+
+  if (name.includes("netflix")) return `https://www.netflix.com/search?q=${q}`;
+  if (name.includes("disney")) return `https://www.disneyplus.com/search/${q}`;
+  if (name.includes("prime"))
+    return `https://www.primevideo.com/search?phrase=${q}`;
+  if (name.includes("apple") || name.includes("itunes"))
+    return `https://tv.apple.com/search?term=${q}`;
+  if (name.includes("youtube"))
+    return `https://www.youtube.com/results?search_query=${q}`;
+  if (name.includes("google play"))
+    return `https://play.google.com/store/search?q=${q}&c=movies`;
+  if (name.includes("watcha")) return `https://watcha.com/search?query=${q}`;
+
+  if (name.includes("wavve")) return "https://www.wavve.com/";
+  if (name.includes("tving")) return "https://www.tving.com/";
+  if (name.includes("coupang")) return "https://www.coupangplay.com/";
+  if (name.includes("seezn")) return "https://www.seezn.com/";
+  if (name.includes("u+")) return "https://www.uplusmobiletv.com/";
+
+  return "";
+}
+
+function Section({
+  title,
+  right,
+  children,
+}: {
   title: string;
-  prefetched?: WatchPayload | null;
+  right?: React.ReactNode;
+  children: React.ReactNode;
 }) {
-  const [data, setData] = useState<WatchPayload | null>(
-    () => prefetched ?? null
-  );
-  const [loading, setLoading] = useState(() => !prefetched);
-
-  useEffect(() => {
-    let mounted = true;
-
-    if (prefetched) {
-      setData(prefetched);
-      setLoading(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setLoading(true);
-    void (async () => {
-      try {
-        const r = await fetchWatchProviders(mediaType, id);
-        if (!mounted) return;
-        setData(r);
-      } catch {
-        if (!mounted) return;
-        setData(null);
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [mediaType, id, prefetched]);
-
-  const providers = useMemo(() => {
-    const flat = data?.flatrate ?? [];
-    const rent = data?.rent ?? [];
-    const buy = data?.buy ?? [];
-
-    const map = new Map<string, Provider>();
-    [...flat, ...rent, ...buy].forEach((p) => {
-      const k = (p.provider_name || "").trim();
-      if (k && !map.has(k)) map.set(k, p);
-    });
-
-    return Array.from(map.values());
-  }, [data]);
-
-  const hasAny = providers.length > 0;
-
   return (
-    <div className="w-full">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-white/90 font-semibold">시청 가능 OTT</div>
-        <div className="text-xs text-white/55">
-          {loading
-            ? "불러오는 중…"
-            : hasAny
-            ? "실제 정보와 다를 수 있습니다."
-            : "실제 정보와 다를 수 있습니다."}
-        </div>
+    <section className="mt-10">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="text-white/90 font-extrabold text-[16px]">{title}</h3>
+        {right ? <div className="shrink-0">{right}</div> : null}
       </div>
 
-      <div className="mt-4">
-        {loading ? (
-          <div className="h-12 rounded-xl bg-white/5 flex items-center justify-center text-sm text-white/60">
-            시청처 정보를 불러오는 중…
-          </div>
-        ) : !hasAny ? (
-          <div className="h-12 rounded-xl bg-white/5 flex items-center justify-center text-sm text-white/60">
-            현재 스트리밍 정보가 없습니다.
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            {providers.slice(0, 10).map((p) => {
-              const name = p.provider_name || "";
+      <div className="border-t border-white/10 pt-4">{children}</div>
+    </section>
+  );
+}
 
-              // ✅ TMDB Watch Providers가 내려주는 "타이틀 고유 링크(link)"를 우선 사용 (ID 매칭되는 동작)
-              // link가 없을 때만 검색 링크로 fallback
-              const link = data?.link || providerDeepLink(name, title) || "";
+export function DetailSections({
+  detail,
+  mediaType,
+  providersKR,
+  loading,
+}: {
+  detail: DetailBase | null;
+  mediaType: MediaType;
+  providersKR: WatchProviderRegion | null;
+  loading?: boolean;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [cast, setCast] = useState<TmdbCreditPerson[]>([]);
+  const [reviews, setReviews] = useState<TmdbReviewItem[]>([]);
+
+  const [screening, setScreening] = useState<ScreeningSets | null>(() => {
+    return peekScreeningSets();
+  });
+
+  const [ottOnly, setOttOnly] = useState<boolean>(() => {
+    return detail?.id ? peekOttOnlyMovie(detail.id, "KR") ?? false : false;
+  });
+
+  const { items: providerItems } = useMemo(
+    () => pickProviders(providersKR),
+    [providersKR]
+  );
+
+  const contentTitle = useMemo(() => {
+    const d: any = detail;
+    return (
+      safeText(d?.title) ||
+      safeText(d?.name) ||
+      safeText(d?.original_title) ||
+      safeText(d?.original_name)
+    );
+  }, [detail]);
+
+  const infoRows = useMemo(() => {
+    if (!detail) return [];
+    const d: any = detail;
+
+    const original = safeText(
+      mediaType === "tv" ? d?.original_name : d?.original_title
+    );
+
+    const release = safeText(
+      mediaType === "tv" ? d?.first_air_date : d?.release_date
+    );
+
+    const runtime =
+      mediaType === "tv"
+        ? (() => {
+            const v = Array.isArray(d?.episode_run_time)
+              ? d.episode_run_time[0]
+              : undefined;
+            return typeof v === "number" && v > 0 ? `${v}분` : "";
+          })()
+        : typeof d?.runtime === "number" && d.runtime > 0
+        ? `${d.runtime}분`
+        : "";
+
+    const year = yearFromYmd(release);
+    const yearText = year ? `${year}년` : "";
+
+    const genres = Array.isArray(d?.genres)
+      ? d.genres
+          .map((g: any) => safeText(g?.name))
+          .filter(Boolean)
+          .join(", ")
+      : "";
+
+    const countries =
+      mediaType === "tv"
+        ? Array.isArray(d?.origin_country)
+          ? d.origin_country.filter(Boolean).join(", ")
+          : ""
+        : Array.isArray(d?.production_countries)
+        ? d.production_countries
+            .map((c: any) => safeText(c?.name) || safeText(c?.iso_3166_1))
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+    const status = safeText(d?.status);
+
+    const seasons =
+      mediaType === "tv" && typeof d?.number_of_seasons === "number"
+        ? `${d.number_of_seasons}시즌`
+        : "";
+    const episodes =
+      mediaType === "tv" && typeof d?.number_of_episodes === "number"
+        ? `${d.number_of_episodes}화`
+        : "";
+
+    const rows: Array<{ k: string; v: string } | null> = [
+      original ? { k: "원제", v: original } : null,
+      release ? { k: "개봉일", v: formatKoreanDate(release) } : null,
+      runtime ? { k: "러닝타임", v: runtime } : null,
+      yearText ? { k: "출시년도", v: yearText } : null,
+      genres ? { k: "장르", v: genres } : null,
+      countries ? { k: "제작국가", v: countries } : null,
+      status ? { k: "상태", v: status } : null,
+      seasons ? { k: "시즌", v: seasons } : null,
+      episodes ? { k: "에피소드", v: episodes } : null,
+    ];
+
+    return rows.filter(Boolean) as Array<{ k: string; v: string }>;
+  }, [detail, mediaType]);
+
+  useEffect(() => {
+    let alive = true;
+
+    setCast([]);
+    setReviews([]);
+
+    if (!detail?.id) return;
+
+    void apiGet<TmdbCreditsResponse>(
+      `/tmdb/proxy/${mediaType}/${detail.id}/credits`,
+      { language: "ko-KR" }
+    )
+      .then((r) => {
+        if (!alive) return;
+        const list = Array.isArray(r?.cast) ? r.cast : [];
+        const top = list
+          .filter((p) => typeof p?.id === "number")
+          .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+          .slice(0, 18);
+        setCast(top);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCast([]);
+      });
+
+    void apiGet<TmdbReviewsResponse>(
+      `/tmdb/proxy/${mediaType}/${detail.id}/reviews`,
+      { language: "ko-KR", page: 1 }
+    )
+      .then((r) => {
+        if (!alive) return;
+        const list = Array.isArray(r?.results) ? r.results : [];
+        setReviews(list.slice(0, 4));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setReviews([]);
+      });
+
+    return () => void (alive = false);
+  }, [detail?.id, mediaType]);
+
+  useEffect(() => {
+    let alive = true;
+
+    setOttOnly((prev) => prev ?? false);
+
+    if (!detail?.id) return;
+    if (mediaType !== "movie") return;
+
+    loadScreeningSets()
+      .then((s) => {
+        if (!alive) return;
+        setScreening(s);
+
+        const inNow = !!s?.nowPlaying?.has(detail.id);
+        if (!inNow) {
+          setOttOnly(false);
+          return;
+        }
+
+        const cached = peekOttOnlyMovie(detail.id, "KR");
+        if (typeof cached === "boolean") {
+          setOttOnly(cached);
+          return;
+        }
+
+        isOttOnlyMovie(detail.id, "KR")
+          .then((v) => {
+            if (!alive) return;
+            setOttOnly(v);
+          })
+          .catch(() => {
+            if (!alive) return;
+            setOttOnly(false);
+          });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setScreening((prev) => prev ?? null);
+      });
+
+    return () => void (alive = false);
+  }, [detail?.id, mediaType]);
+
+  const statusKind = useMemo(() => {
+    if (!detail?.id) return "none" as const;
+    return getReleaseStatusKind({
+      mediaType,
+      id: detail.id,
+      releaseDate: (detail as any)?.release_date ?? null,
+      firstAirDate: (detail as any)?.first_air_date ?? null,
+      sets: screening,
+      ottOnly,
+    });
+  }, [detail, mediaType, screening, ottOnly]);
+
+  const showTheaterSection =
+    mediaType === "movie" &&
+    (statusKind === "now" || statusKind === "rerun") &&
+    !ottOnly;
+
+  const openPersonModal = (personId: number) => {
+    const st = location.state as any;
+    const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
+
+    navigate(`/person/${personId}`, {
+      state: { backgroundLocation: location, rootLocation: root },
+    });
+  };
+
+  if (loading && !detail) {
+    return (
+      <div className="px-4 sm:px-8 pb-10">
+        <div className="mt-8 h-[160px] bg-white/5 animate-pulse rounded-2xl" />
+        <div className="mt-8 h-[140px] bg-white/5 animate-pulse rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (!detail) return null;
+
+  return (
+    <div className="px-4 sm:px-8 pb-12">
+      <Section title="줄거리 / 컨텐츠 정보">
+        <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-8">
+          <div>
+            <div className="text-white/90 font-extrabold text-[14px] mb-2">
+              줄거리
+            </div>
+            <p className="text-[13px] sm:text-[14px] leading-relaxed text-white/70">
+              {safeText((detail as any)?.overview) || "줄거리 정보가 없습니다."}
+            </p>
+          </div>
+
+          <div className="md:pl-2">
+            <div className="text-white/90 font-extrabold text-[14px] mb-2">
+              컨텐츠 정보
+            </div>
+
+            <div className="space-y-3">
+              {infoRows.map((row) => (
+                <div
+                  key={row.k}
+                  className="grid grid-cols-[96px_1fr] gap-4 items-start"
+                >
+                  <div className="text-white/45 text-[12px] font-semibold">
+                    {row.k}
+                  </div>
+                  <div className="text-white/85 text-[13px] font-bold">
+                    {row.v}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="주요 출연진"
+        right={
+          <span className="text-white/35 text-[12px] font-semibold">
+            배우페이지 이동
+          </span>
+        }
+      >
+        {cast.length ? (
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {cast.map((p) => {
+              const name = safeText(p?.name);
+              const role = safeText(p?.character);
+              const img = p?.profile_path
+                ? getPosterUrl(p.profile_path, "w185")
+                : null;
 
               return (
                 <button
-                  key={name}
+                  key={p.id}
                   type="button"
-                  onClick={() => {
-                    if (!link) return;
-                    window.open(link, "_blank", "noopener,noreferrer");
-                  }}
-                  disabled={!link}
-                  className="group flex items-center gap-2 rounded-xl bg-white/6 hover:bg-white/10 px-3 py-2 transition"
-                  aria-label={`${name}에서 바로가기`}
+                  onClick={() => openPersonModal(p.id)}
+                  className="group shrink-0 text-left w-[118px] sm:w-[126px]"
+                  title={name}
                 >
-                  <div className="w-9 h-9 rounded-lg bg-black/35 overflow-hidden flex items-center justify-center">
-                    {p.logo_path ? (
-                      <img
-                        src={logoUrl(p.logo_path, "w92")}
-                        srcSet={`${logoUrl(p.logo_path, "w92")} 1x, ${logoUrl(
-                          p.logo_path,
-                          "w185"
-                        )} 2x`}
-                        alt={name}
-                        className="w-full h-full object-contain"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <span className="text-[10px] text-white/60">OTT</span>
-                    )}
-                  </div>
-
-                  <div className="min-w-0 text-left">
-                    <div className="text-sm text-white/85 font-semibold max-w-[180px] truncate">
-                      {name}
+                  <div className="rounded-xl bg-white/[0.03] overflow-hidden">
+                    <div className="aspect-[3/4] bg-black/30">
+                      {img ? (
+                        <img
+                          src={img}
+                          alt={name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-b from-white/10 to-transparent" />
+                      )}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-white/55 inline-flex items-center gap-1">
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      바로가기
+
+                    <div className="p-2.5">
+                      <div className="text-white/90 font-extrabold text-[12px] line-clamp-1">
+                        {name || "이름 없음"}
+                      </div>
+                      <div className="mt-1 text-white/50 text-[11px] font-semibold line-clamp-1">
+                        {role || "\u00A0"}
+                      </div>
                     </div>
                   </div>
                 </button>
               );
             })}
           </div>
+        ) : (
+          <div className="text-white/45 text-[13px] font-semibold py-2">
+            출연진 정보가 없습니다.
+          </div>
         )}
-      </div>
+      </Section>
 
-      <div className="mt-2 text-[11px] text-white/40">
-        출처: TMDB Watch Providers (KR)
-      </div>
-    </div>
-  );
-}
+      <Section title="시청 가능 OTT">
+        {providerItems.length ? (
+          <div className="flex flex-wrap gap-2.5">
+            {providerItems.map((p: any) => {
+              const name = safeText(p?.provider_name);
+              const logo = safeText(p?.logo_path);
+              const src = logo ? `https://image.tmdb.org/t/p/w92${logo}` : "";
 
-/* =========================
-   Reviews
-========================= */
+              const href = providerOutboundUrl(p, contentTitle);
 
-type Review = {
-  author?: string;
-  content?: string;
-  created_at?: string;
-  url?: string;
-};
-
-function normalizeReviews(input: any): Review[] {
-  const list: any[] = Array.isArray(input?.results)
-    ? input.results
-    : Array.isArray(input)
-    ? input
-    : [];
-
-  return list.map((r) => ({
-    author: r?.author ?? r?.author_details?.name ?? "",
-    content: r?.content ?? "",
-    created_at: r?.created_at ?? "",
-    url: r?.url ?? "",
-  }));
-}
-
-async function fetchReviews(
-  mediaType: MediaType,
-  id: number
-): Promise<Review[] | null> {
-  const candidates = [
-    `/tmdb/reviews/${mediaType}/${id}`,
-    `/tmdb/${mediaType}/${id}/reviews`,
-    `/reviews/${mediaType}/${id}`,
-  ] as const;
-
-  for (const p of candidates) {
-    try {
-      const r = await apiGet<any>(p, { language: "ko-KR" });
-      const arr = normalizeReviews(r);
-      if (arr.length) return arr;
-    } catch {
-      // ignore
-    }
-  }
-
-  for (const lang of ["ko-KR", "en-US"] as const) {
-    const json = await tmdbDirect(`/${mediaType}/${id}/reviews`, {
-      language: lang,
-      page: "1",
-    });
-    const arr = normalizeReviews(json);
-    if (arr.length) return arr;
-  }
-
-  return [];
-}
-
-export function DetailReviewsSection({
-  mediaType,
-  id,
-  voteAverage,
-  voteCount,
-}: {
-  mediaType: MediaType;
-  id: number;
-  voteAverage: number | null;
-  voteCount: number | null;
-}) {
-  const [reviews, setReviews] = useState<Review[] | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-
-    void (async () => {
-      try {
-        const r = await fetchReviews(mediaType, id);
-        if (!mounted) return;
-        setReviews(r ?? []);
-      } catch {
-        if (!mounted) return;
-        setReviews([]);
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [mediaType, id]);
-
-  const head = useMemo(() => {
-    const avg = typeof voteAverage === "number" ? voteAverage.toFixed(1) : "—";
-    const cnt =
-      typeof voteCount === "number" ? voteCount.toLocaleString() : "—";
-    return { avg, cnt };
-  }, [voteAverage, voteCount]);
-
-  if (loading) {
-    return (
-      <div className="text-sm text-white/60">리뷰 정보를 불러오는 중…</div>
-    );
-  }
-
-  if (!reviews || reviews.length === 0) {
-    return (
-      <div className="text-sm text-white/60">
-        외부 평점/리뷰 정보가 없습니다. (출처: TMDB)
-        <div className="mt-2 text-xs text-white/45">
-          평점 {head.avg} · 표본 {head.cnt}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-white/85 font-semibold">
-          TMDB 평점 <span className="text-white">{head.avg}</span>
-          <span className="text-white/45 text-xs"> · 표본 {head.cnt}</span>
-        </div>
-        <div className="text-xs text-white/45">출처: TMDB Reviews</div>
-      </div>
-
-      <div className="mt-3 space-y-3">
-        {reviews.slice(0, 3).map((r, i) => (
-          <div
-            key={`${r.author}-${i}`}
-            className="rounded-xl bg-white/5 hover:bg-white/7 transition p-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-white/85 truncate">
-                {r.author || "익명"}
-              </div>
-              <div className="text-xs text-white/45">
-                {r.created_at
-                  ? new Date(r.created_at).toLocaleDateString()
-                  : ""}
-              </div>
-            </div>
-            <div className="mt-2 text-sm text-white/70 leading-relaxed line-clamp-4">
-              {r.content || ""}
-            </div>
-            {r.url ? (
-              <div className="mt-2">
+              return href ? (
                 <a
-                  href={r.url}
+                  key={String(p?.provider_id ?? name)}
+                  href={href}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-white/60 hover:text-white underline"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10 hover:bg-black/30"
+                  title={`${name}로 이동`}
                 >
-                  원문 보기
+                  <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
+                    {src ? (
+                      <img
+                        src={src}
+                        alt={name}
+                        className="w-full h-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-white/10" />
+                    )}
+                  </div>
+                  <div className="text-white/85 text-[13px] font-bold">
+                    {name}
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-white/35" />
                 </a>
-              </div>
-            ) : null}
+              ) : (
+                <div
+                  key={String(p?.provider_id ?? name)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10"
+                  title="이 OTT는 바로가기를 지원하지 않아요"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
+                    {src ? (
+                      <img
+                        src={src}
+                        alt={name}
+                        className="w-full h-full object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-white/10" />
+                    )}
+                  </div>
+                  <div className="text-white/85 text-[13px] font-bold">
+                    {name}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        ) : (
+          <div className="text-white/45 text-[13px] font-semibold py-2">
+            현재 스트리밍 정보가 없습니다.
+          </div>
+        )}
+
+        <div className="mt-2 text-white/35 text-[11px] font-semibold">
+          출처: TMDB Watch Providers (KR)
+        </div>
+      </Section>
+
+      {showTheaterSection ? (
+        <Section title="영화관 예매">
+          <div className="text-white/45 text-[12px] font-semibold mb-3">
+            아래 버튼을 눌러 예매가 가능한지 확인해보세요. (실제 정보와 다를 수 있습니다.)
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              {
+                label: "CGV",
+                href: `https://www.cgv.co.kr/search/?query=${encodeURIComponent(
+                  contentTitle
+                )}`,
+              },
+              {
+                label: "롯데시네마",
+                href: `https://www.lottecinema.co.kr/NLCHS/Search?query=${encodeURIComponent(
+                  contentTitle
+                )}`,
+              },
+              {
+                label: "메가박스",
+                href: `https://www.megabox.co.kr/movie?searchText=${encodeURIComponent(
+                  contentTitle
+                )}`,
+              },
+            ].map((b) => (
+              <a
+                key={b.label}
+                href={b.href}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between rounded-2xl bg-white/[0.03] border border-white/10 px-4 py-4 hover:bg-white/[0.05]"
+              >
+                <span className="text-white/90 font-extrabold">{b.label}</span>
+                <ChevronRight className="w-5 h-5 text-white/50" />
+              </a>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+
+      <Section title="평점/리뷰">
+        {reviews.length ? (
+          <div className="space-y-3">
+            {reviews.map((r) => {
+              const author = safeText(r?.author) || "익명";
+              const content = safeText(r?.content);
+              const date = safeText(r?.updated_at || r?.created_at);
+              const rating = r?.author_details?.rating;
+
+              return (
+                <div
+                  key={r.id}
+                  className="rounded-2xl bg-black/15 border border-white/10 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-white/85 font-extrabold text-[13px]">
+                      {author}
+                    </div>
+                    <div className="flex items-center gap-2 text-[12px] font-bold text-white/45">
+                      {typeof rating === "number" ? (
+                        <span className="text-white/70">★ {rating}</span>
+                      ) : null}
+                      {date ? <span>{date.slice(0, 10)}</span> : null}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-white/70 text-[13px] leading-relaxed line-clamp-4">
+                    {content || "리뷰 내용이 없습니다."}
+                  </p>
+
+                  {r?.url ? (
+                    <a
+                      href={r.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-[12px] font-bold text-white/55 hover:text-white/85"
+                    >
+                      원문 보기 <ChevronRight className="w-4 h-4" />
+                    </a>
+                  ) : null}
+                </div>
+              );
+            })}
+            <div className="text-white/35 text-[11px] font-semibold">
+              출처: TMDB
+            </div>
+          </div>
+        ) : (
+          <div className="text-white/45 text-[13px] font-semibold py-2">
+            외부 평점/리뷰 정보가 없습니다. (출처: TMDB)
+          </div>
+        )}
+      </Section>
     </div>
   );
 }
 
-/* =========================
-   Sections Wrapper
-========================= */
-
-type DetailLike = {
-  id: number;
-  title?: string;
-  name?: string;
-  original_title?: string;
-  original_name?: string;
-  overview?: string;
-  vote_average?: number;
-  vote_count?: number;
-  runtime?: number;
-  episode_run_time?: number[];
-  genres?: Array<{ id: number; name: string }>;
-};
-
-export function DetailSections({
-  detail,
-  mediaType,
-  providersKR,
-}: {
-  detail: DetailLike;
-  mediaType: MediaType;
-  providersKR?: WatchProviderRegionLike | null;
-}) {
-  const title = useMemo(() => getDisplayTitle(detail as any), [detail]);
-
-  const prefetchedOtt = useMemo(() => {
-    if (!providersKR) return undefined;
-    return normalizeWatchPayload(providersKR) ?? { link: providersKR.link };
-  }, [providersKR]);
-
-  return (
-    <div className="w-full">
-      <div className="space-y-10">
-        <section className=" pt-8">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-white/90 font-semibold">줄거리</div>
-          </div>
-
-          <div className="mt-4 text-sm text-white/70 leading-relaxed whitespace-pre-line">
-            {detail.overview?.trim()
-              ? detail.overview
-              : "줄거리 정보가 없습니다."}
-          </div>
-        </section>
-
-        <section className="pt-8">
-          <DetailOttSection
-            mediaType={mediaType}
-            id={detail.id}
-            title={title}
-            prefetched={prefetchedOtt ?? undefined}
-          />
-        </section>
-
-        <section className="pt-8">
-          <div className="text-white/90 font-semibold mb-4">평점/리뷰</div>
-          <DetailReviewsSection
-            mediaType={mediaType}
-            id={detail.id}
-            voteAverage={detail.vote_average ?? null}
-            voteCount={detail.vote_count ?? null}
-          />
-        </section>
-      </div>
-    </div>
-  );
-}
+export default DetailSections;
