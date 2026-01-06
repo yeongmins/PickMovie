@@ -23,13 +23,18 @@ function titleLogoCdnUrl(filePath: string, size: "w500" | "w780" = "w780") {
   return `https://image.tmdb.org/t/p/${size}${filePath}`;
 }
 
-const _titleLogoCache = new Map<string, string | null>();
-const _titleLogoInFlight = new Map<string, Promise<string | null>>();
+type LogoChoice = {
+  filePath: string | null;
+  invert: boolean; // ✅ (가능하면) 흰색 로고 우선, 검정만 있으면 invert로 흰색화
+};
 
-function pickBestKoreanLogoFilePath(logos?: TmdbImageAsset[]) {
-  if (!logos?.length) return null;
-  const ko = logos.filter((l) => l.iso_639_1 === "ko");
-  if (!ko.length) return null;
+const _titleLogoCache = new Map<string, LogoChoice>();
+const _titleLogoInFlight = new Map<string, Promise<LogoChoice>>();
+
+function pickKoreanCandidates(logos?: TmdbImageAsset[]) {
+  const list = Array.isArray(logos) ? logos : [];
+  const ko = list.filter((l) => l.iso_639_1 === "ko");
+  if (!ko.length) return [];
 
   ko.sort((a, b) => {
     const vc = (b.vote_count ?? 0) - (a.vote_count ?? 0);
@@ -37,7 +42,7 @@ function pickBestKoreanLogoFilePath(logos?: TmdbImageAsset[]) {
     return b.width * b.height - a.width * a.height;
   });
 
-  return ko[0]?.file_path ?? null;
+  return ko.slice(0, 6);
 }
 
 async function fetchImagesSafe(
@@ -57,25 +62,125 @@ async function fetchImagesSafe(
   }
 }
 
-async function fetchTitleLogoFilePath(
+/**
+ * ✅ 로고 밝기 측정(가능할 때만):
+ * - CORS가 막히면 실패할 수 있음 → 그 경우엔 안전한 fallback 사용
+ */
+async function measureLogoBrightness(filePath: string): Promise<number | null> {
+  try {
+    const src = titleLogoCdnUrl(filePath, "w500");
+    const res = await fetch(src);
+    const blob = await res.blob();
+
+    // Canvas 샘플링(투명 제외)
+    const bmp =
+      "createImageBitmap" in window ? await createImageBitmap(blob) : null;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    const w = bmp ? bmp.width : 0;
+    const h = bmp ? bmp.height : 0;
+    if (!w || !h) return null;
+
+    canvas.width = Math.min(w, 320);
+    canvas.height = Math.max(1, Math.round((canvas.width * h) / w));
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp!, 0, 0, canvas.width, canvas.height);
+
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    let sum = 0;
+    let cnt = 0;
+
+    // 빠르게 샘플링(격자)
+    const step = 8;
+    for (let y = 0; y < canvas.height; y += step) {
+      for (let x = 0; x < canvas.width; x += step) {
+        const i = (y * canvas.width + x) * 4;
+        const a = img[i + 3];
+        if (a < 20) continue;
+
+        const r = img[i];
+        const g = img[i + 1];
+        const b = img[i + 2];
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+        sum += lum;
+        cnt += 1;
+      }
+    }
+
+    if (!cnt) return null;
+    return sum / cnt; // 0..255
+  } catch {
+    return null;
+  }
+}
+
+async function pickBestKoreanLogoChoice(
   mediaType: MediaType,
   id: number
-): Promise<string | null> {
+): Promise<LogoChoice> {
+  const data = await fetchImagesSafe(mediaType, id);
+  const candidates = pickKoreanCandidates(data?.logos);
+
+  if (!candidates.length) {
+    return { filePath: null, invert: false };
+  }
+
+  // ✅ “흰색 로고 우선”
+  // - 후보 중 가장 밝은 로고 선택
+  // - 측정 실패하면 1등 후보로 fallback
+  const top = candidates.slice(0, 4);
+  const brightnessList = await Promise.all(
+    top.map(async (c) => {
+      const b = await measureLogoBrightness(c.file_path);
+      return { filePath: c.file_path, b };
+    })
+  );
+
+  const measurable = brightnessList.filter(
+    (x) => typeof x.b === "number"
+  ) as Array<{
+    filePath: string;
+    b: number;
+  }>;
+
+  if (measurable.length) {
+    measurable.sort((a, b) => b.b - a.b);
+    const best = measurable[0];
+
+    // 밝기가 너무 낮으면(검정 로고 가능성) invert로 흰색화
+    const invert = best.b < 80;
+    return { filePath: best.filePath, invert };
+  }
+
+  // fallback: 첫 후보
+  return { filePath: candidates[0].file_path, invert: true };
+}
+
+async function fetchTitleLogoChoice(
+  mediaType: MediaType,
+  id: number
+): Promise<LogoChoice> {
   const key = `${mediaType}:${id}`;
-  if (_titleLogoCache.has(key)) return _titleLogoCache.get(key) ?? null;
+  if (_titleLogoCache.has(key)) return _titleLogoCache.get(key)!;
 
   const inflight = _titleLogoInFlight.get(key);
   if (inflight) return inflight;
 
   const p = (async () => {
     try {
-      const data = await fetchImagesSafe(mediaType, id);
-      const fp = pickBestKoreanLogoFilePath(data?.logos);
-      _titleLogoCache.set(key, fp);
-      return fp;
+      const choice = await pickBestKoreanLogoChoice(mediaType, id);
+      _titleLogoCache.set(key, choice);
+      return choice;
     } catch {
-      _titleLogoCache.set(key, null);
-      return null;
+      const choice: LogoChoice = { filePath: null, invert: false };
+      _titleLogoCache.set(key, choice);
+      return choice;
     } finally {
       _titleLogoInFlight.delete(key);
     }
@@ -85,25 +190,26 @@ async function fetchTitleLogoFilePath(
   return p;
 }
 
-function useKoreanTitleLogo(mediaType: MediaType, id: number) {
+function useKoreanTitleLogoChoice(mediaType: MediaType, id: number) {
   const key = `${mediaType}:${id}`;
-  const [filePath, setFilePath] = useState<string | null>(() => {
-    return _titleLogoCache.has(key) ? _titleLogoCache.get(key) ?? null : null;
+
+  const [choice, setChoice] = useState<LogoChoice>(() => {
+    return _titleLogoCache.get(key) ?? { filePath: null, invert: false };
   });
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const next = await fetchTitleLogoFilePath(mediaType, id);
+      const next = await fetchTitleLogoChoice(mediaType, id);
       if (!alive) return;
-      setFilePath(next);
+      setChoice(next);
     })();
     return () => {
       alive = false;
     };
   }, [key, mediaType, id]);
 
-  return { filePath };
+  return choice;
 }
 
 /* =========================
@@ -133,8 +239,6 @@ function useFitSingleLineNoEllipsis(opts: {
 
       text.style.whiteSpace = "nowrap";
       text.style.display = "inline-block";
-
-      // 탐색 중에는 scaleX=1로 폰트 폭만 비교
       text.style.transform = "scaleX(1)";
 
       let lo = opts.minFontPx;
@@ -165,14 +269,12 @@ function useFitSingleLineNoEllipsis(opts: {
 
     measure();
 
-    // ResizeObserver 지원 환경에서만
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => measure());
       ro.observe(wrap);
     }
 
-    // 폰트 로딩/레이아웃 타이밍 보정
     const t1 = window.setTimeout(measure, 0);
     const t2 = window.setTimeout(measure, 120);
 
@@ -186,7 +288,6 @@ function useFitSingleLineNoEllipsis(opts: {
   return { wrapRef, textRef, fontPx, scaleX };
 }
 
-// ✅ 훅을 쓰는 부분은 "별도 컴포넌트"로 분리(훅 규칙 위반 방지)
 function FittedTitleText({
   title,
   maxWidth = 720,
@@ -233,24 +334,34 @@ export function TitleLogoOrText({
   mediaType: MediaType;
 }) {
   const title = useMemo(() => getDisplayTitle(detail as any), [detail]);
-  const logo = useKoreanTitleLogo(mediaType, detail.id);
+  const choice = useKoreanTitleLogoChoice(mediaType, detail.id);
 
-  const hasLogo = !!logo.filePath;
+  const hasLogo = !!choice.filePath;
   const [logoReady, setLogoReady] = useState(false);
 
   useEffect(() => {
     setLogoReady(false);
-  }, [detail.id, logo.filePath]);
+  }, [detail.id, choice.filePath, choice.invert]);
 
   if (hasLogo) {
-    const src1x = titleLogoCdnUrl(logo.filePath!, "w500");
-    const src2x = titleLogoCdnUrl(logo.filePath!, "w780");
+    const src1x = titleLogoCdnUrl(choice.filePath!, "w500");
+    const src2x = titleLogoCdnUrl(choice.filePath!, "w780");
+
+    const visibleFilter = `${
+      choice.invert ? "invert(1) " : ""
+    }drop-shadow(0 10px 18px rgba(0,0,0,0.35))`;
+
+    const hiddenFilter = `${
+      choice.invert ? "invert(1) " : ""
+    }blur(10px) drop-shadow(0 10px 18px rgba(0,0,0,0.22))`;
 
     return (
       <h1 className="mb-3">
         <span className="sr-only">{title}</span>
         <motion.img
-          key={`ko-logo:${mediaType}:${detail.id}:${logo.filePath}`}
+          key={`ko-logo:${mediaType}:${detail.id}:${choice.filePath}:${
+            choice.invert ? "inv" : "nor"
+          }`}
           src={src1x}
           srcSet={`${src1x} 1x, ${src2x} 2x`}
           alt={title}
@@ -261,7 +372,7 @@ export function TitleLogoOrText({
           initial={false}
           animate={{
             opacity: logoReady ? 1 : 0,
-            filter: logoReady ? "blur(0px)" : "blur(10px)",
+            filter: logoReady ? visibleFilter : hiddenFilter,
           }}
           transition={{ duration: 0.22, ease: "easeOut" }}
           style={{
@@ -273,15 +384,11 @@ export function TitleLogoOrText({
             objectFit: "contain",
             transform: "translateZ(0)",
             willChange: "opacity, filter",
-            filter: logoReady
-              ? "drop-shadow(0 10px 18px rgba(0,0,0,0.35))"
-              : "drop-shadow(0 10px 18px rgba(0,0,0,0.22))",
           }}
         />
       </h1>
     );
   }
 
-  // ✅ 로고 없을 때만 "훅 포함 컴포넌트"를 렌더 (훅 규칙 위반 없음)
   return <FittedTitleText title={title} />;
 }

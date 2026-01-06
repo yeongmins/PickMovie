@@ -16,6 +16,7 @@ import {
 import type { DetailBase, MediaType, ProviderItem } from "./contentDetail.data";
 import { tmdbDirect } from "./contentDetail.data";
 import { TitleLogoOrText } from "./ContentTitleLogo";
+import { yearFromDate } from "../../lib/contentMeta";
 
 /* =========================
    ✅ 최신 포스터: ko 우선, 없으면 en
@@ -222,10 +223,33 @@ function YouTubeTrailer({
   );
 }
 
-/* ✅ ORIGINAL만 유지 */
+/* ✅ ORIGINAL만 유지 + ✅ 로고 fallback(요청사항 2) */
+function fallbackProviderLogo(nameRaw: string) {
+  const name = String(nameRaw || "").toLowerCase();
+
+  // simpleicons (svg) — 흰색
+  if (name.includes("netflix"))
+    return "https://cdn.simpleicons.org/netflix/ffffff";
+  if (name.includes("disney"))
+    return "https://cdn.simpleicons.org/disneyplus/ffffff";
+  if (name.includes("prime"))
+    return "https://cdn.simpleicons.org/amazonprimevideo/ffffff";
+  if (name.includes("apple"))
+    return "https://cdn.simpleicons.org/appletv/ffffff";
+  if (name.includes("youtube"))
+    return "https://cdn.simpleicons.org/youtube/ffffff";
+  return "";
+}
+
 function ProviderPill({ provider }: { provider: ProviderItem | null }) {
   if (!provider) return null;
-  const hasLogo = !!provider.logo_path;
+
+  const providerName = provider.provider_name || "";
+  const tmdbLogo = provider.logo_path ? logoUrl(provider.logo_path, "w92") : "";
+  const fallback = !tmdbLogo ? fallbackProviderLogo(providerName) : "";
+
+  const logoSrc = tmdbLogo || fallback;
+  const hasLogo = !!logoSrc;
 
   return (
     <span
@@ -235,12 +259,8 @@ function ProviderPill({ provider }: { provider: ProviderItem | null }) {
       {hasLogo ? (
         <span className="w-[18px] h-[18px] rounded-[4px] overflow-hidden bg-black/25 flex items-center justify-center">
           <img
-            src={logoUrl(provider.logo_path!, "w92")}
-            srcSet={`${logoUrl(provider.logo_path!, "w92")} 1x, ${logoUrl(
-              provider.logo_path!,
-              "w185"
-            )} 2x`}
-            alt={provider.provider_name}
+            src={logoSrc}
+            alt={providerName}
             className="w-full h-full object-contain"
             loading="lazy"
             decoding="async"
@@ -420,8 +440,149 @@ export function ContentDetailHero({
     onToggleFavorite(detail.id, mediaType);
   };
 
+  // const heroYearText = useMemo(() => {
+  //   if (!yearText) return "";
+  //   if (mediaType !== "movie") return yearText;
+
+  //   const isRerun = (theatricalChip?.label ?? "").includes("재개봉");
+  //   if (!isRerun) return yearText;
+
+  //   const originalYear = yearFromDate((detail as any)?.release_date ?? "");
+  //   return originalYear || yearText;
+  // }, [yearText, mediaType, theatricalChip?.label, detail]);
+
+  /* =========================
+     ✅ 포스터 자동 숨김(디자인 유지)
+     - 포스터는 절대 줄이지 않음
+     - 텍스트/레이아웃 때문에 포스터가 침범/클립될 상황이면 포스터를 "모바일처럼" 숨김
+  ========================= */
+  const sectionRef = useRef<HTMLElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const posterColRef = useRef<HTMLDivElement>(null);
+
+  const [showPoster, setShowPoster] = useState(true);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let raf = 0;
+    const mdQuery = window.matchMedia?.("(min-width: 768px)");
+
+    const estPosterSize = () => {
+      const h = Math.max(260, Math.min(window.innerHeight * 0.52, 560));
+      const w = (h * 2) / 3;
+      return { w, h };
+    };
+
+    const compute = () => {
+      const mdUp = mdQuery ? mdQuery.matches : window.innerWidth >= 768;
+
+      if (!mdUp) {
+        setShowPoster(true);
+        return;
+      }
+
+      if (trailerOpen) return;
+
+      const sectionEl = sectionRef.current;
+      const gridEl = gridRef.current;
+      const leftEl = leftColRef.current;
+
+      if (!sectionEl || !gridEl || !leftEl) return;
+
+      const sr = sectionEl.getBoundingClientRect();
+
+      const posterEl = posterColRef.current;
+      if (posterEl) {
+        const pr = posterEl.getBoundingClientRect();
+        const lr = leftEl.getBoundingClientRect();
+
+        const pad = 6;
+        const clipped =
+          pr.left < sr.left + pad ||
+          pr.right > sr.right - pad ||
+          pr.top < sr.top + pad ||
+          pr.bottom > sr.bottom - pad;
+
+        const collide = lr.right > pr.left - 12;
+
+        setShowPoster(!(clipped || collide));
+        return;
+      }
+
+      const gr = gridEl.getBoundingClientRect();
+      const { w: posterW, h: posterH } = estPosterSize();
+      const gapW = 32;
+      const textSpace = gr.width - posterW - gapW;
+
+      const fitsWidth = textSpace >= 420;
+      const fitsHeight = sr.height >= posterH + 40;
+
+      if (fitsWidth && fitsHeight) setShowPoster(true);
+    };
+
+    const schedule = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(compute);
+    };
+
+    schedule();
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(schedule)
+        : null;
+
+    if (ro) {
+      const s = sectionRef.current;
+      const g = gridRef.current;
+      const l = leftColRef.current;
+      if (s) ro.observe(s);
+      if (g) ro.observe(g);
+      if (l) ro.observe(l);
+    }
+
+    const onResize = () => schedule();
+    window.addEventListener("resize", onResize);
+
+    if (mdQuery) {
+      const onMQ = () => schedule();
+      try {
+        mdQuery.addEventListener("change", onMQ);
+        (document as any)?.fonts?.ready?.then(schedule).catch(() => {});
+        return () => {
+          if (raf) cancelAnimationFrame(raf);
+          ro?.disconnect();
+          window.removeEventListener("resize", onResize);
+          mdQuery.removeEventListener("change", onMQ);
+        };
+      } catch {
+        // Safari fallback
+      }
+    }
+
+    (document as any)?.fonts?.ready?.then(schedule).catch(() => {});
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", onResize);
+    };
+  }, [
+    trailerOpen,
+    title,
+    typeText,
+    yearText,
+    genreText,
+    runtime,
+    posterReady,
+    posterSrcSet?.src1x,
+  ]);
+
   return (
     <section
+      ref={sectionRef}
       className="relative w-full overflow-hidden rounded-t-[10px] rounded-b-none"
       style={{ height: "clamp(420px, 62vh, 680px)" }}
     >
@@ -465,8 +626,11 @@ export function ContentDetailHero({
       ) : null}
 
       <div className="relative z-30 h-full px-4 sm:px-8 pb-8 sm:pb-10 flex items-end">
-        <div className="w-full grid grid-cols-1 md:grid-cols-[1fr_auto] gap-5 md:gap-8 items-end">
-          <div className="max-w-[720px]">
+        <div
+          ref={gridRef}
+          className="w-full grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 md:gap-8 items-end"
+        >
+          <div ref={leftColRef} className="min-w-0 max-w-[720px]">
             <div className="flex items-center flex-wrap gap-1 mb-3">
               <Chip tone="dark">{typeText}</Chip>
 
@@ -607,11 +771,18 @@ export function ContentDetailHero({
             </div>
           </div>
 
-          {!trailerOpen ? (
-            <div className="hidden md:block shrink-0">
+          {!trailerOpen && showPoster ? (
+            <div
+              ref={posterColRef}
+              className="hidden md:block shrink-0"
+              style={{
+                height: "clamp(260px, 52vh, 560px)",
+                width: "calc(clamp(260px, 52vh, 560px) * 2 / 3)",
+              }}
+            >
               {!posterReady ? (
                 <div
-                  className="rounded-xl bg-white/10 animate-pulse h-[clamp(260px,52vh,560px)] aspect-[2/3]"
+                  className="rounded-xl bg-white/10 animate-pulse w-full h-full"
                   style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
                 />
               ) : posterSrcSet ? (
@@ -620,7 +791,7 @@ export function ContentDetailHero({
                   src={posterSrcSet.src1x}
                   srcSet={`${posterSrcSet.src1x} 1x, ${posterSrcSet.src2x} 2x`}
                   alt={title}
-                  className="rounded-xl object-cover h-[clamp(260px,52vh,560px)] aspect-[2/3]"
+                  className="rounded-xl object-cover w-full h-full max-w-none"
                   style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
                   loading="lazy"
                   decoding="async"

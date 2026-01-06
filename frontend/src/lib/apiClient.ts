@@ -16,11 +16,36 @@ export class ApiError extends Error {
   }
 }
 
+// ✅ PickMovie에서 쓰는 access token 키 (Header.tsx에서 쓰던 키와 맞춰주세요)
+const AUTH_KEYS = {
+  ACCESS: "pickmovie_access_token",
+} as const;
+
+function getAccessToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_KEYS.ACCESS);
+  } catch {
+    return null;
+  }
+}
+
+function buildHeaders(extra?: Record<string, string>): HeadersInit {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...(extra ?? {}),
+  };
+
+  // ✅ 토큰이 있으면 Bearer도 같이 전송 (쿠키 인증이어도 문제 없음)
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  return headers;
+}
+
 function normalizeParamValue(key: string, value: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (value === "") return null;
 
-  // ✅ 배열은 "a,b,c"로
   if (Array.isArray(value)) {
     const filtered = value
       .map((v) => (v === undefined || v === null ? "" : String(v)))
@@ -28,9 +53,7 @@ function normalizeParamValue(key: string, value: unknown): string | null {
     return filtered.length ? filtered.join(",") : null;
   }
 
-  // ✅ 객체가 들어오면 [object Object] 방지
   if (typeof value === "object") {
-    // 🔥 핵심: page가 객체로 들어오는 케이스 방어
     if (key === "page") {
       const v: any = value as any;
       const cand = v?.page ?? v?.value ?? v?.current ?? v?.index;
@@ -38,21 +61,18 @@ function normalizeParamValue(key: string, value: unknown): string | null {
         const n = Number(cand);
         return Number.isFinite(n) && n > 0 ? String(Math.floor(n)) : "1";
       }
-      // page 객체면 그냥 제거해서 서버가 default page(보통 1) 쓰게 함
       if ((import.meta as any).env?.DEV) {
         console.warn(`[apiClient] invalid page object dropped:`, value);
       }
       return null;
     }
 
-    // 그 외 객체는 실수 가능성 ↑ → DEV 경고 + 제거
     if ((import.meta as any).env?.DEV) {
       console.warn(`[apiClient] object param dropped: "${key}"`, value);
     }
     return null;
   }
 
-  // ✅ number/string/boolean
   return String(value);
 }
 
@@ -63,7 +83,6 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
     Object.entries(params).forEach(([key, value]) => {
       const normalized = normalizeParamValue(key, value);
       if (normalized === null) return;
-      // ✅ append 대신 set: 중복 쿼리 누적 방지
       url.searchParams.set(key, normalized);
     });
   }
@@ -115,6 +134,7 @@ export async function apiGet<T>(
 
   const res = await fetch(url, {
     method: "GET",
+    headers: buildHeaders(),
     credentials: "include",
   });
 
@@ -126,7 +146,7 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: JSON.stringify(body ?? {}),
   });
@@ -139,7 +159,7 @@ export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
 
   const response = await fetch(url, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
+    headers: buildHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: body ? JSON.stringify(body) : undefined,
   });

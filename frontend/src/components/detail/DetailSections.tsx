@@ -10,14 +10,19 @@ import type {
   MediaType,
   WatchProviderRegion,
 } from "../../pages/detail/contentDetail.data";
+import type { MovieRerunInfo } from "../../pages/detail/ContentDetailModal";
 import {
   getReleaseStatusKind,
+  getUnifiedYearFromDetail,
   isOttOnlyMovie,
   loadScreeningSets,
   peekOttOnlyMovie,
   peekScreeningSets,
+  yearFromDate,
+  type ReleaseStatusKind,
   type ScreeningSets,
 } from "../../lib/contentMeta";
+import { useMovieRerunInfo } from "../content/contentCard.hooks";
 
 type TmdbCreditPerson = {
   id: number;
@@ -44,6 +49,36 @@ type TmdbReviewItem = {
 type TmdbReviewsResponse = {
   results?: TmdbReviewItem[];
 };
+
+function diffFullMonths(fromYmd?: string, toYmd?: string): number {
+  const a = new Date(String(fromYmd || "").slice(0, 10));
+  const b = new Date(String(toYmd || "").slice(0, 10));
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
+
+  let months =
+    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
+function isRerunGapQualified(
+  info:
+    | {
+        hasMultipleTheatrical: boolean;
+        originalTheatricalDate: string;
+        rerunTheatricalDate: string;
+      }
+    | null
+    | undefined,
+  minMonths: number
+) {
+  if (!info?.hasMultipleTheatrical) return false;
+  const m = diffFullMonths(
+    info.originalTheatricalDate,
+    info.rerunTheatricalDate
+  );
+  return m >= minMonths;
+}
 
 function formatKoreanDate(ymd?: string) {
   const raw = String(ymd || "").trim();
@@ -84,14 +119,6 @@ function pickProviders(regionData: WatchProviderRegion | null) {
 
   const items = Array.from(uniq.values()).slice(0, 12);
   return { items };
-}
-
-function yearFromYmd(ymd?: string | null): string | null {
-  const raw = String(ymd || "").trim();
-  if (raw.length < 4) return null;
-  const y = Number(raw.slice(0, 4));
-  if (!Number.isFinite(y) || y <= 0) return null;
-  return String(y);
 }
 
 /**
@@ -152,11 +179,15 @@ export function DetailSections({
   mediaType,
   providersKR,
   loading,
+  statusKindOverride,
+  rerunInfo,
 }: {
   detail: DetailBase | null;
   mediaType: MediaType;
   providersKR: WatchProviderRegion | null;
   loading?: boolean;
+  statusKindOverride?: ReleaseStatusKind | null;
+  rerunInfo?: MovieRerunInfo | null;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -168,8 +199,10 @@ export function DetailSections({
     return peekScreeningSets();
   });
 
+  const detailId = Number((detail as any)?.id ?? 0);
+
   const [ottOnly, setOttOnly] = useState<boolean>(() => {
-    return detail?.id ? peekOttOnlyMovie(detail.id, "KR") ?? false : false;
+    return detailId ? peekOttOnlyMovie(detailId, "KR") ?? false : false;
   });
 
   const { items: providerItems } = useMemo(
@@ -187,6 +220,159 @@ export function DetailSections({
     );
   }, [detail]);
 
+  useEffect(() => {
+    let alive = true;
+
+    setCast([]);
+    setReviews([]);
+
+    if (!detailId) return;
+
+    void apiGet<TmdbCreditsResponse>(
+      `/tmdb/proxy/${mediaType}/${detailId}/credits`,
+      { language: "ko-KR" }
+    )
+      .then((r) => {
+        if (!alive) return;
+        const list = Array.isArray(r?.cast) ? r.cast : [];
+        const top = list
+          .filter((p) => typeof p?.id === "number")
+          .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+          .slice(0, 18);
+        setCast(top);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCast([]);
+      });
+
+    void apiGet<TmdbReviewsResponse>(
+      `/tmdb/proxy/${mediaType}/${detailId}/reviews`,
+      { language: "ko-KR", page: 1 }
+    )
+      .then((r) => {
+        if (!alive) return;
+        const list = Array.isArray(r?.results) ? r.results : [];
+        setReviews(list.slice(0, 4));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setReviews([]);
+      });
+
+    return () => void (alive = false);
+  }, [detailId, mediaType]);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!detailId) return;
+    if (mediaType !== "movie") return;
+
+    loadScreeningSets()
+      .then((s) => {
+        if (!alive) return;
+        setScreening(s);
+
+        const inNow = !!s?.nowPlaying?.has(detailId);
+        if (!inNow) {
+          setOttOnly(false);
+          return;
+        }
+
+        const cached = peekOttOnlyMovie(detailId, "KR");
+        if (typeof cached === "boolean") {
+          setOttOnly(cached);
+          return;
+        }
+
+        isOttOnlyMovie(detailId, "KR")
+          .then((v) => {
+            if (!alive) return;
+            setOttOnly(v);
+          })
+          .catch(() => {
+            if (!alive) return;
+            setOttOnly(false);
+          });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setScreening((prev) => prev ?? null);
+      });
+
+    return () => void (alive = false);
+  }, [detailId, mediaType]);
+
+  const statusKindComputed: ReleaseStatusKind | null = useMemo(() => {
+    if (!detailId) return null;
+
+    return getReleaseStatusKind({
+      mediaType,
+      id: detailId,
+      releaseDate: (detail as any)?.release_date ?? null,
+      firstAirDate: (detail as any)?.first_air_date ?? null,
+      sets: screening,
+      ottOnly,
+    });
+  }, [detailId, detail, mediaType, screening, ottOnly]);
+
+  const baseForRerun = (statusKindOverride ??
+    statusKindComputed) as ReleaseStatusKind | null;
+
+  // ✅ rerunInfo prop이 없을 때도, 내부에서 동일 로직으로 보정 가능하게 fallback
+  const rerunInfoFallback = useMovieRerunInfo({
+    mediaType,
+    id: detailId,
+    enabled:
+      mediaType === "movie" &&
+      !!detailId &&
+      (baseForRerun === "now" || baseForRerun === "upcoming"),
+    region: "KR",
+  });
+
+  const effectiveRerunInfo = (rerunInfo ?? rerunInfoFallback) as any;
+
+  // ✅ override 우선 + “극장 개봉 2회 이상이면 rerun” 보정
+  const statusKind: ReleaseStatusKind | null = useMemo(() => {
+    const base = (statusKindOverride ??
+      statusKindComputed) as ReleaseStatusKind | null;
+
+    if (
+      mediaType === "movie" &&
+      isRerunGapQualified(effectiveRerunInfo, 4) &&
+      (base === "now" || base === "upcoming")
+    ) {
+      return "rerun";
+    }
+
+    return base;
+  }, [
+    statusKindOverride,
+    statusKindComputed,
+    mediaType,
+    effectiveRerunInfo?.hasMultipleTheatrical,
+    effectiveRerunInfo?.originalTheatricalDate,
+    effectiveRerunInfo?.rerunTheatricalDate,
+  ]);
+
+  const showTheaterSection =
+    mediaType === "movie" &&
+    (statusKind === "now" || statusKind === "rerun") &&
+    !ottOnly;
+
+  // ✅ 상영중/재개봉이면 OTT 섹션 숨김 (요구사항 유지)
+  const showOttSection = !showTheaterSection;
+
+  const openPersonModal = (personId: number) => {
+    const st = location.state as any;
+    const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
+
+    navigate(`/person/${personId}`, {
+      state: { backgroundLocation: location, rootLocation: root },
+    });
+  };
+
   const infoRows = useMemo(() => {
     if (!detail) return [];
     const d: any = detail;
@@ -195,9 +381,17 @@ export function DetailSections({
       mediaType === "tv" ? d?.original_name : d?.original_title
     );
 
-    const release = safeText(
+    const originalRelease = safeText(
       mediaType === "tv" ? d?.first_air_date : d?.release_date
     );
+
+    const rerunRelease =
+      mediaType === "movie" && statusKind === "rerun"
+        ? safeText(effectiveRerunInfo?.rerunTheatricalDate) || originalRelease
+        : originalRelease;
+
+    const dateLabel =
+      mediaType === "movie" && statusKind === "rerun" ? "재개봉일" : "개봉일";
 
     const runtime =
       mediaType === "tv"
@@ -211,8 +405,17 @@ export function DetailSections({
         ? `${d.runtime}분`
         : "";
 
-    const year = yearFromYmd(release);
-    const yearText = year ? `${year}년` : "";
+    // ✅ “출시년도”는 카드/상세와 동일한 통일 로직 사용
+    // - TV: 최신 시즌/마지막 방영 연도 우선
+    // - Movie rerun: 최초 극장 개봉 연도(가능하면 KR earliest) 고정
+    const yearForRow =
+      mediaType === "movie"
+        ? yearFromDate(effectiveRerunInfo?.originalTheatricalDate) ||
+          yearFromDate(d?.release_date) ||
+          ""
+        : getUnifiedYearFromDetail(detail, mediaType, { statusKind });
+
+    const yearTextRow = yearForRow ? `${yearForRow}년` : "";
 
     const genres = Array.isArray(d?.genres)
       ? d.genres
@@ -246,9 +449,9 @@ export function DetailSections({
 
     const rows: Array<{ k: string; v: string } | null> = [
       original ? { k: "원제", v: original } : null,
-      release ? { k: "개봉일", v: formatKoreanDate(release) } : null,
+      rerunRelease ? { k: dateLabel, v: formatKoreanDate(rerunRelease) } : null,
       runtime ? { k: "러닝타임", v: runtime } : null,
-      yearText ? { k: "출시년도", v: yearText } : null,
+      yearTextRow ? { k: "출시년도", v: yearTextRow } : null,
       genres ? { k: "장르", v: genres } : null,
       countries ? { k: "제작국가", v: countries } : null,
       status ? { k: "상태", v: status } : null,
@@ -257,119 +460,13 @@ export function DetailSections({
     ];
 
     return rows.filter(Boolean) as Array<{ k: string; v: string }>;
-  }, [detail, mediaType]);
-
-  useEffect(() => {
-    let alive = true;
-
-    setCast([]);
-    setReviews([]);
-
-    if (!detail?.id) return;
-
-    void apiGet<TmdbCreditsResponse>(
-      `/tmdb/proxy/${mediaType}/${detail.id}/credits`,
-      { language: "ko-KR" }
-    )
-      .then((r) => {
-        if (!alive) return;
-        const list = Array.isArray(r?.cast) ? r.cast : [];
-        const top = list
-          .filter((p) => typeof p?.id === "number")
-          .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
-          .slice(0, 18);
-        setCast(top);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setCast([]);
-      });
-
-    void apiGet<TmdbReviewsResponse>(
-      `/tmdb/proxy/${mediaType}/${detail.id}/reviews`,
-      { language: "ko-KR", page: 1 }
-    )
-      .then((r) => {
-        if (!alive) return;
-        const list = Array.isArray(r?.results) ? r.results : [];
-        setReviews(list.slice(0, 4));
-      })
-      .catch(() => {
-        if (!alive) return;
-        setReviews([]);
-      });
-
-    return () => void (alive = false);
-  }, [detail?.id, mediaType]);
-
-  useEffect(() => {
-    let alive = true;
-
-    setOttOnly((prev) => prev ?? false);
-
-    if (!detail?.id) return;
-    if (mediaType !== "movie") return;
-
-    loadScreeningSets()
-      .then((s) => {
-        if (!alive) return;
-        setScreening(s);
-
-        const inNow = !!s?.nowPlaying?.has(detail.id);
-        if (!inNow) {
-          setOttOnly(false);
-          return;
-        }
-
-        const cached = peekOttOnlyMovie(detail.id, "KR");
-        if (typeof cached === "boolean") {
-          setOttOnly(cached);
-          return;
-        }
-
-        isOttOnlyMovie(detail.id, "KR")
-          .then((v) => {
-            if (!alive) return;
-            setOttOnly(v);
-          })
-          .catch(() => {
-            if (!alive) return;
-            setOttOnly(false);
-          });
-      })
-      .catch(() => {
-        if (!alive) return;
-        setScreening((prev) => prev ?? null);
-      });
-
-    return () => void (alive = false);
-  }, [detail?.id, mediaType]);
-
-  const statusKind = useMemo(() => {
-    if (!detail?.id) return "none" as const;
-    return getReleaseStatusKind({
-      mediaType,
-      id: detail.id,
-      releaseDate: (detail as any)?.release_date ?? null,
-      firstAirDate: (detail as any)?.first_air_date ?? null,
-      sets: screening,
-      ottOnly,
-    });
-  }, [detail, mediaType, screening, ottOnly]);
-
-  const showTheaterSection =
-    mediaType === "movie" &&
-    (statusKind === "now" || statusKind === "rerun") &&
-    !ottOnly;
-
-  const openPersonModal = (personId: number) => {
-    const st = location.state as any;
-    const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
-
-    navigate(`/person/${personId}`, {
-      state: { backgroundLocation: location, rootLocation: root },
-    });
-  };
+  }, [
+    detail,
+    mediaType,
+    statusKind,
+    effectiveRerunInfo?.rerunTheatricalDate,
+    effectiveRerunInfo?.originalTheatricalDate,
+  ]);
 
   if (loading && !detail) {
     return (
@@ -479,105 +576,104 @@ export function DetailSections({
         )}
       </Section>
 
-      <Section title="시청 가능 OTT">
-        {providerItems.length ? (
-          <div className="flex flex-wrap gap-2.5">
-            {providerItems.map((p: any) => {
-              const name = safeText(p?.provider_name);
-              const logo = safeText(p?.logo_path);
-              const src = logo ? `https://image.tmdb.org/t/p/w92${logo}` : "";
+      {showOttSection ? (
+        <Section title="시청 가능 OTT">
+          {providerItems.length ? (
+            <div className="flex flex-wrap gap-2.5">
+              {providerItems.map((p: any) => {
+                const name = safeText(p?.provider_name);
+                const logo = safeText(p?.logo_path);
+                const src = logo ? `https://image.tmdb.org/t/p/w92${logo}` : "";
 
-              const href = providerOutboundUrl(p, contentTitle);
+                const href = providerOutboundUrl(p, contentTitle);
 
-              return href ? (
-                <a
-                  key={String(p?.provider_id ?? name)}
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10 hover:bg-black/30"
-                  title={`${name}로 이동`}
-                >
-                  <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
-                    {src ? (
-                      <img
-                        src={src}
-                        alt={name}
-                        className="w-full h-full object-contain"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-white/10" />
-                    )}
+                return href ? (
+                  <a
+                    key={String(p?.provider_id ?? name)}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10 hover:bg-black/30"
+                    title={`${name}로 이동`}
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
+                      {src ? (
+                        <img
+                          src={src}
+                          alt={name}
+                          className="w-full h-full object-contain"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-white/10" />
+                      )}
+                    </div>
+                    <div className="text-white/85 text-[13px] font-bold">
+                      {name}
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-white/35" />
+                  </a>
+                ) : (
+                  <div
+                    key={String(p?.provider_id ?? name)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10"
+                    title="이 OTT는 바로가기를 지원하지 않아요"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
+                      {src ? (
+                        <img
+                          src={src}
+                          alt={name}
+                          className="w-full h-full object-contain"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-white/10" />
+                      )}
+                    </div>
+                    <div className="text-white/85 text-[13px] font-bold">
+                      {name}
+                    </div>
                   </div>
-                  <div className="text-white/85 text-[13px] font-bold">
-                    {name}
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-white/35" />
-                </a>
-              ) : (
-                <div
-                  key={String(p?.provider_id ?? name)}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 border border-white/10"
-                  title="이 OTT는 바로가기를 지원하지 않아요"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-black/25 overflow-hidden flex items-center justify-center">
-                    {src ? (
-                      <img
-                        src={src}
-                        alt={name}
-                        className="w-full h-full object-contain"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-white/10" />
-                    )}
-                  </div>
-                  <div className="text-white/85 text-[13px] font-bold">
-                    {name}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-white/45 text-[13px] font-semibold py-2">
+              현재 스트리밍 정보가 없습니다.
+            </div>
+          )}
+
+          <div className="mt-2 text-white/35 text-[11px] font-semibold">
+            출처: TMDB Watch Providers (KR)
           </div>
-        ) : (
-          <div className="text-white/45 text-[13px] font-semibold py-2">
-            현재 스트리밍 정보가 없습니다.
-          </div>
-        )}
-
-        <div className="mt-2 text-white/35 text-[11px] font-semibold">
-          출처: TMDB Watch Providers (KR)
-        </div>
-      </Section>
+        </Section>
+      ) : null}
 
       {showTheaterSection ? (
         <Section title="영화관 예매">
           <div className="text-white/45 text-[12px] font-semibold mb-3">
-            아래 버튼을 눌러 예매가 가능한지 확인해보세요. (실제 정보와 다를 수 있습니다.)
+            아래 버튼을 눌러 예매가 가능한지 확인해보세요.
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               {
                 label: "CGV",
-                href: `https://www.cgv.co.kr/search/?query=${encodeURIComponent(
-                  contentTitle
-                )}`,
+                href: "https://cgv.co.kr/cnm/movieBook",
+                logo: "https://www.cgv.co.kr/favicon.ico",
               },
               {
                 label: "롯데시네마",
-                href: `https://www.lottecinema.co.kr/NLCHS/Search?query=${encodeURIComponent(
-                  contentTitle
-                )}`,
+                href: "https://www.lottecinema.co.kr/NLCHS/Ticketing",
+                logo: "https://www.lottecinema.co.kr/favicon.ico",
               },
               {
                 label: "메가박스",
-                href: `https://www.megabox.co.kr/movie?searchText=${encodeURIComponent(
-                  contentTitle
-                )}`,
+                href: "https://www.megabox.co.kr/booking",
+                logo: "https://www.megabox.co.kr/favicon.ico",
               },
             ].map((b) => (
               <a
@@ -587,7 +683,22 @@ export function DetailSections({
                 rel="noreferrer"
                 className="flex items-center justify-between rounded-2xl bg-white/[0.03] border border-white/10 px-4 py-4 hover:bg-white/[0.05]"
               >
-                <span className="text-white/90 font-extrabold">{b.label}</span>
+                <span className="flex items-center gap-2 text-white/90 font-extrabold">
+                  <span className="w-6 h-6 rounded-md bg-black/25 overflow-hidden flex items-center justify-center">
+                    <img
+                      src={b.logo}
+                      alt={b.label}
+                      className="w-full h-full object-contain"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display =
+                          "none";
+                      }}
+                    />
+                  </span>
+                  {b.label}
+                </span>
                 <ChevronRight className="w-5 h-5 text-white/50" />
               </a>
             ))}

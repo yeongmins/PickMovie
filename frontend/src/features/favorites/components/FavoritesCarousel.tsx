@@ -1,5 +1,5 @@
 // src/features/favorites/components/FavoritesCarousel.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Heart,
@@ -14,6 +14,12 @@ import {
 import { Button } from "../../../components/ui/button";
 import { apiGet } from "../../../lib/apiClient";
 import { getBackdropUrl } from "../../../lib/tmdb";
+import {
+  getReleaseStatusKind,
+  getUnifiedYearFromItem,
+  yearFromDate,
+  type ReleaseStatusKind,
+} from "../../../lib/contentMeta";
 
 import {
   AgeBadge,
@@ -25,6 +31,13 @@ import {
   logoUrl,
   useFavoritesHeroState,
 } from "./favoritesCarousel.shared";
+import {
+  useMovieRerunInfo,
+  useOttOnlyState,
+  useScreeningSetsState,
+  useSyncOttOnly,
+  useTvLatestState,
+} from "../../../components/content/contentCard.hooks";
 
 type CarouselLayout = "fullscreen" | "embedded";
 
@@ -260,6 +273,37 @@ function TitleLogoOrText({ movie }: { movie: any }) {
   );
 }
 
+/* =========================
+   ✅ Carousel에서도 카드/상세와 동일한 Year/Status 기준 적용
+========================= */
+
+function diffFullMonths(fromYmd?: string, toYmd?: string): number {
+  const a = new Date(String(fromYmd || "").slice(0, 10));
+  const b = new Date(String(toYmd || "").slice(0, 10));
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
+
+  let months =
+    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
+function isRerunGapQualified(
+  info: {
+    hasMultipleTheatrical: boolean;
+    originalTheatricalDate: string;
+    rerunTheatricalDate: string;
+  } | null,
+  minMonths: number
+) {
+  if (!info?.hasMultipleTheatrical) return false;
+  const m = diffFullMonths(
+    info.originalTheatricalDate,
+    info.rerunTheatricalDate
+  );
+  return m >= minMonths;
+}
+
 export function FavoritesCarousel(
   props: FavoritesCarouselProps & {
     layout?: CarouselLayout;
@@ -296,12 +340,124 @@ export function FavoritesCarousel(
     ageValue,
     showAge,
     typeText,
-    airingChip,
+    airingChip: baseAiringChip,
     hasBackdrop,
     yearText,
 
     trailerOpen,
   } = useFavoritesHeroState(movies);
+
+  // ✅ currentMovie가 바뀌는 구조에서도 훅 호출 순서가 깨지지 않게 안전 값으로 계산
+  const currentId = Number((currentMovie as any)?.id ?? 0);
+  const currentMt = normalizeMediaType((currentMovie as any)?.media_type);
+  const currentReleaseDate = ((currentMovie as any)?.release_date ?? null) as
+    | string
+    | null;
+  const currentFirstAirDate = ((currentMovie as any)?.first_air_date ??
+    null) as string | null;
+
+  const screening = useScreeningSetsState();
+  const tvLatest = useTvLatestState(currentMt as any, currentId);
+
+  const [ottOnly, setOttOnly] = useOttOnlyState(currentId);
+
+  const baseStatusKind: ReleaseStatusKind | null = useMemo(() => {
+    if (!Number.isFinite(currentId) || currentId <= 0) return null;
+
+    return getReleaseStatusKind({
+      mediaType: currentMt as any,
+      id: currentId,
+      releaseDate: currentReleaseDate,
+      firstAirDate: currentFirstAirDate,
+      sets: screening,
+      ottOnly,
+    });
+  }, [
+    currentMt,
+    currentId,
+    currentReleaseDate,
+    currentFirstAirDate,
+    screening,
+    ottOnly,
+  ]);
+
+  const rerunInfo = useMovieRerunInfo({
+    mediaType: currentMt as any,
+    id: currentId,
+    enabled:
+      currentMt === "movie" &&
+      (baseStatusKind === "now" || baseStatusKind === "upcoming"),
+    region: "KR",
+  });
+
+  const statusKind: ReleaseStatusKind | null = useMemo(() => {
+    if (!baseStatusKind) return null;
+
+    if (
+      currentMt === "movie" &&
+      isRerunGapQualified(rerunInfo, 4) &&
+      (baseStatusKind === "now" || baseStatusKind === "upcoming")
+    ) {
+      return "rerun";
+    }
+
+    return baseStatusKind;
+  }, [
+    baseStatusKind,
+    currentMt,
+    rerunInfo.hasMultipleTheatrical,
+    rerunInfo.originalTheatricalDate,
+    rerunInfo.rerunTheatricalDate,
+  ]);
+
+  useSyncOttOnly({
+    mediaType: currentMt as any,
+    id: currentId,
+    statusKind,
+    setOttOnly,
+  });
+
+  const unifiedYearText = useMemo(() => {
+    if (!currentMovie || !Number.isFinite(currentId) || currentId <= 0)
+      return "";
+
+    const originalYear =
+      statusKind === "rerun"
+        ? yearFromDate(rerunInfo.originalTheatricalDate) ||
+          yearFromDate(currentReleaseDate) ||
+          ""
+        : "";
+
+    return getUnifiedYearFromItem(currentMovie, currentMt as any, tvLatest, {
+      statusKind,
+      originalYear,
+    });
+  }, [
+    currentMovie,
+    currentId,
+    currentMt,
+    tvLatest?.year,
+    tvLatest?.posterPath,
+    statusKind,
+    rerunInfo.originalTheatricalDate,
+    currentReleaseDate,
+  ]);
+
+  const displayAiringChip = useMemo(() => {
+    // TV 등 statusKind 계산 대상이 아니면 기존 값 사용
+    if (!statusKind) return baseAiringChip;
+
+    if (statusKind === "upcoming")
+      return { label: "상영예정", tone: "blue" as const };
+    if (statusKind === "rerun")
+      return { label: "재개봉", tone: "dark" as const };
+    if (statusKind === "now") return { label: "상영중", tone: "dark" as const };
+
+    return baseAiringChip;
+  }, [statusKind, baseAiringChip]);
+
+  const displayYearText =
+    unifiedYearText && unifiedYearText !== "—" ? unifiedYearText : yearText;
 
   if (activeMovies.length === 0) {
     if (!loggedIn) {
@@ -437,17 +593,19 @@ export function FavoritesCarousel(
                   </span>
                 </div>
 
-                {yearText && (
+                {displayYearText && (
                   <span className="text-gray-300 font-semibold shrink-0">
-                    {yearText}
+                    {displayYearText}
                   </span>
                 )}
 
                 <div className="min-w-0 flex-1 overflow-x-auto">
                   <div className="flex items-center gap-2 flex-nowrap w-max">
                     <Chip tone="dark">{typeText}</Chip>
-                    {airingChip && (
-                      <Chip tone={airingChip.tone}>{airingChip.label}</Chip>
+                    {displayAiringChip && (
+                      <Chip tone={displayAiringChip.tone}>
+                        {displayAiringChip.label}
+                      </Chip>
                     )}
                     {showAge && <AgeBadge value={ageValue} />}
 

@@ -20,6 +20,7 @@ export type DetailBase = {
   vote_average?: number;
   vote_count?: number;
 
+  /** ✅ 표시용 개봉일: 영화는 KR 극장 기준으로 덮어씀 */
   release_date?: string;
   first_air_date?: string;
 
@@ -39,6 +40,18 @@ export type DetailBase = {
     air_date?: string;
     poster_path?: string | null;
   }>;
+
+  /** TMDB 원본(월드/미국 등) release_date 보관 */
+  global_release_date?: string;
+
+  /** KR 최신 극장 개봉일 */
+  kr_release_date?: string;
+
+  /** KR 첫 극장 개봉일 */
+  kr_first_release_date?: string;
+
+  /** ✅ KR 기준 재개봉 여부 */
+  is_rerelease_kr?: boolean;
 };
 
 export type ProviderItem = {
@@ -79,6 +92,8 @@ type TmdbReleaseDatesResponse = {
       certification: string;
       type: number;
       release_date: string;
+      /** ✅ TMDB에 "Re-release" 같은 비고가 들어오는 경우가 있어서 반영 */
+      note?: string;
     }>;
   }>;
 };
@@ -171,7 +186,8 @@ export function yearTextFrom(detail: DetailBase, mediaType: MediaType) {
     return y && /^\d{4}$/.test(y) ? y : "";
   }
 
-  const d = cleanDate(detail.release_date);
+  // ✅ 영화: KR 극장 개봉일 우선
+  const d = cleanDate(detail.kr_release_date) || cleanDate(detail.release_date);
   const y = d ? Number(String(d).slice(0, 4)) : NaN;
   return Number.isFinite(y) ? String(y) : "";
 }
@@ -190,8 +206,18 @@ function daysBetween(a: Date, b: Date) {
 
 function normalizeRatingToAge(raw: string | undefined | null, adult?: boolean) {
   if (adult) return 19;
-  const r = (raw ?? "").trim().toUpperCase();
+
+  const origin = (raw ?? "").trim();
+  const r = origin.toUpperCase();
   if (!r) return 0;
+
+  // ✅ KR 텍스트 인증도 대응
+  const kr = origin.replace(/\s+/g, "");
+  if (kr.includes("전체")) return 0;
+  if (kr.includes("12")) return 12;
+  if (kr.includes("15")) return 15;
+  if (kr.includes("청소년") || kr.includes("관람불가") || kr.includes("제한"))
+    return 19;
 
   if (r === "ALL" || r === "0" || r === "G") return 0;
   if (r === "7" || r === "PG") return 7;
@@ -244,6 +270,130 @@ function backendProxyPath(path: string) {
 }
 
 /* =========================
+   ✅ KR(한국) 기준: 영화 개봉일/재개봉 판정
+   - /movie/{id}/release_dates 에서 KR만 보고 극장 타입(2,3)만 사용
+   - ✅ "비고(note)에 Re-release가 있으면" 무조건 재개봉으로 취급
+   - ✅ note가 없어도 날짜가 2개 이상 + 간격이 충분히 크면 재개봉
+========================= */
+
+const THEATRICAL_TYPES = new Set([2, 3]); // limited, theatrical
+const RERELEASE_GAP_DAYS = 120; // 같은 시기 limited→wide 오판 방지용
+
+export type KRReleaseMeta = {
+  krReleaseDate: string | null; // KR 최신 극장 개봉일
+  krFirstReleaseDate: string | null; // KR 첫 극장 개봉일
+  isRereleaseKR: boolean;
+};
+
+const _movieReleaseDatesRawCache = new Map<
+  number,
+  TmdbReleaseDatesResponse | null
+>();
+const _krReleaseMetaCache = new Map<number, KRReleaseMeta | null>();
+
+async function fetchMovieReleaseDatesRaw(
+  id: number
+): Promise<TmdbReleaseDatesResponse | null> {
+  if (_movieReleaseDatesRawCache.has(id)) {
+    return _movieReleaseDatesRawCache.get(id) ?? null;
+  }
+
+  let raw: TmdbReleaseDatesResponse | null = null;
+
+  if (DIRECT_FIRST) {
+    raw = await tmdbDirect<TmdbReleaseDatesResponse>(
+      `/movie/${id}/release_dates`
+    );
+  } else {
+    raw = await apiGetOrNull<TmdbReleaseDatesResponse>(
+      backendProxyPath(`movie/${id}/release_dates`)
+    );
+  }
+
+  _movieReleaseDatesRawCache.set(id, raw ?? null);
+  return raw ?? null;
+}
+
+function normalizeNote(v: unknown) {
+  return String(v ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function isRereleaseNote(v: unknown) {
+  const s = normalizeNote(v);
+  if (!s) return false;
+  // TMDB에서 "Re-release" 또는 극장 메모로 재개봉이 들어오는 케이스 대응
+  return (
+    s.includes("re-release") ||
+    s.includes("rerelease") ||
+    s.includes("re release") ||
+    s.includes("재개봉")
+  );
+}
+
+function pickKRTheatricalDates(raw: TmdbReleaseDatesResponse | null): string[] {
+  const row = (raw?.results ?? []).find((r) => r.iso_3166_1 === "KR");
+  const list = (row?.release_dates ?? [])
+    .filter((x) => !!x?.release_date && THEATRICAL_TYPES.has(x.type))
+    .map((x) => String(x.release_date).slice(0, 10))
+    .filter(Boolean)
+    .sort();
+
+  // 중복 제거
+  const uniq: string[] = [];
+  for (const d of list) {
+    if (!uniq.length || uniq[uniq.length - 1] !== d) uniq.push(d);
+  }
+  return uniq;
+}
+
+function hasKRReReleaseNote(raw: TmdbReleaseDatesResponse | null) {
+  const row = (raw?.results ?? []).find((r) => r.iso_3166_1 === "KR");
+  return (row?.release_dates ?? []).some(
+    (x) => THEATRICAL_TYPES.has(x.type) && isRereleaseNote(x.note)
+  );
+}
+
+function daysBetweenYMD(aYmd: string, bYmd: string) {
+  const a = new Date(aYmd + "T00:00:00Z").getTime();
+  const b = new Date(bYmd + "T00:00:00Z").getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.floor((b - a) / (1000 * 60 * 60 * 24));
+}
+
+export async function fetchMovieKRReleaseMeta(
+  id: number
+): Promise<KRReleaseMeta | null> {
+  if (_krReleaseMetaCache.has(id)) return _krReleaseMetaCache.get(id) ?? null;
+
+  const raw = await fetchMovieReleaseDatesRaw(id);
+  const dates = pickKRTheatricalDates(raw);
+
+  if (!dates.length) {
+    _krReleaseMetaCache.set(id, null);
+    return null;
+  }
+
+  const first = dates[0]!;
+  const latest = dates[dates.length - 1]!;
+  const gap = daysBetweenYMD(first, latest);
+
+  const meta: KRReleaseMeta = {
+    krReleaseDate: latest,
+    krFirstReleaseDate: first,
+    // ✅ 1) note가 재개봉이면 무조건 재개봉
+    // ✅ 2) note가 없으면 날짜 2개 이상 + 충분한 간격일 때 재개봉
+    isRereleaseKR:
+      hasKRReReleaseNote(raw) ||
+      (dates.length >= 2 && gap >= RERELEASE_GAP_DAYS),
+  };
+
+  _krReleaseMetaCache.set(id, meta);
+  return meta;
+}
+
+/* =========================
    Detail Safe Fetch
 ========================= */
 
@@ -251,29 +401,55 @@ export async function fetchDetailSafe(
   mediaType: MediaType,
   id: number
 ): Promise<DetailBase | null> {
+  let detail: DetailBase | null = null;
+
   if (DIRECT_FIRST) {
     const ko = await tmdbDirect<DetailBase>(`/${mediaType}/${id}`, {
       language: "ko-KR",
     });
-    if (ko?.id) return ko;
-
-    const en = await tmdbDirect<DetailBase>(`/${mediaType}/${id}`, {
-      language: "en-US",
-    });
-    return en?.id ? en : null;
+    if (ko?.id) detail = ko;
+    else {
+      const en = await tmdbDirect<DetailBase>(`/${mediaType}/${id}`, {
+        language: "en-US",
+      });
+      detail = en?.id ? en : null;
+    }
+  } else {
+    const r1 = await apiGetOrNull<DetailBase>(
+      backendProxyPath(`${mediaType}/${id}`),
+      { language: "ko-KR" }
+    );
+    if (r1?.id) detail = r1;
+    else {
+      const r2 = await apiGetOrNull<DetailBase>(
+        backendProxyPath(`${mediaType}/${id}`),
+        { language: "en-US" }
+      );
+      detail = r2?.id ? r2 : null;
+    }
   }
 
-  const r1 = await apiGetOrNull<DetailBase>(
-    backendProxyPath(`${mediaType}/${id}`),
-    { language: "ko-KR" }
-  );
-  if (r1?.id) return r1;
+  if (!detail?.id) return null;
 
-  const r2 = await apiGetOrNull<DetailBase>(
-    backendProxyPath(`${mediaType}/${id}`),
-    { language: "en-US" }
-  );
-  return r2?.id ? r2 : null;
+  // ✅ 영화: 개봉일/재개봉 여부를 "무조건 KR 극장 기준"으로 통일
+  if (mediaType === "movie") {
+    const global = cleanDate(detail.release_date);
+    if (global) detail.global_release_date = global;
+
+    const meta = await fetchMovieKRReleaseMeta(id);
+    if (meta?.krReleaseDate) {
+      detail.kr_release_date = meta.krReleaseDate;
+      detail.kr_first_release_date = meta.krFirstReleaseDate ?? undefined;
+      detail.is_rerelease_kr = meta.isRereleaseKR;
+
+      // 🔥 표시용 release_date 자체를 KR 최신 극장 개봉일로 덮어씀
+      detail.release_date = meta.krReleaseDate;
+    } else {
+      detail.is_rerelease_kr = false;
+    }
+  }
+
+  return detail;
 }
 
 /* =========================
@@ -360,37 +536,12 @@ export async function fetchAge(
   if (_ageCache.has(k)) return _ageCache.get(k)!;
 
   try {
+    // ✅ 등급도 "무조건 KR 기준"
     if (mediaType === "movie") {
-      if (DIRECT_FIRST) {
-        const json = await tmdbDirect<TmdbReleaseDatesResponse>(
-          `/movie/${id}/release_dates`
-        );
+      const raw = await fetchMovieReleaseDatesRaw(id);
 
-        const pick = (country: string) => {
-          const row = (json?.results ?? []).find(
-            (r) => r.iso_3166_1 === country
-          );
-          if (!row?.release_dates?.length) return "";
-          const sorted = [...row.release_dates].sort(
-            (a, b) => (a.type ?? 99) - (b.type ?? 99)
-          );
-          return (
-            sorted.find((x) => (x.certification ?? "").trim().length > 0)
-              ?.certification ?? ""
-          );
-        };
-
-        const cert = pick("KR") || pick("US") || pick("JP") || "";
-        const age = normalizeRatingToAge(cert, adult);
-        _ageCache.set(k, age);
-        return age;
-      }
-
-      const data = await apiGetOrNull<TmdbReleaseDatesResponse>(
-        backendProxyPath(`movie/${id}/release_dates`)
-      );
-      const pick = (country: string) => {
-        const row = (data?.results ?? []).find((r) => r.iso_3166_1 === country);
+      const pickKR = () => {
+        const row = (raw?.results ?? []).find((r) => r.iso_3166_1 === "KR");
         if (!row?.release_dates?.length) return "";
         const sorted = [...row.release_dates].sort(
           (a, b) => (a.type ?? 99) - (b.type ?? 99)
@@ -401,7 +552,7 @@ export async function fetchAge(
         );
       };
 
-      const cert = pick("KR") || pick("US") || pick("JP") || "";
+      const cert = pickKR() || "";
       const age = normalizeRatingToAge(cert, adult);
       _ageCache.set(k, age);
       return age;
@@ -411,10 +562,10 @@ export async function fetchAge(
       const tvJson = await tmdbDirect<TmdbTvContentRatingsResponse>(
         `/tv/${id}/content_ratings`
       );
-      const pickTv = (country: string) =>
-        (tvJson?.results ?? []).find((r) => r.iso_3166_1 === country)?.rating ??
+      const pickTvKR = () =>
+        (tvJson?.results ?? []).find((r) => r.iso_3166_1 === "KR")?.rating ??
         "";
-      const rating = pickTv("KR") || pickTv("US") || pickTv("JP") || "";
+      const rating = pickTvKR() || "";
       const age = normalizeRatingToAge(rating, adult);
       _ageCache.set(k, age);
       return age;
@@ -423,10 +574,9 @@ export async function fetchAge(
     const tvData = await apiGetOrNull<TmdbTvContentRatingsResponse>(
       backendProxyPath(`tv/${id}/content_ratings`)
     );
-    const pickTv = (country: string) =>
-      (tvData?.results ?? []).find((r) => r.iso_3166_1 === country)?.rating ??
-      "";
-    const rating = pickTv("KR") || pickTv("US") || pickTv("JP") || "";
+    const pickTvKR = () =>
+      (tvData?.results ?? []).find((r) => r.iso_3166_1 === "KR")?.rating ?? "";
+    const rating = pickTvKR() || "";
     const age = normalizeRatingToAge(rating, adult);
     _ageCache.set(k, age);
     return age;
@@ -611,15 +761,26 @@ export function computeTheatricalChip(
   if (isOttLike) return null;
   if (mediaType !== "movie") return null;
 
-  const rd = toDateOnly(detail.release_date);
+  // ✅ KR 최신 극장 개봉일 기준으로만 판단
+  const rd = toDateOnly(detail.kr_release_date || detail.release_date);
   if (!rd) return null;
 
   const today = new Date();
   const diff = daysBetween(today, rd);
 
-  if (diff < 0) return { label: "상영 예정", tone: "dark" as const };
-  if (diff >= 0 && diff <= 45)
-    return { label: "상영중", tone: "dark" as const };
+  // ✅ 재개봉은 "상영중" 대신 "재개봉"으로 보여주기
+  const isRerelease = !!detail.is_rerelease_kr;
+
+  if (diff < 0) {
+    return {
+      label: isRerelease ? "재개봉 예정" : "상영 예정",
+      tone: "dark" as const,
+    };
+  }
+
+  if (diff >= 0 && diff <= 45) {
+    return { label: isRerelease ? "재개봉" : "상영중", tone: "dark" as const };
+  }
 
   return null;
 }

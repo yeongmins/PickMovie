@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import { motion } from "framer-motion";
 
+import { apiGet } from "../../lib/apiClient";
 import {
   detectOriginalProvider,
   fetchAge,
@@ -31,6 +32,141 @@ import {
   type ReleaseStatusKind,
   type ScreeningSets,
 } from "../../lib/contentMeta";
+
+/* =========================
+   ✅ 재개봉 판정(중요)
+   - 기간 기준 제거
+   - KR 극장 개봉일(2/3 type) 2개 이상이면 무조건 재개봉
+========================= */
+
+type TmdbReleaseDateItem = {
+  release_date?: string;
+  type?: number;
+};
+
+type TmdbReleaseDatesResult = {
+  iso_3166_1?: string;
+  release_dates?: TmdbReleaseDateItem[];
+};
+
+type TmdbReleaseDatesResponse = {
+  results?: TmdbReleaseDatesResult[];
+};
+
+export type MovieRerunInfo = {
+  hasMultipleTheatrical: boolean;
+  originalTheatricalDate: string; // YYYY-MM-DD
+  rerunTheatricalDate: string; // YYYY-MM-DD
+};
+
+const _detailRerunCache = new Map<string, MovieRerunInfo>();
+const _detailRerunInFlight = new Map<string, Promise<MovieRerunInfo>>();
+
+function toYmd(v: unknown): string {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function extractTheatricalDates(
+  res: TmdbReleaseDatesResponse | null,
+  region: string
+): string[] {
+  const list = Array.isArray(res?.results) ? res!.results! : [];
+  const bucket =
+    list.find(
+      (x) => String(x?.iso_3166_1 || "").toUpperCase() === region.toUpperCase()
+    ) ?? null;
+
+  const dates = Array.isArray(bucket?.release_dates)
+    ? bucket!.release_dates!
+    : [];
+
+  const theatrical = dates
+    .filter((d) => {
+      const t = Number(d?.type);
+      return t === 2 || t === 3;
+    })
+    .map((d) => toYmd(d?.release_date))
+    .filter(Boolean);
+
+  const uniq = Array.from(new Set(theatrical));
+  uniq.sort((a, b) => a.localeCompare(b));
+  return uniq;
+}
+
+function diffFullMonths(fromYmd?: string, toYmd?: string): number {
+  const a = new Date(String(fromYmd || "").slice(0, 10));
+  const b = new Date(String(toYmd || "").slice(0, 10));
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
+
+  let months =
+    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
+function isRerunGapQualified(
+  info: {
+    hasMultipleTheatrical: boolean;
+    originalTheatricalDate: string;
+    rerunTheatricalDate: string;
+  },
+  minMonths: number
+) {
+  if (!info?.hasMultipleTheatrical) return false;
+  const m = diffFullMonths(
+    info.originalTheatricalDate,
+    info.rerunTheatricalDate
+  );
+  return m >= minMonths;
+}
+
+async function loadMovieRerunInfoNoThreshold(
+  id: number,
+  region: string
+): Promise<MovieRerunInfo> {
+  const key = `${id}:${region.toUpperCase()}`;
+  const cached = _detailRerunCache.get(key);
+  if (cached) return cached;
+
+  const inflight = _detailRerunInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    try {
+      const res = await apiGet<TmdbReleaseDatesResponse>(
+        `/tmdb/proxy/movie/${id}/release_dates`
+      );
+      const theatricalDates = extractTheatricalDates(res, region);
+
+      const info: MovieRerunInfo = {
+        hasMultipleTheatrical: theatricalDates.length >= 2,
+        originalTheatricalDate: theatricalDates[0] ?? "",
+        rerunTheatricalDate:
+          theatricalDates.length >= 2
+            ? theatricalDates[theatricalDates.length - 1] ?? ""
+            : "",
+      };
+
+      _detailRerunCache.set(key, info);
+      return info;
+    } catch {
+      const info: MovieRerunInfo = {
+        hasMultipleTheatrical: false,
+        originalTheatricalDate: "",
+        rerunTheatricalDate: "",
+      };
+      _detailRerunCache.set(key, info);
+      return info;
+    } finally {
+      _detailRerunInFlight.delete(key);
+    }
+  })();
+
+  _detailRerunInFlight.set(key, p);
+  return p;
+}
 
 function locationToPath(loc: any): string | null {
   if (!loc) return null;
@@ -90,6 +226,37 @@ export default function ContentDetailModal({
     if (mediaType !== "movie" || !Number.isFinite(id) || id <= 0) return false;
     return peekOttOnlyMovie(id, "KR") ?? false;
   });
+
+  // ✅ rerun info
+  const [rerunInfo, setRerunInfo] = useState<MovieRerunInfo>(() => ({
+    hasMultipleTheatrical: false,
+    originalTheatricalDate: "",
+    rerunTheatricalDate: "",
+  }));
+
+  useEffect(() => {
+    let mounted = true;
+
+    setRerunInfo({
+      hasMultipleTheatrical: false,
+      originalTheatricalDate: "",
+      rerunTheatricalDate: "",
+    });
+
+    if (mediaType !== "movie" || !Number.isFinite(id) || id <= 0) {
+      return () => void (mounted = false);
+    }
+
+    void (async () => {
+      const info = await loadMovieRerunInfoNoThreshold(id, "KR");
+      if (!mounted) return;
+      setRerunInfo(info);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [mediaType, id]);
 
   // body scroll lock
   useEffect(() => {
@@ -195,10 +362,11 @@ export default function ContentDetailModal({
     };
   }, [mediaType, id]);
 
-  // ✅ OTT-only 판단(공유 캐시) : 상영중/재개봉 후보일 때만 체크
+  // ✅ statusKind(기본) + ✅ “2회 이상 극장 개봉이면 rerun”
   const statusKind: ReleaseStatusKind | null = useMemo(() => {
     if (!detail) return null;
-    return getReleaseStatusKind({
+
+    const base = getReleaseStatusKind({
       mediaType,
       id: detail.id,
       releaseDate: (detail as any)?.release_date,
@@ -206,8 +374,25 @@ export default function ContentDetailModal({
       sets: screening,
       ottOnly: heroOttOnly,
     });
-  }, [detail, mediaType, screening, heroOttOnly]);
 
+    if (
+      mediaType === "movie" &&
+      rerunInfo.hasMultipleTheatrical &&
+      (base === "now" || base === "upcoming")
+    ) {
+      return "rerun";
+    }
+
+    return base;
+  }, [
+    detail,
+    mediaType,
+    screening,
+    heroOttOnly,
+    rerunInfo.hasMultipleTheatrical,
+  ]);
+
+  // ✅ OTT-only 판단(공유 캐시) : 상영중/재개봉 후보일 때만 체크
   useEffect(() => {
     let mounted = true;
 
@@ -254,11 +439,33 @@ export default function ContentDetailModal({
     return mediaType === "tv" ? "TV" : "Movie";
   }, [detail, mediaType]);
 
-  // ✅ 출시년도 통일(상세: TV는 최신 시즌 연도 우선)
+  // ✅ 출시년도(중요)
+  // - 재개봉이어도 “최초 출시년도” 유지
   const yearText = useMemo(() => {
     if (!detail) return "";
+
+    // ✅ 재개봉이면 "원개봉" 기준 연도 우선
+    if (mediaType === "movie" && statusKind === "rerun") {
+      const src =
+        rerunInfo.originalTheatricalDate ||
+        (detail as any)?.kr_first_release_date ||
+        (detail as any)?.global_release_date ||
+        "";
+
+      const y = String(src).trim().slice(0, 4);
+      if (/^\d{4}$/.test(y)) return y;
+
+      // fallback
+      return getUnifiedYearFromDetail(detail as any, mediaType);
+    }
+
     return getUnifiedYearFromDetail(detail as any, mediaType);
-  }, [detail, mediaType]);
+  }, [
+    detail,
+    mediaType,
+    statusKind,
+    rerunInfo.originalTheatricalDate, // ✅ 의존성 추가
+  ]);
 
   // ✅ ORIGINAL만 유지
   const providerOriginal: ProviderItem | null = useMemo(() => {
@@ -359,6 +566,8 @@ export default function ContentDetailModal({
             detail={detail}
             mediaType={mediaType}
             providersKR={providersKR}
+            statusKindOverride={statusKind}
+            rerunInfo={rerunInfo}
           />
         </div>
       </motion.div>

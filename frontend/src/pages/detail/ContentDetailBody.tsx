@@ -6,7 +6,9 @@ import type {
   ProviderItem,
   WatchProviderRegion,
 } from "./contentDetail.data";
+import type { ReleaseStatusKind } from "../../lib/contentMeta";
 import { DetailSections } from "../../components/detail/DetailSections";
+import type { MovieRerunInfo } from "./ContentDetailModal";
 
 function mergeProvidersToFlatrateOnly(
   providersKR: WatchProviderRegion | null
@@ -44,11 +46,15 @@ export function ContentDetailBody({
   detail,
   mediaType,
   providersKR,
+  statusKindOverride,
+  rerunInfo,
 }: {
   loading: boolean;
   detail: DetailBase | null;
   mediaType: MediaType;
   providersKR: WatchProviderRegion | null;
+  statusKindOverride?: ReleaseStatusKind | null;
+  rerunInfo?: MovieRerunInfo | null;
 }) {
   const providersForDisplay = useMemo(
     () => mergeProvidersToFlatrateOnly(providersKR),
@@ -66,6 +72,8 @@ export function ContentDetailBody({
           detail={detail}
           mediaType={mediaType}
           providersKR={providersForDisplay}
+          statusKindOverride={statusKindOverride ?? null}
+          rerunInfo={rerunInfo ?? null}
         />
       ) : (
         <div className="py-10 text-white/70">

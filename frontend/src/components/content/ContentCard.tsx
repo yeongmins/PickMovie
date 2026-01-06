@@ -1,5 +1,4 @@
 // frontend/src/components/content/ContentCard.tsx
-
 import React, { useMemo } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
@@ -16,6 +15,7 @@ import {
 } from "./contentCard.utils";
 import { useContentCardMeta } from "./contentCard.meta";
 import {
+  useMovieRerunInfo,
   useOttOnlyState,
   useScreeningSetsState,
   useSyncOttOnly,
@@ -30,6 +30,42 @@ export type {
   ContentCardItem,
   ContentCardProps,
 } from "./contentCard.types";
+
+function yearFromYmd(ymd?: string | null): string | null {
+  const raw = String(ymd || "").trim();
+  if (raw.length < 4) return null;
+  const y = Number(raw.slice(0, 4));
+  if (!Number.isFinite(y) || y <= 0) return null;
+  return String(y);
+}
+
+function diffFullMonths(fromYmd?: string, toYmd?: string): number {
+  const a = new Date(String(fromYmd || "").slice(0, 10));
+  const b = new Date(String(toYmd || "").slice(0, 10));
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
+
+  let months =
+    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  // "4개월 이상"을 '만 4개월'로 보려면 날짜가 덜 지났을 때 1개월 깎기
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
+function isRerunGapQualified(
+  info: {
+    hasMultipleTheatrical: boolean;
+    originalTheatricalDate: string;
+    rerunTheatricalDate: string;
+  },
+  minMonths: number
+) {
+  if (!info?.hasMultipleTheatrical) return false;
+  const m = diffFullMonths(
+    info.originalTheatricalDate,
+    info.rerunTheatricalDate
+  );
+  return m >= minMonths;
+}
 
 export function ContentCard({
   item,
@@ -80,7 +116,8 @@ export function ContentCard({
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
 
-  const statusKind = useMemo(() => {
+  // ✅ 1) 기본 statusKind
+  const baseStatusKind = useMemo(() => {
     return getReleaseStatusKind({
       mediaType,
       id: item.id,
@@ -98,6 +135,36 @@ export function ContentCard({
     ottOnly,
   ]);
 
+  // ✅ 2) “개봉 2회 이상”이면 기간 상관없이 rerun으로 판단
+  const rerunInfo = useMovieRerunInfo({
+    mediaType,
+    id: item.id,
+    enabled:
+      mediaType === "movie" &&
+      (baseStatusKind === "now" || baseStatusKind === "upcoming"),
+    region: "KR",
+  });
+
+  const statusKind = useMemo(() => {
+    if (!baseStatusKind) return null;
+
+    if (
+      mediaType === "movie" &&
+      isRerunGapQualified(rerunInfo, 4) &&
+      (baseStatusKind === "now" || baseStatusKind === "upcoming")
+    ) {
+      return "rerun" as const;
+    }
+
+    return baseStatusKind;
+  }, [
+    baseStatusKind,
+    mediaType,
+    rerunInfo.hasMultipleTheatrical,
+    rerunInfo.originalTheatricalDate,
+    rerunInfo.rerunTheatricalDate,
+  ]);
+
   useSyncOttOnly({
     mediaType,
     id: item.id,
@@ -105,14 +172,35 @@ export function ContentCard({
     setOttOnly,
   });
 
-  // ✅ YEAR: 단일 소스(contentMeta)만 사용
-  const effectiveYear = useUnifiedYearLabelFromItem({
+  // ✅ YEAR(중요)
+  // - 재개봉 영화는 “최초 출시년도”를 보여줘야 함
+  const unifiedYear = useUnifiedYearLabelFromItem({
     item,
     mediaType,
     tvLatest,
     statusKind: statusKind ?? null,
     region: "KR",
   });
+
+  const effectiveYear = useMemo(() => {
+    if (mediaType !== "movie") return unifiedYear;
+
+    if (statusKind === "rerun") {
+      const y =
+        yearFromYmd(rerunInfo.originalTheatricalDate) ??
+        yearFromYmd(item.release_date ?? null);
+
+      return y ?? unifiedYear;
+    }
+
+    return unifiedYear;
+  }, [
+    mediaType,
+    statusKind,
+    rerunInfo.originalTheatricalDate,
+    item.release_date,
+    unifiedYear,
+  ]);
 
   const providerLogos = providers
     .map((p) => {
@@ -136,7 +224,7 @@ export function ContentCard({
 
   const effectivePosterPath =
     mediaType === "tv"
-      ? (tvLatest as any)?.posterPath ?? item.poster_path
+      ? tvLatest?.posterPath ?? item.poster_path
       : item.poster_path;
 
   const posterUrl = getPosterUrl(effectivePosterPath, "w500");
