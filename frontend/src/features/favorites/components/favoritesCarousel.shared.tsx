@@ -17,6 +17,7 @@ import {
   type ScreeningSets,
   type TvLatestPayload,
 } from "../../../lib/contentMeta";
+import { AGE_BADGE_SRC, type AgeKey } from "../../../assets/ages";
 
 export type MediaType = "movie" | "tv";
 
@@ -163,38 +164,36 @@ export function normalizeAge(age?: string) {
   return "18";
 }
 
-function ageBadgeClass(v: string) {
-  switch (v) {
-    case "ALL":
-      return "bg-green-500";
-    case "12":
-      return "bg-yellow-400";
-    case "15":
-      return "bg-orange-500";
-    case "18":
-      return "bg-red-600";
-    default:
-      return "bg-black/60";
-  }
-}
-
 export function AgeBadge({ value }: { value: string }) {
   const v = normalizeAge(value);
   if (!v || v === "—") return null;
 
+  const key: AgeKey | null =
+    v === "ALL" || v === "12" || v === "15" || v === "18"
+      ? (v as AgeKey)
+      : null;
+
+  if (!key) return null;
+
   return (
     <div
       className={[
-        "w-[24px] h-[24px] rounded-[5px]",
-        "flex items-center justify-center",
-        "text-white font-extrabold",
+        "w-[24px] h-[24px] rounded-[4px]",
+        "overflow-hidden",
         "shadow-sm",
-        ageBadgeClass(v),
+        "bg-black/40",
+        "flex items-center justify-center",
       ].join(" ")}
       aria-label={`연령등급 ${v}`}
       title={`연령등급 ${v}`}
     >
-      <span className={v === "ALL" ? "text-[10px]" : "text-[13px]"}>{v}</span>
+      <img
+        src={AGE_BADGE_SRC[key]}
+        alt={`연령등급 ${v}`}
+        className="w-full h-full object-contain"
+        loading="lazy"
+        decoding="async"
+      />
     </div>
   );
 }

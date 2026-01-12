@@ -13,6 +13,7 @@ import {
   fetchTrailerKey,
   isAnime,
   normalizeMediaType,
+  yearTextFrom,
   type DetailBase,
   type MediaType,
   type ProviderItem,
@@ -33,10 +34,11 @@ import {
   type ScreeningSets,
 } from "../../lib/contentMeta";
 
+import { DetailFavoritesProvider } from "./detailFavorites.context";
+import { fetchTVSeasonDetail, type TmdbTvSeasonDetail } from "../../lib/tmdb";
+
 /* =========================
    ✅ 재개봉 판정(중요)
-   - 기간 기준 제거
-   - KR 극장 개봉일(2/3 type) 2개 이상이면 무조건 재개봉
 ========================= */
 
 type TmdbReleaseDateItem = {
@@ -95,33 +97,6 @@ function extractTheatricalDates(
   return uniq;
 }
 
-function diffFullMonths(fromYmd?: string, toYmd?: string): number {
-  const a = new Date(String(fromYmd || "").slice(0, 10));
-  const b = new Date(String(toYmd || "").slice(0, 10));
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
-
-  let months =
-    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() < a.getDate()) months -= 1;
-  return months;
-}
-
-function isRerunGapQualified(
-  info: {
-    hasMultipleTheatrical: boolean;
-    originalTheatricalDate: string;
-    rerunTheatricalDate: string;
-  },
-  minMonths: number
-) {
-  if (!info?.hasMultipleTheatrical) return false;
-  const m = diffFullMonths(
-    info.originalTheatricalDate,
-    info.rerunTheatricalDate
-  );
-  return m >= minMonths;
-}
-
 async function loadMovieRerunInfoNoThreshold(
   id: number,
   region: string
@@ -177,7 +152,48 @@ function locationToPath(loc: any): string | null {
   return `${p}${s}${h}`;
 }
 
+function getSeasonNoFromSearch(search: string): number {
+  try {
+    const sp = new URLSearchParams(search);
+    const raw = sp.get("season");
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    const v = Math.floor(n);
+    return v > 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
 type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
+
+// ✅ SeriesSeasonCards에서 전달하는 seed
+type SeasonNavContext = {
+  seasonNo: number;
+  name?: string;
+  poster_path?: string | null;
+  air_date?: string | null;
+  overview?: string | null;
+  vote_average?: number | null;
+};
+
+function seasonSeedFromState(
+  st: any,
+  seasonNo: number
+): TmdbTvSeasonDetail | null {
+  const ctx = (st as any)?.seasonContext as SeasonNavContext | undefined;
+  if (!ctx) return null;
+  if (Number(ctx.seasonNo) !== Number(seasonNo)) return null;
+
+  // 타입은 lib/tmdb에 있지만 여기서 쓰는 필드만 seed로 넣고 캐스팅
+  return {
+    name: ctx.name ?? undefined,
+    poster_path: ctx.poster_path ?? null,
+    air_date: ctx.air_date ?? null,
+    overview: ctx.overview ?? "",
+    vote_average: typeof ctx.vote_average === "number" ? ctx.vote_average : 0,
+  } as any;
+}
 
 export default function ContentDetailModal({
   favorites,
@@ -195,7 +211,12 @@ export default function ContentDetailModal({
   const mediaType = normalizeMediaType(params.mediaType) as MediaType;
   const id = Number(params.id);
 
-  // ✅ “상세 → 배우 → 상세 …” 어떤 경로든 X 누르면 한 번에 모달 탈출
+  // ✅ season query
+  const seasonNo = useMemo(
+    () => (mediaType === "tv" ? getSeasonNoFromSearch(location.search) : 0),
+    [mediaType, location.search]
+  );
+
   const closeTargetPath = useMemo(() => {
     const st = location.state as any;
     const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
@@ -218,7 +239,6 @@ export default function ContentDetailModal({
   const closingRef = useRef(false);
   const [closing, setClosing] = useState(false);
 
-  // ✅ 상영중/상영예정/재개봉 통일용
   const [screening, setScreening] = useState<ScreeningSets | null>(() =>
     peekScreeningSets()
   );
@@ -227,12 +247,32 @@ export default function ContentDetailModal({
     return peekOttOnlyMovie(id, "KR") ?? false;
   });
 
-  // ✅ rerun info
   const [rerunInfo, setRerunInfo] = useState<MovieRerunInfo>(() => ({
     hasMultipleTheatrical: false,
     originalTheatricalDate: "",
     rerunTheatricalDate: "",
   }));
+
+  // ✅ 시즌 상세 (TV)
+  const [seasonDetail, setSeasonDetail] = useState<TmdbTvSeasonDetail | null>(
+    null
+  );
+
+  // ✅ 모달 스크롤 컨테이너 ref (시즌 이동 시 히어로로 올라가기)
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ 시즌/컨텐츠가 바뀌면 위로 올리고(빠르게), 트레일러도 닫기
+  useEffect(() => {
+    setTrailerOpen(false);
+    setTrailerMuted(false);
+
+    const el = scrollerRef.current;
+    if (el) {
+      el.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [mediaType, id, seasonNo]);
 
   useEffect(() => {
     let mounted = true;
@@ -258,7 +298,6 @@ export default function ContentDetailModal({
     };
   }, [mediaType, id]);
 
-  // body scroll lock
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -267,7 +306,6 @@ export default function ContentDetailModal({
     };
   }, []);
 
-  // ✅ ScreeningSets 로드(공유 캐시)
   useEffect(() => {
     let mounted = true;
     loadScreeningSets()
@@ -292,7 +330,6 @@ export default function ContentDetailModal({
     setClosing(true);
   }, []);
 
-  // ✅ ESC: 예고편 열려있으면 예고편 먼저 닫기 -> (추가 ESC) 모달 닫기
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -308,7 +345,7 @@ export default function ContentDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [requestClose, trailerOpen]);
 
-  // ✅ 상세 데이터 로딩
+  // ✅ base detail 로딩 (id/mediaType 기준)
   useEffect(() => {
     let alive = true;
 
@@ -362,15 +399,67 @@ export default function ContentDetailModal({
     };
   }, [mediaType, id]);
 
-  // ✅ statusKind(기본) + ✅ “2회 이상 극장 개봉이면 rerun”
-  const statusKind: ReleaseStatusKind | null = useMemo(() => {
+  // ✅ season query가 바뀌면 시즌 상세 로딩
+  useEffect(() => {
+    let alive = true;
+
+    // ✅ 클릭 직후에도 포스터/연도 등이 바로 바뀌도록 seed 먼저 주입
+    const seed = seasonSeedFromState(location.state, seasonNo);
+
+    setSeasonDetail(seed ?? null);
+
+    if (mediaType !== "tv") return () => void (alive = false);
+    if (!Number.isFinite(id) || id <= 0) return () => void (alive = false);
+    if (!seasonNo) return () => void (alive = false);
+
+    void (async () => {
+      const s = await fetchTVSeasonDetail(id, seasonNo, { language: "ko-KR" });
+      if (!alive) return;
+      // ✅ fetch 실패(null)면 seed 유지
+      if (s) setSeasonDetail(s);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [mediaType, id, seasonNo, location.state]);
+
+  // ✅ 시즌이 선택되면 "렌더용 detail"을 시즌 값으로 덮어씌움 (디자인/컴포넌트 변경 없이)
+  const renderDetail: DetailBase | null = useMemo(() => {
     if (!detail) return null;
+    if (mediaType !== "tv" || !seasonNo || !seasonDetail) return detail;
+
+    const seasonOverview = String((seasonDetail as any)?.overview ?? "").trim();
+
+    return {
+      ...detail,
+      // ✅ 시즌 포스터/시즌 개요/시즌 첫방일/시즌 평점 우선
+      poster_path: seasonDetail.poster_path ?? detail.poster_path ?? null,
+      overview: seasonOverview || detail.overview,
+      vote_average:
+        typeof (seasonDetail as any).vote_average === "number"
+          ? (seasonDetail as any).vote_average
+          : detail.vote_average,
+
+      // ✅ 히어로에서 시즌 배지/분기용
+      __seasonNo: seasonNo,
+      __seasonName: (seasonDetail as any).name ?? undefined,
+    } as any;
+  }, [detail, mediaType, seasonNo, seasonDetail]);
+
+  // ✅ 시즌 로딩 중이면 바디도 loading으로 (스켈레톤/로딩 UI는 기존 컴포넌트가 알아서)
+  const seasonLoading = useMemo(() => {
+    return mediaType === "tv" && seasonNo > 0 && seasonDetail === null;
+  }, [mediaType, seasonNo, seasonDetail]);
+
+  const statusKind: ReleaseStatusKind | null = useMemo(() => {
+    if (!renderDetail) return null;
 
     const base = getReleaseStatusKind({
       mediaType,
-      id: detail.id,
-      releaseDate: (detail as any)?.release_date,
-      firstAirDate: (detail as any)?.first_air_date,
+      id: renderDetail.id,
+      releaseDate: (renderDetail as any)?.release_date,
+      firstAirDate: (renderDetail as any)?.first_air_date,
       sets: screening,
       ottOnly: heroOttOnly,
     });
@@ -385,18 +474,17 @@ export default function ContentDetailModal({
 
     return base;
   }, [
-    detail,
+    renderDetail,
     mediaType,
     screening,
     heroOttOnly,
     rerunInfo.hasMultipleTheatrical,
   ]);
 
-  // ✅ OTT-only 판단(공유 캐시) : 상영중/재개봉 후보일 때만 체크
   useEffect(() => {
     let mounted = true;
 
-    if (mediaType !== "movie" || !detail?.id) {
+    if (mediaType !== "movie" || !renderDetail?.id) {
       setHeroOttOnly(false);
       return () => void (mounted = false);
     }
@@ -406,13 +494,13 @@ export default function ContentDetailModal({
       return () => void (mounted = false);
     }
 
-    const cached = peekOttOnlyMovie(detail.id, "KR");
+    const cached = peekOttOnlyMovie(renderDetail.id, "KR");
     if (typeof cached === "boolean") {
       setHeroOttOnly(cached);
       return () => void (mounted = false);
     }
 
-    isOttOnlyMovie(detail.id, "KR").then((v) => {
+    isOttOnlyMovie(renderDetail.id, "KR").then((v) => {
       if (!mounted) return;
       setHeroOttOnly(v);
     });
@@ -420,7 +508,7 @@ export default function ContentDetailModal({
     return () => {
       mounted = false;
     };
-  }, [mediaType, detail?.id, statusKind]);
+  }, [mediaType, renderDetail?.id, statusKind]);
 
   const isFavorite = useMemo(() => {
     return favorites.some((f) => f?.id === id && f?.mediaType === mediaType);
@@ -434,48 +522,58 @@ export default function ContentDetailModal({
   );
 
   const typeText = useMemo(() => {
-    if (!detail) return mediaType === "tv" ? "TV" : "Movie";
-    if (isAnime(detail.genres)) return "Ani";
+    if (!renderDetail) return mediaType === "tv" ? "TV" : "Movie";
+    if (isAnime(renderDetail.genres)) return "Ani";
     return mediaType === "tv" ? "TV" : "Movie";
-  }, [detail, mediaType]);
+  }, [renderDetail, mediaType]);
 
-  // ✅ 출시년도(중요)
-  // - 재개봉이어도 “최초 출시년도” 유지
   const yearText = useMemo(() => {
-    if (!detail) return "";
+    if (!renderDetail) return "";
 
-    // ✅ 재개봉이면 "원개봉" 기준 연도 우선
+    // ✅ TV: 시즌 선택이면 해당 시즌 air_date 우선
+    if (mediaType === "tv" && seasonNo && (seasonDetail as any)?.air_date) {
+      const y = String((seasonDetail as any).air_date)
+        .trim()
+        .slice(0, 4);
+      if (/^\d{4}$/.test(y)) return y;
+    }
+
+    // ✅ TV: 시즌 미선택(처음 진입)일 때는 "최신 시즌 기준 연도"
+    if (mediaType === "tv") {
+      const y = yearTextFrom(renderDetail as any, "tv");
+      if (y) return y;
+    }
+
     if (mediaType === "movie" && statusKind === "rerun") {
       const src =
         rerunInfo.originalTheatricalDate ||
-        (detail as any)?.kr_first_release_date ||
-        (detail as any)?.global_release_date ||
+        (renderDetail as any)?.kr_first_release_date ||
+        (renderDetail as any)?.global_release_date ||
         "";
 
       const y = String(src).trim().slice(0, 4);
       if (/^\d{4}$/.test(y)) return y;
 
-      // fallback
-      return getUnifiedYearFromDetail(detail as any, mediaType);
+      return getUnifiedYearFromDetail(renderDetail as any, mediaType);
     }
 
-    return getUnifiedYearFromDetail(detail as any, mediaType);
+    return getUnifiedYearFromDetail(renderDetail as any, mediaType);
   }, [
-    detail,
+    renderDetail,
     mediaType,
     statusKind,
-    rerunInfo.originalTheatricalDate, // ✅ 의존성 추가
+    rerunInfo.originalTheatricalDate,
+    seasonNo,
+    (seasonDetail as any)?.air_date,
   ]);
 
-  // ✅ ORIGINAL만 유지
   const providerOriginal: ProviderItem | null = useMemo(() => {
-    if (!detail) return null;
-    return detectOriginalProvider(detail, providersKR);
-  }, [detail, providersKR]);
+    if (!renderDetail) return null;
+    return detectOriginalProvider(renderDetail, providersKR);
+  }, [renderDetail, providersKR]);
 
-  // ✅ 상영중/상영예정/재개봉 통일 라벨(상세 히어로 Chip에 그대로 넣음)
   const theatricalChip = useMemo(() => {
-    if (!detail) return null;
+    if (!renderDetail) return null;
     if (!statusKind) return null;
 
     const label =
@@ -486,7 +584,11 @@ export default function ContentDetailModal({
         : "재개봉";
 
     return { label, tone: "dark" as const };
-  }, [detail, statusKind]);
+  }, [renderDetail, statusKind]);
+
+  // ✅ 바디는 시즌별 갱신, 히어로(로고 포함)는 컨텐츠 단위로만 유지
+  const renderKey = `${mediaType}:${id}:${seasonNo || 0}`; // Body용(시즌별)
+  const heroKey = `${mediaType}:${id}`; // Hero용(시즌 바뀌어도 유지)
 
   return (
     <div className="fixed inset-0 z-[999]">
@@ -530,45 +632,56 @@ export default function ContentDetailModal({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="h-full overflow-y-auto overscroll-contain">
-          {detail ? (
-            <ContentDetailHero
-              detail={detail}
-              mediaType={mediaType}
-              providerOriginal={providerOriginal}
-              theatricalChip={theatricalChip}
-              typeText={typeText}
-              yearText={yearText}
-              ageValue={ageValue}
-              trailerKey={trailerKey}
-              trailerOpen={trailerOpen}
-              trailerMuted={trailerMuted}
-              setTrailerOpen={setTrailerOpen}
-              setTrailerMuted={setTrailerMuted}
-              isAuthed={isAuthed}
-              isFavorite={isFavorite}
-              onToggleFavorite={handleToggleFavorite}
-            />
-          ) : (
-            <div
-              className="relative w-full overflow-hidden"
-              style={{ height: "clamp(420px, 62vh, 680px)" }}
-            >
-              <div className="absolute inset-0 bg-black" />
-              <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-transparent" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0b0b10] via-black/15 to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#0b0b10] via-[#0b0b10]/70 to-transparent" />
-            </div>
-          )}
+        <div
+          ref={scrollerRef}
+          className="h-full overflow-y-auto overscroll-contain"
+        >
+          <DetailFavoritesProvider
+            favorites={favorites}
+            isAuthed={isAuthed}
+            onToggleFavorite={onToggleFavorite}
+          >
+            {renderDetail ? (
+              <ContentDetailHero
+                key={`hero:${heroKey}`}
+                detail={renderDetail}
+                mediaType={mediaType}
+                providerOriginal={providerOriginal}
+                theatricalChip={theatricalChip}
+                typeText={typeText}
+                yearText={yearText}
+                ageValue={ageValue}
+                trailerKey={trailerKey}
+                trailerOpen={trailerOpen}
+                trailerMuted={trailerMuted}
+                setTrailerOpen={setTrailerOpen}
+                setTrailerMuted={setTrailerMuted}
+                isAuthed={isAuthed}
+                isFavorite={isFavorite}
+                onToggleFavorite={handleToggleFavorite}
+              />
+            ) : (
+              <div
+                className="relative w-full overflow-hidden"
+                style={{ height: "clamp(420px, 62vh, 680px)" }}
+              >
+                <div className="absolute inset-0 bg-black" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/30 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0b0b10] via-black/15 to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-[#0b0b10] via-[#0b0b10]/70 to-transparent" />
+              </div>
+            )}
 
-          <ContentDetailBody
-            loading={loading}
-            detail={detail}
-            mediaType={mediaType}
-            providersKR={providersKR}
-            statusKindOverride={statusKind}
-            rerunInfo={rerunInfo}
-          />
+            <ContentDetailBody
+              key={`body:${renderKey}`}
+              loading={loading || seasonLoading}
+              detail={renderDetail}
+              mediaType={mediaType}
+              providersKR={providersKR}
+              statusKindOverride={statusKind}
+              rerunInfo={rerunInfo}
+            />
+          </DetailFavoritesProvider>
         </div>
       </motion.div>
 

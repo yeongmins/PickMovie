@@ -1,41 +1,40 @@
 // frontend/src/components/content/contentCard.ui.tsx
-
 import React from "react";
 import { normalizeAge } from "./contentCard.utils";
 import { logoUrl } from "./contentCard.meta";
+import { AGE_BADGE_SRC, type AgeKey } from "../../assets/ages";
 
-function ageBadgeClass(v: string) {
-  switch (v) {
-    case "ALL":
-      return "bg-green-500";
-    case "12":
-      return "bg-yellow-400";
-    case "15":
-      return "bg-orange-500";
-    case "18":
-      return "bg-red-600";
-    default:
-      return "bg-black/60";
-  }
+function toAgeKey(v: string): AgeKey | null {
+  if (v === "ALL" || v === "12" || v === "15" || v === "18") return v;
+  return null;
 }
 
 export function AgeBadge({ value }: { value: string }) {
   const v = normalizeAge(value);
   if (!v || v === "—") return null;
 
+  const key = toAgeKey(v);
+  if (!key) return null;
+
   return (
     <div
       className={[
         "w-[22px] h-[22px] rounded-[4px]",
-        "flex items-center justify-center",
-        "text-white font-extrabold",
+        "overflow-hidden",
         "shadow-sm",
-        ageBadgeClass(v),
+        "bg-black/40",
+        "flex items-center justify-center",
       ].join(" ")}
       aria-label={`연령등급 ${v}`}
       title={`연령등급 ${v}`}
     >
-      <span className={v === "ALL" ? "text-[9px]" : "text-[12px]"}>{v}</span>
+      <img
+        src={AGE_BADGE_SRC[key]}
+        alt={`연령등급 ${v}`}
+        className="w-full h-full object-contain"
+        loading="lazy"
+        decoding="async"
+      />
     </div>
   );
 }
@@ -91,7 +90,10 @@ export function ProviderBadges({
         >
           <img
             src={logoUrl(p.path, "w92")}
-            srcSet={`${logoUrl(p.path, "w92")} 1x, ${logoUrl(p.path, "w185")} 2x`}
+            srcSet={`${logoUrl(p.path, "w92")} 1x, ${logoUrl(
+              p.path,
+              "w185"
+            )} 2x`}
             alt={p.name}
             className="w-full h-full object-contain"
             loading="lazy"

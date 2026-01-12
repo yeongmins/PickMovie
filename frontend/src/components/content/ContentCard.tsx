@@ -46,7 +46,6 @@ function diffFullMonths(fromYmd?: string, toYmd?: string): number {
 
   let months =
     (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  // "4개월 이상"을 '만 4개월'로 보려면 날짜가 덜 지났을 때 1개월 깎기
   if (b.getDate() < a.getDate()) months -= 1;
   return months;
 }
@@ -116,7 +115,6 @@ export function ContentCard({
 
   const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
 
-  // ✅ 1) 기본 statusKind
   const baseStatusKind = useMemo(() => {
     return getReleaseStatusKind({
       mediaType,
@@ -135,7 +133,6 @@ export function ContentCard({
     ottOnly,
   ]);
 
-  // ✅ 2) “개봉 2회 이상”이면 기간 상관없이 rerun으로 판단
   const rerunInfo = useMovieRerunInfo({
     mediaType,
     id: item.id,
@@ -172,8 +169,6 @@ export function ContentCard({
     setOttOnly,
   });
 
-  // ✅ YEAR(중요)
-  // - 재개봉 영화는 “최초 출시년도”를 보여줘야 함
   const unifiedYear = useUnifiedYearLabelFromItem({
     item,
     mediaType,
@@ -182,7 +177,7 @@ export function ContentCard({
     region: "KR",
   });
 
-  const effectiveYear = useMemo(() => {
+  const effectiveYearMovie = useMemo(() => {
     if (mediaType !== "movie") return unifiedYear;
 
     if (statusKind === "rerun") {
@@ -201,6 +196,24 @@ export function ContentCard({
     item.release_date,
     unifiedYear,
   ]);
+
+  // ✅✅ 시즌 카드에서 TV 최신 포스터/년도 덮어쓰기 방지 플래그
+  const preferItemPoster = !!(item as any).__preferItemPoster;
+  const preferItemYear = !!(item as any).__preferItemYear;
+
+  const forcedTvYear = useMemo(() => {
+    if (mediaType !== "tv" || !preferItemYear) return null;
+    return (
+      yearFromYmd(item.first_air_date ?? null) ??
+      yearFromYmd(item.release_date ?? null) ??
+      ""
+    );
+  }, [mediaType, preferItemYear, item.first_air_date, item.release_date]);
+
+  const effectiveYear =
+    mediaType === "tv" && preferItemYear
+      ? forcedTvYear ?? ""
+      : effectiveYearMovie;
 
   const providerLogos = providers
     .map((p) => {
@@ -222,9 +235,12 @@ export function ContentCard({
   const canFav =
     typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
 
+  // ✅✅ 시즌 카드면 item.poster_path를 무조건 우선
   const effectivePosterPath =
     mediaType === "tv"
-      ? tvLatest?.posterPath ?? item.poster_path
+      ? preferItemPoster
+        ? item.poster_path
+        : tvLatest?.posterPath ?? item.poster_path
       : item.poster_path;
 
   const posterUrl = getPosterUrl(effectivePosterPath, "w500");

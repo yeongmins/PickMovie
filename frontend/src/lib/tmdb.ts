@@ -819,3 +819,135 @@ export async function getAgeRating(
     return "";
   }
 }
+
+// ✅ TV 시즌 상세(별점 계산용) + 캐시
+export type TmdbTvSeasonEpisode = {
+  vote_average?: number;
+};
+
+export type TmdbTvSeasonDetail = {
+  id?: number;
+  name?: string;
+  season_number?: number;
+  air_date?: string | null;
+  poster_path?: string | null;
+  episodes?: TmdbTvSeasonEpisode[];
+  overview?: string;
+  vote_average?: number;
+};
+
+const _tvSeasonCache = new Map<string, TmdbTvSeasonDetail | null>();
+const _tvSeasonInFlight = new Map<string, Promise<TmdbTvSeasonDetail | null>>();
+
+function calcSeasonVoteAverage(
+  episodes?: TmdbTvSeasonEpisode[]
+): number | null {
+  const list = Array.isArray(episodes) ? episodes : [];
+  const nums = list
+    .map((e) => (typeof e?.vote_average === "number" ? e.vote_average : NaN))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  if (!nums.length) return null;
+
+  const sum = nums.reduce((a, b) => a + b, 0);
+  const avg = sum / nums.length;
+
+  // ContentCard는 toFixed(1)이라 여기서도 적당히 정리
+  const rounded = Math.round(avg * 10) / 10;
+  return Number.isFinite(rounded) ? rounded : null;
+}
+
+export async function fetchTVSeasonDetail(
+  tvId: number,
+  seasonNo: number,
+  opts?: { language?: string }
+): Promise<TmdbTvSeasonDetail | null> {
+  const lang = opts?.language ?? DEFAULT_LANGUAGE;
+  const key = `tv:${tvId}:season:${seasonNo}:${lang}`;
+  if (_tvSeasonCache.has(key)) return _tvSeasonCache.get(key) ?? null;
+
+  const inflight = _tvSeasonInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    try {
+      const data = await fetchFromBackend<TmdbTvSeasonDetail>(
+        `/tmdb/proxy/tv/${tvId}/season/${seasonNo}`,
+        { language: lang }
+      );
+
+      const computed = calcSeasonVoteAverage(data?.episodes);
+      const patched: TmdbTvSeasonDetail | null = data
+        ? {
+            ...data,
+            vote_average:
+              typeof data.vote_average === "number"
+                ? data.vote_average
+                : computed ?? undefined,
+          }
+        : null;
+
+      _tvSeasonCache.set(key, patched);
+      return patched;
+    } catch {
+      const json = await tmdbDirectFetch(
+        `/tv/${tvId}/season/${seasonNo}?language=${encodeURIComponent(lang)}`
+      );
+      const data = (json as TmdbTvSeasonDetail) ?? null;
+
+      const computed = calcSeasonVoteAverage(data?.episodes);
+      const patched: TmdbTvSeasonDetail | null = data
+        ? {
+            ...data,
+            vote_average:
+              typeof data.vote_average === "number"
+                ? data.vote_average
+                : computed ?? undefined,
+          }
+        : null;
+
+      _tvSeasonCache.set(key, patched);
+      return patched;
+    } finally {
+      _tvSeasonInFlight.delete(key);
+    }
+  })();
+
+  _tvSeasonInFlight.set(key, p);
+  return p;
+}
+
+const _tvSeasonVoteCache = new Map<string, number | null>();
+const _tvSeasonVoteInFlight = new Map<string, Promise<number | null>>();
+
+export async function fetchTVSeasonVoteAverage(
+  tvId: number,
+  seasonNo: number,
+  opts?: { language?: string }
+): Promise<number | null> {
+  const lang = opts?.language ?? DEFAULT_LANGUAGE;
+  const key = `tv:${tvId}:season:${seasonNo}:vote:${lang}`;
+  if (_tvSeasonVoteCache.has(key)) return _tvSeasonVoteCache.get(key) ?? null;
+
+  const inflight = _tvSeasonVoteInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = (async () => {
+    const detail = await fetchTVSeasonDetail(tvId, seasonNo, {
+      language: lang,
+    });
+    const avg = calcSeasonVoteAverage(detail?.episodes);
+    _tvSeasonVoteCache.set(key, avg);
+    return avg;
+  })()
+    .catch(() => {
+      _tvSeasonVoteCache.set(key, null);
+      return null;
+    })
+    .finally(() => {
+      _tvSeasonVoteInFlight.delete(key);
+    });
+
+  _tvSeasonVoteInFlight.set(key, p);
+  return p;
+}

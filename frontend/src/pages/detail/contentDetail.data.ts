@@ -52,6 +52,10 @@ export type DetailBase = {
 
   /** ✅ KR 기준 재개봉 여부 */
   is_rerelease_kr?: boolean;
+
+  /** ✅ KOBIS 보강값(필요 시 사용) */
+  kobis_open_dt?: string;
+  kobis_movie_cd?: string | null;
 };
 
 export type ProviderItem = {
@@ -163,7 +167,15 @@ function cleanDate(v?: string) {
   return s.length ? s : "";
 }
 
+// ✅ 시즌 선택 중(DetailModal에서 __seasonNo 주입)에는 "선택한 시즌 연도"를 우선 반환하도록 수정
 function tvLatestSeasonYear(detail: DetailBase) {
+  // ✅ season= 선택 상태면, 모달에서 덮어쓴 first_air_date(=season air_date)를 우선 사용
+  const seasonNo = Number((detail as any)?.__seasonNo ?? 0);
+  if (seasonNo > 0) {
+    const d = cleanDate(detail.first_air_date) || cleanDate(detail.release_date);
+    if (d) return String(d).slice(0, 4);
+  }
+
   const seasons = Array.isArray(detail.seasons) ? detail.seasons : [];
   const filtered = seasons
     .filter((s) => typeof s?.season_number === "number" && s.season_number > 0)
@@ -186,8 +198,11 @@ export function yearTextFrom(detail: DetailBase, mediaType: MediaType) {
     return y && /^\d{4}$/.test(y) ? y : "";
   }
 
-  // ✅ 영화: KR 극장 개봉일 우선
-  const d = cleanDate(detail.kr_release_date) || cleanDate(detail.release_date);
+  // ✅ 영화: KR 극장 개봉일 우선 (없으면 KOBIS openDt / release_date)
+  const d =
+    cleanDate(detail.kr_release_date) ||
+    cleanDate(detail.kobis_open_dt) ||
+    cleanDate(detail.release_date);
   const y = d ? Number(String(d).slice(0, 4)) : NaN;
   return Number.isFinite(y) ? String(y) : "";
 }
@@ -270,10 +285,45 @@ function backendProxyPath(path: string) {
 }
 
 /* =========================
+   ✅ KOBIS 보강(openDt)
+========================= */
+
+type BackendMetaResponse = {
+  details?: unknown;
+  providers?: unknown;
+  ageRating?: string | null;
+  kobisOpenDt?: string | null;
+  kobisMovieCd?: string | null;
+};
+
+const _kobisOpenDtCache = new Map<
+  number,
+  { kobisOpenDt: string | null; kobisMovieCd: string | null }
+>();
+
+async function fetchKobisOpenDtFromBackend(id: number) {
+  if (_kobisOpenDtCache.has(id)) return _kobisOpenDtCache.get(id)!;
+
+  const meta = await apiGetOrNull<BackendMetaResponse>(
+    `/tmdb/meta/movie/${id}`,
+    {
+      region: "KR",
+      language: "ko-KR",
+    }
+  );
+
+  const dt = cleanDate(meta?.kobisOpenDt ?? undefined);
+  const payload = {
+    kobisOpenDt: dt || null,
+    kobisMovieCd: meta?.kobisMovieCd ? String(meta.kobisMovieCd) : null,
+  };
+
+  _kobisOpenDtCache.set(id, payload);
+  return payload;
+}
+
+/* =========================
    ✅ KR(한국) 기준: 영화 개봉일/재개봉 판정
-   - /movie/{id}/release_dates 에서 KR만 보고 극장 타입(2,3)만 사용
-   - ✅ "비고(note)에 Re-release가 있으면" 무조건 재개봉으로 취급
-   - ✅ note가 없어도 날짜가 2개 이상 + 간격이 충분히 크면 재개봉
 ========================= */
 
 const THEATRICAL_TYPES = new Set([2, 3]); // limited, theatrical
@@ -300,7 +350,7 @@ async function fetchMovieReleaseDatesRaw(
 
   let raw: TmdbReleaseDatesResponse | null = null;
 
-  if (DIRECT_FIRST) {
+  if ((import.meta as any)?.env?.VITE_TMDB_API_KEY) {
     raw = await tmdbDirect<TmdbReleaseDatesResponse>(
       `/movie/${id}/release_dates`
     );
@@ -323,7 +373,6 @@ function normalizeNote(v: unknown) {
 function isRereleaseNote(v: unknown) {
   const s = normalizeNote(v);
   if (!s) return false;
-  // TMDB에서 "Re-release" 또는 극장 메모로 재개봉이 들어오는 케이스 대응
   return (
     s.includes("re-release") ||
     s.includes("rerelease") ||
@@ -340,7 +389,6 @@ function pickKRTheatricalDates(raw: TmdbReleaseDatesResponse | null): string[] {
     .filter(Boolean)
     .sort();
 
-  // 중복 제거
   const uniq: string[] = [];
   for (const d of list) {
     if (!uniq.length || uniq[uniq.length - 1] !== d) uniq.push(d);
@@ -382,8 +430,6 @@ export async function fetchMovieKRReleaseMeta(
   const meta: KRReleaseMeta = {
     krReleaseDate: latest,
     krFirstReleaseDate: first,
-    // ✅ 1) note가 재개봉이면 무조건 재개봉
-    // ✅ 2) note가 없으면 날짜 2개 이상 + 충분한 간격일 때 재개봉
     isRereleaseKR:
       hasKRReReleaseNote(raw) ||
       (dates.length >= 2 && gap >= RERELEASE_GAP_DAYS),
@@ -403,7 +449,7 @@ export async function fetchDetailSafe(
 ): Promise<DetailBase | null> {
   let detail: DetailBase | null = null;
 
-  if (DIRECT_FIRST) {
+  if ((import.meta as any)?.env?.VITE_TMDB_API_KEY) {
     const ko = await tmdbDirect<DetailBase>(`/${mediaType}/${id}`, {
       language: "ko-KR",
     });
@@ -431,19 +477,31 @@ export async function fetchDetailSafe(
 
   if (!detail?.id) return null;
 
-  // ✅ 영화: 개봉일/재개봉 여부를 "무조건 KR 극장 기준"으로 통일
   if (mediaType === "movie") {
     const global = cleanDate(detail.release_date);
     if (global) detail.global_release_date = global;
 
+    const kobis = await fetchKobisOpenDtFromBackend(id);
+    if (kobis?.kobisOpenDt) {
+      detail.kobis_open_dt = kobis.kobisOpenDt;
+      detail.kobis_movie_cd = kobis.kobisMovieCd ?? null;
+    }
+
     const meta = await fetchMovieKRReleaseMeta(id);
+
     if (meta?.krReleaseDate) {
       detail.kr_release_date = meta.krReleaseDate;
-      detail.kr_first_release_date = meta.krFirstReleaseDate ?? undefined;
-      detail.is_rerelease_kr = meta.isRereleaseKR;
+      detail.kr_first_release_date =
+        meta.krFirstReleaseDate ??
+        (kobis?.kobisOpenDt ? kobis.kobisOpenDt : undefined);
 
-      // 🔥 표시용 release_date 자체를 KR 최신 극장 개봉일로 덮어씀
+      detail.is_rerelease_kr = meta.isRereleaseKR;
       detail.release_date = meta.krReleaseDate;
+    } else if (kobis?.kobisOpenDt) {
+      detail.kr_release_date = kobis.kobisOpenDt;
+      detail.kr_first_release_date = kobis.kobisOpenDt;
+      detail.is_rerelease_kr = false;
+      detail.release_date = kobis.kobisOpenDt;
     } else {
       detail.is_rerelease_kr = false;
     }
@@ -476,7 +534,7 @@ export async function fetchTrailerKey(mediaType: MediaType, id: number) {
     return s;
   };
 
-  if (DIRECT_FIRST) {
+  if ((import.meta as any)?.env?.VITE_TMDB_API_KEY) {
     for (const lang of ["ko-KR", "en-US"]) {
       const json = await tmdbDirect<TmdbVideosResponse>(
         `/${mediaType}/${id}/videos`,
@@ -510,7 +568,7 @@ export async function fetchProvidersKR(mediaType: MediaType, id: number) {
   const k = `${mediaType}:${id}:KR`;
   if (_providersCache.has(k)) return _providersCache.get(k) ?? null;
 
-  if (DIRECT_FIRST) {
+  if ((import.meta as any)?.env?.VITE_TMDB_API_KEY) {
     const json = await tmdbDirect<WatchProvidersResponse>(
       `/${mediaType}/${id}/watch/providers`
     );
@@ -536,7 +594,6 @@ export async function fetchAge(
   if (_ageCache.has(k)) return _ageCache.get(k)!;
 
   try {
-    // ✅ 등급도 "무조건 KR 기준"
     if (mediaType === "movie") {
       const raw = await fetchMovieReleaseDatesRaw(id);
 
@@ -558,7 +615,7 @@ export async function fetchAge(
       return age;
     }
 
-    if (DIRECT_FIRST) {
+    if ((import.meta as any)?.env?.VITE_TMDB_API_KEY) {
       const tvJson = await tmdbDirect<TmdbTvContentRatingsResponse>(
         `/tv/${id}/content_ratings`
       );
@@ -589,10 +646,8 @@ export async function fetchAge(
 
 /* =========================
    ORIGINAL vs ONLY(독점)
-   - ORIGINAL: detail.networks / production_companies 에 OTT 단서가 있을 때만
-   - ONLY: 국내 스트리밍 제공처(주로 flatrate/free/ads)가 사실상 1개일 때
 ========================= */
-
+// (이하 원본 그대로)
 function norm(s: string) {
   return String(s ?? "")
     .trim()
@@ -644,7 +699,6 @@ function streamingProviders(
   ]);
   if (list.length) return list;
 
-  // 스트리밍 정보가 없다면(드문 케이스) 전체로 fallback
   return mergeUnique([
     ...(providersKR.flatrate ?? []),
     ...(providersKR.free ?? []),
@@ -654,7 +708,6 @@ function streamingProviders(
   ]);
 }
 
-/** ✅ ORIGINAL 판정: (오표기 방지) “단독 제공”만으로는 ORIGINAL로 만들지 않음 */
 export function detectOriginalProvider(
   detail: DetailBase,
   providersKR: WatchProviderRegion | null
@@ -666,7 +719,6 @@ export function detectOriginalProvider(
     .filter(Boolean)
     .map((x) => String(x));
 
-  // detail에서 브랜드 단서 찾기
   let key: BrandKey | null = null;
   for (const b of OTT_BRANDS) {
     if (
@@ -688,7 +740,6 @@ export function detectOriginalProvider(
 
   if (hit) return hit;
 
-  // providers에 없어도 ORIGINAL 자체는 표시(로고는 없을 수 있음)
   const fallbackName =
     key === "netflix"
       ? "Netflix"
@@ -717,30 +768,25 @@ export function detectOriginalProvider(
   };
 }
 
-/** ✅ ONLY(독점) 판정: 국내 스트리밍 제공처가 사실상 1개일 때 */
 export function detectExclusiveProvider(
   providersKR: WatchProviderRegion | null
 ): ProviderItem | null {
   const list = streamingProviders(providersKR);
   if (!list.length) return null;
 
-  // 1) 정말 1개면 바로 ONLY
   if (list.length === 1) return list[0] ?? null;
 
-  // 2) 여러 개지만 “브랜드 키”로 묶었을 때 1개(예: Netflix + Netflix Ads 같은 케이스)
   const keys = new Set<BrandKey>();
   for (const p of list) {
     const k = brandKeyFromName(p.provider_name);
     if (k) keys.add(k);
     else {
-      // 브랜드로 판별 불가한 제공처가 섞이면 ONLY 오판 가능 → 안전하게 중단
       return null;
     }
   }
 
   if (keys.size !== 1) return null;
 
-  // 대표 provider 선택 (로고 있는 것 우선)
   const onlyKey = Array.from(keys)[0]!;
   const rep =
     list.find(
@@ -757,18 +803,17 @@ export function computeTheatricalChip(
   mediaType: MediaType,
   isOttLike: boolean
 ) {
-  // ✅ ORIGINAL/ONLY면 극장칩 숨김
   if (isOttLike) return null;
   if (mediaType !== "movie") return null;
 
-  // ✅ KR 최신 극장 개봉일 기준으로만 판단
-  const rd = toDateOnly(detail.kr_release_date || detail.release_date);
+  const rd = toDateOnly(
+    detail.kr_release_date || detail.kobis_open_dt || detail.release_date
+  );
   if (!rd) return null;
 
   const today = new Date();
   const diff = daysBetween(today, rd);
 
-  // ✅ 재개봉은 "상영중" 대신 "재개봉"으로 보여주기
   const isRerelease = !!detail.is_rerelease_kr;
 
   if (diff < 0) {

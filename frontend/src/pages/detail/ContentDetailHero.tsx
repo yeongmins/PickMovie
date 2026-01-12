@@ -1,5 +1,6 @@
 // frontend/src/pages/detail/ContentDetailHero.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Play, Share2, Star, Volume2, VolumeX, X } from "lucide-react";
 
@@ -10,17 +11,17 @@ import {
   AgeBadge,
   Chip,
   getDisplayTitle,
-  logoUrl,
 } from "../../features/favorites/components/favoritesCarousel.shared";
 
 import type { DetailBase, MediaType, ProviderItem } from "./contentDetail.data";
 import { tmdbDirect } from "./contentDetail.data";
 import { TitleLogoOrText } from "./ContentTitleLogo";
-import { yearFromDate } from "../../lib/contentMeta";
+import { getLogoSrcByProviderName } from "../../assets/logo";
 
 /* =========================
    ✅ 최신 포스터: ko 우선, 없으면 en
-   + TV는 최신 시즌 포스터가 있으면 그걸 우선
+   + ✅ TV "시즌 상세(쿼리 season=)"면 해당 시즌 포스터(detail.poster_path)를 우선
+   + TV 기본 화면에서는 최신 시즌 포스터가 있으면 그걸 우선
    + "옛 포스터 잔상" 제거: preload 후에만 렌더
 ========================= */
 
@@ -111,9 +112,14 @@ function pickLatestSeasonPosterFromDetail(detail: any): string | null {
 
 async function resolveBestPosterPath(
   mediaType: MediaType,
-  detail: DetailBase
+  detail: DetailBase,
+  seasonNo: number
 ): Promise<string | null> {
-  const key = `${mediaType}:${detail.id}`;
+  // ✅ id가 같아도 시즌 포스터(detail.poster_path)가 바뀌면 다시 로딩되도록 key에 포함
+  const key = `${mediaType}:${detail.id}:season=${seasonNo}:poster=${
+    detail.poster_path ?? ""
+  }`;
+
   if (_detailPosterCache.has(key)) return _detailPosterCache.get(key) ?? null;
 
   const inflight = _detailPosterInFlight.get(key);
@@ -121,14 +127,27 @@ async function resolveBestPosterPath(
 
   const p = (async () => {
     try {
-      if (mediaType === "tv") {
-        const seasonPoster = pickLatestSeasonPosterFromDetail(detail as any);
+      // ✅✅ TV 시즌 상세 화면이면: ContentDetailModal에서 덮어쓴 시즌 poster_path를 최우선 사용
+      if (mediaType === "tv" && seasonNo > 0) {
+        const seasonPoster = detail.poster_path ?? null;
         if (seasonPoster) {
           _detailPosterCache.set(key, seasonPoster);
           return seasonPoster;
         }
       }
 
+      // ✅ TV 기본 화면이면 최신 시즌 포스터 우선
+      if (mediaType === "tv") {
+        const latestSeasonPoster = pickLatestSeasonPosterFromDetail(
+          detail as any
+        );
+        if (latestSeasonPoster) {
+          _detailPosterCache.set(key, latestSeasonPoster);
+          return latestSeasonPoster;
+        }
+      }
+
+      // ✅ 그 외: 이미지 API에서 ko → en → null 순으로 best pick
       const images = await fetchImagesSafe(mediaType, detail.id);
       const best = pickBestPosterFilePath(images?.posters);
       const finalPath = best ?? detail.poster_path ?? null;
@@ -155,6 +174,42 @@ function preloadImage(src: string): Promise<void> {
     img.onerror = () => resolve();
     img.src = src;
   });
+}
+
+function getSeasonNoFromSearch(search: string): number {
+  try {
+    const sp = new URLSearchParams(search);
+    const raw = sp.get("season");
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    const v = Math.floor(n);
+    return v > 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/* ✅ (추가) season= 이 없을 때도 "가장 최신 시즌 번호" 계산 */
+function pickLatestSeasonNoFromDetail(detail: any): number {
+  const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
+  if (!seasons.length) return 0;
+
+  const list = seasons
+    .filter(
+      (s: any) => typeof s?.season_number === "number" && s.season_number > 0
+    )
+    .map((s: any) => {
+      const t = Date.parse(String(s?.air_date || "").trim());
+      const date = Number.isFinite(t) ? t : -1;
+      const sn = typeof s?.season_number === "number" ? s.season_number : -1;
+      return { date, sn };
+    })
+    .sort((a: any, b: any) => {
+      if (b.date !== a.date) return b.date - a.date;
+      return b.sn - a.sn;
+    });
+
+  return list[0]?.sn > 0 ? list[0].sn : 0;
 }
 
 /* =========================
@@ -223,47 +278,35 @@ function YouTubeTrailer({
   );
 }
 
-/* ✅ ORIGINAL만 유지 + ✅ 로고 fallback(요청사항 2) */
-function fallbackProviderLogo(nameRaw: string) {
-  const name = String(nameRaw || "").toLowerCase();
-
-  // simpleicons (svg) — 흰색
-  if (name.includes("netflix"))
-    return "https://cdn.simpleicons.org/netflix/ffffff";
-  if (name.includes("disney"))
-    return "https://cdn.simpleicons.org/disneyplus/ffffff";
-  if (name.includes("prime"))
-    return "https://cdn.simpleicons.org/amazonprimevideo/ffffff";
-  if (name.includes("apple"))
-    return "https://cdn.simpleicons.org/appletv/ffffff";
-  if (name.includes("youtube"))
-    return "https://cdn.simpleicons.org/youtube/ffffff";
-  return "";
-}
-
+/* ✅ ORIGINAL만 유지 (TMDB 로고만 사용) */
 function ProviderPill({ provider }: { provider: ProviderItem | null }) {
   if (!provider) return null;
 
-  const providerName = provider.provider_name || "";
-  const tmdbLogo = provider.logo_path ? logoUrl(provider.logo_path, "w92") : "";
-  const fallback = !tmdbLogo ? fallbackProviderLogo(providerName) : "";
+  const providerName =
+    provider.provider_name ||
+    (provider as any).providerName ||
+    (provider as any).name ||
+    "";
 
-  const logoSrc = tmdbLogo || fallback;
+  const logoSrc = getLogoSrcByProviderName(providerName);
   const hasLogo = !!logoSrc;
 
   return (
     <span
       title="OTT 오리지널(제작/방영 기준)"
-      className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/35 border border-white/10 backdrop-blur-md"
+      className="inline-flex items-center gap-2 px-2.5 py-1 rounded-[5px] bg-black/45 backdrop-blur-md"
     >
       {hasLogo ? (
-        <span className="w-[18px] h-[18px] rounded-[4px] overflow-hidden bg-black/25 flex items-center justify-center">
+        <span className="w-[20px] h-[20px] rounded-[5px] overflow-hidden flex items-center justify-center">
           <img
             src={logoSrc}
             alt={providerName}
-            className="w-full h-full object-contain"
+            className="w-full h-full object-contain scale-[1.3]"
             loading="lazy"
             decoding="async"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
           />
         </span>
       ) : (
@@ -318,6 +361,24 @@ export function ContentDetailHero({
   onToggleFavorite: (id: number, mediaType?: "movie" | "tv") => void;
 }) {
   const title = getDisplayTitle(detail as any);
+  const location = useLocation();
+
+  // ✅ TV 시즌 선택 상태(쿼리 기반)
+  const seasonNo = useMemo(() => {
+    if (mediaType !== "tv") return 0;
+    return getSeasonNoFromSearch(location.search);
+  }, [mediaType, location.search]);
+
+  // ✅ (추가) 뱃지 표시용 시즌 번호
+  // - season= 있으면 그 값
+  // - 없으면 최신 시즌
+  // - 단, "최신 시즌이 1"인 작품은 뱃지 숨김
+  const badgeSeasonNo = useMemo(() => {
+    if (mediaType !== "tv") return 0;
+    const picked =
+      seasonNo > 0 ? seasonNo : pickLatestSeasonNoFromDetail(detail as any);
+    return picked > 1 ? picked : 0;
+  }, [mediaType, seasonNo, detail]);
 
   const [posterPathResolved, setPosterPathResolved] = useState<string | null>(
     null
@@ -331,7 +392,7 @@ export function ContentDetailHero({
     setPosterReady(false);
 
     void (async () => {
-      const bestPath = await resolveBestPosterPath(mediaType, detail);
+      const bestPath = await resolveBestPosterPath(mediaType, detail, seasonNo);
       if (!alive) return;
 
       if (!bestPath) {
@@ -357,7 +418,8 @@ export function ContentDetailHero({
     return () => {
       alive = false;
     };
-  }, [mediaType, detail.id]);
+    // ✅ seasonNo / detail.poster_path 변경에도 재실행되어 시즌 포스터로 즉시 갱신
+  }, [mediaType, detail.id, detail.poster_path, seasonNo]);
 
   const heroBackdropSrc = useMemo(() => {
     if (detail.backdrop_path)
@@ -440,21 +502,8 @@ export function ContentDetailHero({
     onToggleFavorite(detail.id, mediaType);
   };
 
-  // const heroYearText = useMemo(() => {
-  //   if (!yearText) return "";
-  //   if (mediaType !== "movie") return yearText;
-
-  //   const isRerun = (theatricalChip?.label ?? "").includes("재개봉");
-  //   if (!isRerun) return yearText;
-
-  //   const originalYear = yearFromDate((detail as any)?.release_date ?? "");
-  //   return originalYear || yearText;
-  // }, [yearText, mediaType, theatricalChip?.label, detail]);
-
   /* =========================
      ✅ 포스터 자동 숨김(디자인 유지)
-     - 포스터는 절대 줄이지 않음
-     - 텍스트/레이아웃 때문에 포스터가 침범/클립될 상황이면 포스터를 "모바일처럼" 숨김
   ========================= */
   const sectionRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -631,7 +680,7 @@ export function ContentDetailHero({
           className="w-full grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 md:gap-8 items-end"
         >
           <div ref={leftColRef} className="min-w-0 max-w-[720px]">
-            <div className="flex items-center flex-wrap gap-1 mb-3">
+            <div className="flex items-center flex-wrap gap-2 mb-3">
               <Chip tone="dark">{typeText}</Chip>
 
               {theatricalChip ? (
@@ -650,7 +699,12 @@ export function ContentDetailHero({
             </div>
 
             <div className="max-w-[720px]">
-              <TitleLogoOrText detail={detail} mediaType={mediaType} />
+              {/* ✅ 최신 시즌이 1개뿐인 작품은 뱃지 숨김 */}
+              <TitleLogoOrText
+                detail={detail}
+                mediaType={mediaType}
+                seasonNo={badgeSeasonNo}
+              />
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">

@@ -24,6 +24,11 @@ import {
 } from "../../lib/contentMeta";
 import { useMovieRerunInfo } from "../content/contentCard.hooks";
 
+import cgvLogo from "../../assets/logo/cgv_logo.svg";
+import lotteLogo from "../../assets/logo/lotte_logo.svg";
+import megaboxLogo from "../../assets/logo/megabox_logo.svg";
+import { SeriesSeasonCards } from "../../pages/detail/SeriesSeasonCards";
+
 type TmdbCreditPerson = {
   id: number;
   name?: string;
@@ -576,8 +581,23 @@ export function DetailSections({
         )}
       </Section>
 
+      {mediaType === "tv" && (detail as any)?.seasons?.length ? (
+        <SeriesSeasonCards
+          tvId={(detail as any).id}
+          tvTitle={(detail as any).name || ""}
+          seasons={(detail as any).seasons}
+        />
+      ) : null}
+
       {showOttSection ? (
-        <Section title="시청 가능 OTT">
+        <Section
+          title="시청 가능 OTT"
+          right={
+            <span className="text-white/35 text-[12px] font-semibold">
+              실제 정보와 다를 수 있습니다.
+            </span>
+          }
+        >
           {providerItems.length ? (
             <div className="flex flex-wrap gap-2.5">
               {providerItems.map((p: any) => {
@@ -653,27 +673,30 @@ export function DetailSections({
       ) : null}
 
       {showTheaterSection ? (
-        <Section title="영화관 예매">
-          <div className="text-white/45 text-[12px] font-semibold mb-3">
-            아래 버튼을 눌러 예매가 가능한지 확인해보세요.
-          </div>
-
+        <Section
+          title="영화관 예매"
+          right={
+            <span className="text-white/35 text-[12px] font-semibold">
+              아래 버튼을 눌러 예매가 가능한지 확인해보세요.
+            </span>
+          }
+        >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               {
                 label: "CGV",
                 href: "https://cgv.co.kr/cnm/movieBook",
-                logo: "https://www.cgv.co.kr/favicon.ico",
+                logo: cgvLogo,
               },
               {
                 label: "롯데시네마",
                 href: "https://www.lottecinema.co.kr/NLCHS/Ticketing",
-                logo: "https://www.lottecinema.co.kr/favicon.ico",
+                logo: lotteLogo,
               },
               {
                 label: "메가박스",
                 href: "https://www.megabox.co.kr/booking",
-                logo: "https://www.megabox.co.kr/favicon.ico",
+                logo: megaboxLogo,
               },
             ].map((b) => (
               <a
@@ -681,25 +704,18 @@ export function DetailSections({
                 href={b.href}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-between rounded-2xl bg-white/[0.03] border border-white/10 px-4 py-4 hover:bg-white/[0.05]"
+                aria-label={`${b.label} 예매`}
+                title={`${b.label} 예매`}
+                className="flex items-center justify-center rounded-2xl bg-white/5  px-4 py-4 hover:bg-white/[0.05]"
               >
-                <span className="flex items-center gap-2 text-white/90 font-extrabold">
-                  <span className="w-6 h-6 rounded-md bg-black/25 overflow-hidden flex items-center justify-center">
-                    <img
-                      src={b.logo}
-                      alt={b.label}
-                      className="w-full h-full object-contain"
-                      loading="lazy"
-                      decoding="async"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display =
-                          "none";
-                      }}
-                    />
-                  </span>
-                  {b.label}
-                </span>
-                <ChevronRight className="w-5 h-5 text-white/50" />
+                <img
+                  src={b.logo}
+                  alt=""
+                  className="h-7 w-auto object-contain"
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                />
               </a>
             ))}
           </div>

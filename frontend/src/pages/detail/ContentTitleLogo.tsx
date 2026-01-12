@@ -207,20 +207,19 @@ function useKoreanTitleLogoChoice(mediaType: MediaType, id: number) {
     return () => {
       alive = false;
     };
-  }, [key, mediaType, id]);
+  }, [key]);
 
   return choice;
 }
 
 /* =========================
    ✅ 텍스트를 "무조건 한 줄 안에 전부 보이게"
-   - 1) 가능한 큰 font-size를 이분탐색으로 찾고
-   - 2) 그래도 넘치면 scaleX로 마지막 1px까지 맞춤
 ========================= */
 
 function useFitSingleLineNoEllipsis(opts: {
   maxFontPx: number;
   minFontPx: number;
+  depsKey?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLSpanElement | null>(null);
@@ -283,26 +282,48 @@ function useFitSingleLineNoEllipsis(opts: {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
-  }, [opts.maxFontPx, opts.minFontPx]);
+  }, [opts.maxFontPx, opts.minFontPx, opts.depsKey]);
 
   return { wrapRef, textRef, fontPx, scaleX };
 }
 
+function SeasonBadge({ seasonNo }: { seasonNo: number }) {
+  if (!seasonNo || seasonNo <= 0) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[5px] shadow-sm bg-black backdrop-blur-md shrink-0"
+      title={`시즌 ${seasonNo}`}
+    >
+      <span className="text-[11px] font-bold tracking-wide text-white">
+        SEASON
+      </span>
+      <span className="text-[11px] font-extrabold tracking-wide text-white">
+        {seasonNo}
+      </span>
+    </span>
+  );
+}
+
 function FittedTitleText({
   title,
-  maxWidth = 720,
+  seasonNo = 0,
 }: {
   title: string;
-  maxWidth?: number;
+  seasonNo?: number;
 }) {
   const { wrapRef, textRef, fontPx, scaleX } = useFitSingleLineNoEllipsis({
     maxFontPx: 35,
     minFontPx: 14,
+    depsKey: title, // ✅ 시즌 이동으로 title이 바뀌어도 재측정
   });
 
   return (
-    <h1 className="mb-3">
-      <div ref={wrapRef} style={{ maxWidth }}>
+    <h1 className="mb-3 flex items-end gap-2 max-w-full">
+      <div
+        ref={wrapRef}
+        className="min-w-0 w-fit shrink"
+        style={{ maxWidth: "calc(100% - 96px)" }}
+      >
         <span
           ref={textRef}
           title={title}
@@ -322,6 +343,8 @@ function FittedTitleText({
           {title}
         </span>
       </div>
+
+      <SeasonBadge seasonNo={seasonNo} />
     </h1>
   );
 }
@@ -329,21 +352,27 @@ function FittedTitleText({
 export function TitleLogoOrText({
   detail,
   mediaType,
+  seasonNo = 0,
 }: {
   detail: DetailBase;
   mediaType: MediaType;
+  seasonNo?: number;
 }) {
   const title = useMemo(() => getDisplayTitle(detail as any), [detail]);
   const choice = useKoreanTitleLogoChoice(mediaType, detail.id);
 
   const hasLogo = !!choice.filePath;
+
+  // ✅ 로고 로딩 실패 시(404/네트워크 등) 텍스트로 안전하게 fallback
   const [logoReady, setLogoReady] = useState(false);
+  const [forceText, setForceText] = useState(false);
 
   useEffect(() => {
     setLogoReady(false);
+    setForceText(false);
   }, [detail.id, choice.filePath, choice.invert]);
 
-  if (hasLogo) {
+  if (hasLogo && !forceText) {
     const src1x = titleLogoCdnUrl(choice.filePath!, "w500");
     const src2x = titleLogoCdnUrl(choice.filePath!, "w780");
 
@@ -356,39 +385,50 @@ export function TitleLogoOrText({
     }blur(10px) drop-shadow(0 10px 18px rgba(0,0,0,0.22))`;
 
     return (
-      <h1 className="mb-3">
+      <h1 className="mb-3 flex items-end gap-2 max-w-full">
         <span className="sr-only">{title}</span>
-        <motion.img
-          key={`ko-logo:${mediaType}:${detail.id}:${choice.filePath}:${
-            choice.invert ? "inv" : "nor"
-          }`}
-          src={src1x}
-          srcSet={`${src1x} 1x, ${src2x} 2x`}
-          alt={title}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setLogoReady(true)}
-          onError={() => setLogoReady(false)}
-          initial={false}
-          animate={{
-            opacity: logoReady ? 1 : 0,
-            filter: logoReady ? visibleFilter : hiddenFilter,
-          }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
-          style={{
-            display: "block",
-            width: "auto",
-            height: "auto",
-            maxWidth: "100%",
-            maxHeight: 118,
-            objectFit: "contain",
-            transform: "translateZ(0)",
-            willChange: "opacity, filter",
-          }}
-        />
+
+        <div
+          className="min-w-0 w-fit shrink"
+          style={{ maxWidth: "calc(100% - 96px)" }}
+        >
+          <motion.img
+            key={`ko-logo:${mediaType}:${detail.id}:${choice.filePath}:${
+              choice.invert ? "inv" : "nor"
+            }`}
+            src={src1x}
+            srcSet={`${src1x} 1x, ${src2x} 2x`}
+            alt={title}
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setLogoReady(true)}
+            onError={() => {
+              setLogoReady(false);
+              setForceText(true); // ✅ 로고가 안 뜨면 빈칸 방지
+            }}
+            initial={false}
+            animate={{
+              opacity: logoReady ? 1 : 0,
+              filter: logoReady ? visibleFilter : hiddenFilter,
+            }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            style={{
+              display: "block",
+              width: "auto",
+              height: "auto",
+              maxWidth: "100%",
+              maxHeight: 118,
+              objectFit: "contain",
+              transform: "translateZ(0)",
+              willChange: "opacity, filter",
+            }}
+          />
+        </div>
+
+        <SeasonBadge seasonNo={seasonNo} />
       </h1>
     );
   }
 
-  return <FittedTitleText title={title} />;
+  return <FittedTitleText title={title} seasonNo={seasonNo} />;
 }

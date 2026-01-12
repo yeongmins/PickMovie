@@ -25,7 +25,7 @@ export function peekScreeningSets(): ScreeningSets | null {
 }
 
 export async function loadScreeningSets(): Promise<ScreeningSets> {
-  const OK_TTL = 30 * 60 * 1000;
+  const OK_TTL = 30 * 60 * 1000; // 30분
   const now = Date.now();
 
   if (screeningCache && now - screeningCache.fetchedAt < OK_TTL) {
@@ -33,52 +33,34 @@ export async function loadScreeningSets(): Promise<ScreeningSets> {
   }
   if (screeningInFlight) return screeningInFlight;
 
-  const PAGES = 5;
-
   screeningInFlight = (async () => {
-    const pages = Array.from({ length: PAGES }, (_, i) => i + 1);
+    // ✅✅✅ 핵심: 백엔드에서 TMDB+KOBIS 합집합을 이미 만들어줌
+    const res = await apiGet<{
+      nowPlayingIds: number[];
+      upcomingIds: number[];
+      fetchedAt: number;
+    }>("/tmdb/screening/sets", {
+      region: "KR",
+      language: "ko-KR",
+    }).catch(() => ({
+      nowPlayingIds: [],
+      upcomingIds: [],
+      fetchedAt: Date.now(),
+    }));
 
-    // ✅ KR/ko-KR 고정: 카드/캐러셀/상세가 같은 기준을 보게 함
-    const [nowPlayingResList, upcomingResList] = await Promise.all([
-      Promise.all(
-        pages.map((page) =>
-          apiGet<{ results: Array<{ id: number }> }>("/movies/now_playing", {
-            page,
-            region: "KR",
-            language: "ko-KR",
-          }).catch(() => ({ results: [] }))
-        )
-      ),
-      Promise.all(
-        pages.map((page) =>
-          apiGet<{ results: Array<{ id: number }> }>("/movies/upcoming", {
-            page,
-            region: "KR",
-            language: "ko-KR",
-          }).catch(() => ({ results: [] }))
-        )
-      ),
-    ]);
-
-    const nowSet = new Set<number>();
-    const upSet = new Set<number>();
-
-    for (const r of nowPlayingResList) {
-      for (const it of r?.results ?? []) {
-        if (typeof it?.id === "number") nowSet.add(it.id);
-      }
-    }
-    for (const r of upcomingResList) {
-      for (const it of r?.results ?? []) {
-        if (typeof it?.id === "number") upSet.add(it.id);
-      }
-    }
+    const nowSet = new Set<number>(
+      (res?.nowPlayingIds ?? []).filter((x) => typeof x === "number")
+    );
+    const upSet = new Set<number>(
+      (res?.upcomingIds ?? []).filter((x) => typeof x === "number")
+    );
 
     screeningCache = {
       nowPlaying: nowSet,
       upcoming: upSet,
       fetchedAt: Date.now(),
     };
+
     screeningInFlight = null;
     return screeningCache;
   })().catch((e) => {
@@ -617,6 +599,8 @@ export function getReleaseStatusKind(params: {
 
   // (하위 호환: 남겨둠)
   rerunThresholdDays?: number;
+
+  // ✅ now_playing 누락 보완용 fallback window (ex: 45)
   nowWindowDays?: number;
 }): ReleaseStatusKind | null {
   const {
@@ -629,6 +613,8 @@ export function getReleaseStatusKind(params: {
 
     rerunInfo = null,
     rerunMinMonths = 7,
+
+    nowWindowDays = 45,
   } = params;
 
   const mt: MediaType =
@@ -638,8 +624,6 @@ export function getReleaseStatusKind(params: {
       ? "tv"
       : "movie";
 
-  const today = new Date();
-
   const parse = (s?: string | null) => {
     const raw = String(s || "").trim();
     if (!raw) return null;
@@ -647,6 +631,10 @@ export function getReleaseStatusKind(params: {
     if (Number.isNaN(d.getTime())) return null;
     return d;
   };
+
+  const toDay = (d: Date) => Math.floor(d.getTime() / 86400000);
+  const today = new Date();
+  const todayDay = toDay(today);
 
   if (mt === "movie") {
     const inUpcoming = !!sets?.upcoming?.has(id);
@@ -664,9 +652,18 @@ export function getReleaseStatusKind(params: {
       return rerunOk ? "rerun" : "now";
     }
 
-    // ✅ fallback: 미래 release_date면 upcoming (상영중 fallback은 제거)
+    // ✅ fallback:
+    // - 미래면 upcoming
+    // - 과거/오늘인데 now_playing set에 없더라도 "개봉일이 최근(nowWindowDays)"이면 now로 보정
+    //   (TMDB now_playing 누락 보강용)
     const rel = parse(releaseDate);
-    if (rel && rel.getTime() > today.getTime()) return "upcoming";
+    if (rel) {
+      const relDay = toDay(rel);
+      const diffDays = todayDay - relDay;
+
+      if (diffDays < 0) return "upcoming";
+      if (!ottOnly && diffDays >= 0 && diffDays <= nowWindowDays) return "now";
+    }
 
     return null;
   }
@@ -704,10 +701,9 @@ export function theatricalLabelForMovieFromFlags(params: {
     sets = null,
     ottOnly = false,
     rerunThresholdDays = 180,
-    nowWindowDays = 90,
+    nowWindowDays = 45,
   } = params;
 
-  // ✅ 기존 코드가 플래그를 우선적으로 보던 경우를 위해: 플래그 우선
   if (isUpcoming === true) return "상영예정";
 
   if (isNowPlaying === true) {
@@ -727,7 +723,6 @@ export function theatricalLabelForMovieFromFlags(params: {
     return diff >= rerunThresholdDays ? "재개봉" : "상영중";
   }
 
-  // ✅ 플래그가 없으면 통일 로직으로 판정
   const kind = getReleaseStatusKind({
     mediaType: "movie",
     id,
@@ -745,7 +740,7 @@ export function theatricalLabelForMovieFromFlags(params: {
   return "상영중";
 }
 
-/** ✅ 상세(detail) 기반 TV 최신 시즌 연도 + (movie rerun이면 rerunYear 우선) */
+/** ✅ 상세(detail) 기반 TV 최신 시즌 연도 + (movie는 KR 최초 개봉 연도 우선) */
 export function getUnifiedYearFromDetail(
   detail: any,
   mediaType: MediaType | null | undefined,
@@ -755,7 +750,7 @@ export function getUnifiedYearFromDetail(
     // ✅ 재개봉이어도 “출시년도”는 KR 최초 극장 개봉년도(earliest)로 표시
     originalYear?: string | null;
 
-    // (하위 호환) 기존 호출부가 rerunYear를 넘겨도 깨지지 않게 유지
+    // (하위 호환)
     rerunYear?: string | null;
   }
 ): string {
@@ -763,12 +758,11 @@ export function getUnifiedYearFromDetail(
 
   const statusKind = opts?.statusKind ?? null;
 
-  // ✅ originalYear 우선, 없으면 기존 rerunYear(하위 호환)도 받아줌
   const originalYear = String(
     opts?.originalYear ?? opts?.rerunYear ?? ""
   ).trim();
+  if (originalYear && /^\d{4}$/.test(originalYear)) return originalYear;
 
-  // ✅ mediaType이 흔들리면(detail 구조로) 추론
   const mt: MediaType =
     mediaType === "tv" || mediaType === "movie"
       ? mediaType
@@ -777,24 +771,47 @@ export function getUnifiedYearFromDetail(
       : "movie";
 
   if (mt === "tv") {
+    const seasonNo = Number(detail?.__seasonNo ?? 0);
+
+    // ✅ 시즌 선택 중이면: 선택된 시즌의 air_date(= 시즌 출시년도)를 최우선으로
+    if (seasonNo > 0) {
+      const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
+      const pickedSeason = seasons.find(
+        (s: any) => Number(s?.season_number ?? 0) === seasonNo
+      );
+
+      const y =
+        yearFromDate(pickedSeason?.air_date) || // ✅ 핵심: 선택한 시즌의 연도
+        yearFromDate(detail?.first_air_date) || // (시즌 detail로 덮어쓴 경우)
+        yearFromDate(detail?.release_date) || // (시즌 air_date를 여기에도 넣어둔 경우)
+        "";
+
+      return y || "—";
+    }
+
     const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
     const latest = pickLatestSeason(seasons);
 
     const y =
-      yearFromDate(latest?.air_date) ||
       yearFromDate(detail?.last_air_date) ||
+      yearFromDate(latest?.air_date) ||
       yearFromDate(detail?.first_air_date) ||
       "";
 
     return y || "—";
   }
 
-  // ✅ movie: 재개봉이어도 release_date(최초 출시년도) 그대로
-  const y = yearFromDate(detail?.release_date) || "";
+  // ✅ movie: KR 최초 개봉일 → KR 최신 → release_date
+  const base =
+    detail?.kr_first_release_date ??
+    detail?.kr_release_date ??
+    detail?.release_date ??
+    "";
+  const y = yearFromDate(base) || "";
   return y || "—";
 }
 
-/** ✅ 카드/캐러셀 item 기반 연도(=TV는 tvLatest 우선) + (movie rerun이면 rerunYear 우선) */
+/** ✅ 카드/캐러셀 item 기반 연도(=TV는 tvLatest 우선) + (movie는 KR 최초 개봉 연도 우선) */
 export function getUnifiedYearFromItem(
   item: any,
   mediaType: MediaType | null | undefined,
@@ -812,11 +829,12 @@ export function getUnifiedYearFromItem(
   if (!item) return "—";
 
   const statusKind = opts?.statusKind ?? null;
+
   const originalYear = String(
     opts?.originalYear ?? opts?.rerunYear ?? ""
   ).trim();
+  if (originalYear && /^\d{4}$/.test(originalYear)) return originalYear;
 
-  // ✅ item.media_type 누락/깨짐 방어
   const rawItemType = item?.media_type;
   const itemType: MediaType | null =
     rawItemType === "tv" || rawItemType === "movie" ? rawItemType : null;
@@ -835,7 +853,12 @@ export function getUnifiedYearFromItem(
     return y || "—";
   }
 
-  // ✅ movie: 재개봉이어도 release_date(최초 출시년도) 그대로
-  const y = yearFromDate(item?.release_date) || "";
+  // ✅ movie: (있으면) KR 최초 → KR 최신 → release_date
+  const base =
+    item?.kr_first_release_date ??
+    item?.kr_release_date ??
+    item?.release_date ??
+    "";
+  const y = yearFromDate(base) || "";
   return y || "—";
 }
