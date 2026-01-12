@@ -1,126 +1,190 @@
 // frontend/src/components/content/contentCard.meta.ts
-
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../../lib/apiClient";
 import type { MediaType, ProviderBadge } from "./contentCard.types";
 
-const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
-export const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
-  `${TMDB_LOGO_CDN}${size}${path}`;
+/** ✅ contentCard.ui.tsx에서 쓰는 TMDB 이미지 URL 유틸 (기존 export 유지용) */
+export function logoUrl(
+  logoPath?: string | null,
+  size: "w45" | "w92" | "w154" | "w185" | "w300" | "w500" | "original" = "w45"
+) {
+  const p = String(logoPath ?? "").trim();
+  if (!p) return "";
+  if (p.startsWith("http://") || p.startsWith("https://")) return p;
+  // TMDB 이미지 베이스
+  return `https://image.tmdb.org/t/p/${size}${
+    p.startsWith("/") ? "" : "/"
+  }${p}`;
+}
 
-export type MetaPayload = {
+export type ContentCardMeta = {
   providers: ProviderBadge[];
   ageRating: string;
   fetchedAt: number;
   isError?: boolean;
 };
 
-const metaCache = new Map<string, MetaPayload>();
-const inflight = new Map<string, Promise<MetaPayload>>();
+type Params = {
+  mediaType: MediaType | null | undefined;
+  id: number;
+  needsMeta: boolean;
+
+  // ✅ 화면에 보일 때만 meta 요청하도록 제어
+  enabled?: boolean;
+
+  region?: string;
+};
+
+const OK_TTL = 6 * 60 * 60 * 1000; // 6h
+const ERROR_TTL = 60 * 1000; // 1m
+
+const cache = new Map<string, ContentCardMeta>();
+const inflight = new Map<string, Promise<ContentCardMeta>>();
+
+function keyOf(mt: MediaType, id: number, region: string) {
+  return `${mt}:${id}:${String(region || "KR").toUpperCase()}`;
+}
+
+function isFresh(v: ContentCardMeta | null | undefined) {
+  if (!v) return false;
+  const ttl = v.isError ? ERROR_TTL : OK_TTL;
+  return Date.now() - (v.fetchedAt || 0) < ttl;
+}
 
 function normalizeProviders(input: any): ProviderBadge[] {
-  const arr: any[] = Array.isArray(input) ? input : [];
-  return arr
-    .map((p) => {
-      const provider_name =
-        p?.provider_name ?? p?.providerName ?? p?.name ?? "";
-      const logo_path = p?.logo_path ?? p?.logoPath ?? p?.logo ?? null;
+  const list = Array.isArray(input) ? input : [];
+  return list
+    .map((p: any) => {
+      const name = p?.provider_name ?? p?.providerName ?? p?.name ?? "";
+      const logo = p?.logo_path ?? p?.logoPath ?? p?.logo ?? null;
+
+      const provider_name = String(name || "").trim();
+      const logo_path = logo ? String(logo) : null;
+
       if (!provider_name) return null;
-      return { provider_name, logo_path } as ProviderBadge;
+
+      const out: ProviderBadge = {
+        provider_name,
+        logo_path,
+      };
+      return out;
     })
     .filter(Boolean) as ProviderBadge[];
 }
 
-function pickAgeFromResponse(r: any): string {
-  const v =
-    r?.ageRating ??
-    r?.age_rating ??
-    r?.age ??
-    r?.rating ??
-    r?.certification ??
-    "";
-  const s = String(v || "").trim();
-  return s || "—";
+function normalizeAge(input: any): string {
+  const raw = String(input ?? "").trim();
+  return raw || "—";
 }
 
-export function useContentCardMeta(args: {
-  mediaType: MediaType;
-  id: number;
-  needsMeta: boolean;
-}) {
-  const { mediaType, id, needsMeta } = args;
-  const cacheKey = `${mediaType}:${id}`;
+function scheduleIdle(cb: () => void, timeoutMs = 1200) {
+  const w: any = window as any;
+  if (typeof w.requestIdleCallback === "function") {
+    const id = w.requestIdleCallback(() => cb(), { timeout: timeoutMs } as any);
+    return () => w.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(cb, 0);
+  return () => window.clearTimeout(id);
+}
 
-  const [meta, setMeta] = useState<MetaPayload | null>(() => {
-    return metaCache.get(cacheKey) ?? null;
+async function fetchMeta(mt: MediaType, id: number, region: string) {
+  const k = keyOf(mt, id, region);
+
+  const cached = cache.get(k);
+  if (cached && isFresh(cached)) return cached;
+
+  const inP = inflight.get(k);
+  if (inP) return inP;
+
+  const p = (async () => {
+    try {
+      // ✅ apiGet 시그니처(2개 인자)에 맞춤
+      const res = await apiGet<any>(`/tmdb/meta/${mt}/${id}`, { region });
+
+      const meta: ContentCardMeta = {
+        providers: normalizeProviders(res?.providers),
+        ageRating: normalizeAge(
+          res?.ageRating ?? res?.age ?? res?.certification
+        ),
+        fetchedAt: Date.now(),
+        isError: false,
+      };
+
+      cache.set(k, meta);
+      return meta;
+    } catch {
+      const meta: ContentCardMeta = {
+        providers: [],
+        ageRating: "—",
+        fetchedAt: Date.now(),
+        isError: true,
+      };
+      cache.set(k, meta);
+      return meta;
+    } finally {
+      inflight.delete(k);
+    }
+  })();
+
+  inflight.set(k, p);
+  return p;
+}
+
+export function useContentCardMeta(params: Params): ContentCardMeta | null {
+  const {
+    mediaType,
+    id,
+    needsMeta,
+    enabled = true, // ✅ 기본 true (기존 호출부 호환)
+    region = "KR",
+  } = params;
+
+  const mt: MediaType | null =
+    mediaType === "movie" || mediaType === "tv" ? mediaType : null;
+
+  const cacheKey = useMemo(() => {
+    if (!mt || !id) return null;
+    return keyOf(mt, id, region);
+  }, [mt, id, region]);
+
+  const [meta, setMeta] = useState<ContentCardMeta | null>(() => {
+    if (!cacheKey) return null;
+    const v = cache.get(cacheKey);
+    return v && isFresh(v) ? v : null;
   });
 
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mt) return;
+    if (!id || !Number.isFinite(id)) return;
     if (!needsMeta) return;
+    if (!enabled) return; // ✅ enabled=false면 요청 안 함
 
-    const now = Date.now();
-    const cached = metaCache.get(cacheKey);
-
-    const OK_TTL = 30 * 60 * 1000;
-    const ERROR_TTL = 60 * 1000;
-
-    const isFreshOk =
-      cached && !cached.isError && now - cached.fetchedAt < OK_TTL;
-
-    const isFreshError =
-      cached && cached.isError && now - cached.fetchedAt < ERROR_TTL;
-
-    if (cached) setMeta(cached);
-    if (isFreshOk || isFreshError) return;
-
-    if (!inflight.has(cacheKey)) {
-      inflight.set(
-        cacheKey,
-        apiGet<any>(`/tmdb/meta/${mediaType}/${id}`, { region: "KR" })
-          .then((r) => {
-            const providers = normalizeProviders(
-              r?.providers ?? r?.providerList ?? []
-            );
-            const ageRating = pickAgeFromResponse(r);
-
-            const safe: MetaPayload = {
-              providers,
-              ageRating,
-              fetchedAt: Date.now(),
-              isError: false,
-            };
-            metaCache.set(cacheKey, safe);
-            return safe;
-          })
-          .catch((e) => {
-            if ((import.meta as any).env?.DEV) {
-              console.warn("[ContentCard] meta fetch failed:", cacheKey, e);
-            }
-            const safe: MetaPayload = {
-              providers: [],
-              ageRating: "—",
-              fetchedAt: Date.now(),
-              isError: true,
-            };
-            metaCache.set(cacheKey, safe);
-            return safe;
-          })
-          .finally(() => {
-            inflight.delete(cacheKey);
-          })
-      );
+    // ✅ 캐시 신선하면 바로 반영
+    if (cacheKey) {
+      const v = cache.get(cacheKey);
+      if (v && isFresh(v)) {
+        setMeta(v);
+        return;
+      }
     }
 
-    inflight.get(cacheKey)!.then((r) => {
-      if (!mounted) return;
-      setMeta(r);
+    const cancel = scheduleIdle(() => {
+      fetchMeta(mt, id, region).then((v) => {
+        if (!mountedRef.current) return;
+        setMeta(v);
+      });
     });
 
-    return () => {
-      mounted = false;
-    };
-  }, [cacheKey, needsMeta, mediaType, id]);
+    return () => cancel?.();
+  }, [mt, id, region, needsMeta, enabled, cacheKey]);
 
   return meta;
 }

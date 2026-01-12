@@ -95,6 +95,32 @@ async function safeCall<T>(fn: any, args: any): Promise<T> {
   }
 }
 
+/**
+ * ✅ 속도 최적화:
+ * - TMDB detail 요청을 한 번에 폭주시키지 않고, 제한된 동시성으로 처리
+ * - UI/디자인 변화 없음
+ */
+async function pMapLimit<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, idx: number) => Promise<R>
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let idx = 0;
+
+  const workers = new Array(Math.max(1, Math.min(limit, items.length)))
+    .fill(0)
+    .map(async () => {
+      while (idx < items.length) {
+        const cur = idx++;
+        out[cur] = await mapper(items[cur], cur);
+      }
+    });
+
+  await Promise.all(workers);
+  return out;
+}
+
 function extractGenreIdsFromAny(item: any): number[] {
   const a = Array.isArray(item?.genre_ids) ? item.genre_ids : [];
   const b = Array.isArray(item?.genres)
@@ -300,8 +326,11 @@ export function MainScreen({
       return;
     }
 
-    const settled = await Promise.all(
-      favorites.map(async (item) => {
+    // ✅ 폭주 방지: favorites detail은 제한 동시성으로 로드
+    const settled = await pMapLimit(
+      favorites,
+      6,
+      async (item): Promise<MovieWithScore | null> => {
         try {
           const detail =
             item.mediaType === "tv"
@@ -317,7 +346,7 @@ export function MainScreen({
         } catch {
           return null;
         }
-      })
+      }
     );
 
     setFavoriteMovies(settled.filter((m): m is MovieWithScore => m !== null));
@@ -388,8 +417,11 @@ export function MainScreen({
           .filter((x) => typeof x.tmdbId === "number" && x.tmdbId)
           .slice(0, 20);
 
-        const details = await Promise.all(
-          targets.map(async (it) => {
+        // ✅ 폭주 방지: 트렌드 detail도 제한 동시성
+        const details = await pMapLimit(
+          targets,
+          6,
+          async (it): Promise<any | null> => {
             try {
               const d = await getMovieDetails(it.tmdbId as number);
               if (!d) return null;
@@ -397,7 +429,7 @@ export function MainScreen({
             } catch {
               return null;
             }
-          })
+          }
         );
 
         if (!mounted) return;

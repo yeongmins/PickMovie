@@ -1,5 +1,5 @@
 // frontend/src/components/content/ContentCard.tsx
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
 import { getReleaseStatusKind } from "../../lib/contentMeta";
@@ -30,6 +30,47 @@ export type {
   ContentCardItem,
   ContentCardProps,
 } from "./contentCard.types";
+
+/**
+ * ✅ 속도 최적화:
+ * - 카드가 "보이기 전"에는 meta 호출을 막고(=enabled false),
+ * - 화면에 들어오면 그때 meta를 lazy 로드
+ * - UI/디자인은 그대로, 네트워크 폭주만 억제
+ */
+function useInViewOnce<T extends Element>(opts?: {
+  rootMargin?: string;
+  threshold?: number;
+}) {
+  const ref = useRef<T | null>(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    if (inView) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const v = entries.some((e) => e.isIntersecting);
+        if (v) {
+          setInView(true);
+          io.disconnect();
+        }
+      },
+      {
+        root: null,
+        rootMargin: opts?.rootMargin ?? "250px",
+        threshold: opts?.threshold ?? 0.01,
+      }
+    );
+
+    io.observe(el);
+    return () => io.disconnect();
+  }, [inView, opts?.rootMargin, opts?.threshold]);
+
+  return { ref, inView };
+}
 
 function yearFromYmd(ymd?: string | null): string | null {
   const raw = String(ymd || "").trim();
@@ -79,6 +120,11 @@ export function ContentCard({
 }: ContentCardProps) {
   if (!isKoreanTitle(item)) return null;
 
+  const { ref: cardRef, inView } = useInViewOnce<HTMLDivElement>({
+    rootMargin: "300px",
+    threshold: 0.01,
+  });
+
   const title = getDisplayTitle(item);
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
@@ -98,10 +144,13 @@ export function ContentCard({
     return !hasProviders || !hasAge;
   }, [item.providers, item.ageRating]);
 
+  // ✅ 핵심: "보이기 전"엔 meta 호출 막기
   const meta = useContentCardMeta({
     mediaType,
     id: item.id,
     needsMeta,
+    enabled: inView, // ✅ 여기만으로도 초기 폭주가 크게 줄어듦
+    region: "KR",
   });
 
   const tvLatest = useTvLatestState(mediaType, item.id);
@@ -259,6 +308,7 @@ export function ContentCard({
 
   return (
     <div
+      ref={cardRef}
       role="button"
       tabIndex={0}
       onClick={onClick}
