@@ -3,32 +3,30 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
+import { PrismaService } from '../prisma/prisma.service';
 
 type KobisMovieListItem = {
   movieCd?: string;
   movieNm?: string;
   movieNmEn?: string;
-  openDt?: string; // "YYYYMMDD" or sometimes ""
+  openDt?: string;
   prdtYear?: string;
   typeNm?: string;
   prdtStatNm?: string;
 };
 
 type KobisSearchMovieListResponse = {
-  movieListResult?: {
-    movieList?: KobisMovieListItem[];
-  };
+  movieListResult?: { movieList?: KobisMovieListItem[] };
 };
 
 type KobisDailyBoxOfficeItem = {
+  rank?: string;
   movieCd?: string;
   movieNm?: string;
 };
 
 type KobisDailyBoxOfficeResponse = {
-  boxOfficeResult?: {
-    dailyBoxOfficeList?: KobisDailyBoxOfficeItem[];
-  };
+  boxOfficeResult?: { dailyBoxOfficeList?: KobisDailyBoxOfficeItem[] };
 };
 
 export type KobisMatch = {
@@ -41,8 +39,18 @@ type TmdbDetailLike = {
   original_title?: unknown;
   name?: unknown;
   original_name?: unknown;
-  release_date?: unknown; // "YYYY-MM-DD"
+  release_date?: unknown;
 };
+
+type BoxOfficeSnapshotItem = {
+  rank: number | null;
+  movieCd: string;
+  movieNm: string;
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
 
 function toCleanStr(v: unknown): string {
   if (typeof v === 'string') return v.trim();
@@ -63,23 +71,44 @@ function isoToYear(iso: string): string {
 }
 
 function normTitle(s: string): string {
-  // 불필요 escape/regex 경고 피하려고 unicode 기반으로 정리
-  // 문자/숫자만 남기고 소문자
   return s
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
+function toYmdKR(d: Date): string {
+  const y = String(d.getFullYear()).padStart(4, '0');
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${da}`;
+}
+
+function parseBoxOfficeItems(v: unknown): BoxOfficeSnapshotItem[] {
+  if (!Array.isArray(v)) return [];
+  const out: BoxOfficeSnapshotItem[] = [];
+  for (const it of v) {
+    if (!isRecord(it)) continue;
+    const rankRaw = toCleanStr(it['rank']);
+    const movieCd = toCleanStr(it['movieCd']);
+    const movieNm = toCleanStr(it['movieNm']);
+    if (!movieCd || !movieNm) continue;
+    out.push({
+      rank: rankRaw ? Number(rankRaw) || null : null,
+      movieCd,
+      movieNm,
+    });
+  }
+  return out;
+}
+
 @Injectable()
 export class KobisService {
   private readonly logger = new Logger(KobisService.name);
-
   private readonly base =
     'https://www.kobis.or.kr/kobisopenapi/webservice/rest';
   private readonly key: string;
 
-  // ✅ 단순 캐시(상영중 판정용: 최근 박스오피스 movieCd set)
   private nowPlayingCache: {
     fetchedAt: number;
     days: number;
@@ -89,6 +118,7 @@ export class KobisService {
   constructor(
     private readonly http: HttpService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {
     this.key = String(this.config.get('KOBIS_API_KEY') ?? '').trim();
   }
@@ -97,9 +127,7 @@ export class KobisService {
     path: string,
     params: Record<string, string | number | undefined>,
   ): Promise<T> {
-    if (!this.key) {
-      throw new Error('Missing KOBIS_API_KEY');
-    }
+    if (!this.key) throw new Error('Missing KOBIS_API_KEY');
 
     const url = new URL(`${this.base}${path}`);
     url.searchParams.set('key', this.key);
@@ -115,8 +143,8 @@ export class KobisService {
 
   async searchMovieList(params: {
     movieNm: string;
-    openStartDt?: string; // "YYYYMMDD"
-    openEndDt?: string; // "YYYYMMDD"
+    openStartDt?: string;
+    openEndDt?: string;
     curPage?: number;
     itemPerPage?: number;
   }): Promise<KobisMovieListItem[]> {
@@ -138,19 +166,12 @@ export class KobisService {
       const list = json.movieListResult?.movieList;
       return Array.isArray(list) ? list : [];
     } catch (e: unknown) {
-      if (process.env.NODE_ENV !== 'production') {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.logger.warn(`[KOBIS] searchMovieList failed: ${msg}`);
-      }
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[KOBIS] searchMovieList failed: ${msg}`);
       return [];
     }
   }
 
-  /**
-   * ✅ "상영중" 현실 판정용(합집합용):
-   * - KOBIS는 '상영중' boolean을 직접 주진 않음
-   * - 대신 "최근 N일 박스오피스에 등장" => 극장 상영중으로 판단 (현실적으로 가장 안전)
-   */
   async getNowPlayingMovieCds(days = 7): Promise<Set<string>> {
     const now = Date.now();
     const OK_TTL = 6 * 60 * 60 * 1000;
@@ -164,26 +185,17 @@ export class KobisService {
     }
 
     const set = new Set<string>();
+
     const today = new Date();
-
-    const toYmd = (d: Date) => {
-      const y = String(d.getFullYear()).padStart(4, '0');
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const da = String(d.getDate()).padStart(2, '0');
-      return `${y}${m}${da}`;
-    };
-
     for (let i = 0; i < days; i += 1) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      const targetDt = toYmd(d);
+      const targetDt = toYmdKR(d);
 
       try {
         const json = await this.getJson<KobisDailyBoxOfficeResponse>(
           '/boxoffice/searchDailyBoxOfficeList.json',
-          {
-            targetDt,
-          },
+          { targetDt },
         );
 
         const list = json.boxOfficeResult?.dailyBoxOfficeList;
@@ -194,7 +206,7 @@ export class KobisService {
           if (cd) set.add(cd);
         }
       } catch {
-        // 하루 실패는 무시 (전체를 죽이면 오탐/누락이 커짐)
+        // 하루 실패는 무시
       }
     }
 
@@ -202,10 +214,6 @@ export class KobisService {
     return set;
   }
 
-  /**
-   * ✅ TMDB detail(제목/개봉일) 기반으로 KOBIS movieCd/openDt 매칭
-   * - 반환 openDt는 "YYYY-MM-DD"로 통일
-   */
   async findOpenDtByTmdbDetail(detail: TmdbDetailLike): Promise<KobisMatch> {
     const titlePool = [
       toCleanStr(detail.title),
@@ -214,18 +222,14 @@ export class KobisService {
       toCleanStr(detail.original_name),
     ].filter(Boolean);
 
-    const releaseIso = toCleanStr(detail.release_date); // "YYYY-MM-DD"
+    const releaseIso = toCleanStr(detail.release_date);
     const releaseYear = isoToYear(releaseIso);
 
-    if (!titlePool.length) {
-      return { kobisMovieCd: null, kobisOpenDt: null };
-    }
+    if (!titlePool.length) return { kobisMovieCd: null, kobisOpenDt: null };
 
-    // 1) 가장 “짧고 일반적인” 제목부터 검색(오탐 줄이기)
     const primaryTitle =
       [...titlePool].sort((a, b) => a.length - b.length)[0] ?? '';
 
-    // 2) 개봉연도 +-1 범위로 openStart/openEnd를 걸어주면 매칭률이 확 좋아짐
     const yr = /^\d{4}$/.test(releaseYear) ? Number(releaseYear) : null;
     const openStartDt = yr ? `${yr - 1}0101` : undefined;
     const openEndDt = yr ? `${yr + 1}1231` : undefined;
@@ -238,7 +242,6 @@ export class KobisService {
     });
 
     if (!candidates.length) {
-      // 연도 필터가 너무 빡셀 수 있어서 한 번 더(필터 없이)
       const fallback = await this.searchMovieList({
         movieNm: primaryTitle,
         itemPerPage: 50,
@@ -246,7 +249,6 @@ export class KobisService {
       candidates.push(...fallback);
     }
 
-    // 3) 타이틀 유사도(정규화) + 개봉연도 근접으로 best pick
     const tmdbNorms = titlePool.map(normTitle);
     const score = (it: KobisMovieListItem) => {
       const nm = normTitle(toCleanStr(it.movieNm));
@@ -255,7 +257,6 @@ export class KobisService {
       const openYear = isoToYear(openIso);
 
       let s = 0;
-      // 타이틀 포함/일치 점수
       for (const t of tmdbNorms) {
         if (!t) continue;
         if (nm === t || en === t) s += 1000;
@@ -268,7 +269,6 @@ export class KobisService {
           s += 350;
       }
 
-      // 연도 근접
       if (yr && /^\d{4}$/.test(openYear)) {
         const dy = Math.abs(Number(openYear) - yr);
         if (dy === 0) s += 120;
@@ -276,9 +276,7 @@ export class KobisService {
         else if (dy === 2) s += 20;
       }
 
-      // openDt 존재 가산
       if (openIso) s += 10;
-
       return s;
     };
 
@@ -296,9 +294,72 @@ export class KobisService {
     const kobisMovieCd = best ? toCleanStr(best.movieCd) : '';
     const kobisOpenDtIso = best ? ymdToIso(toCleanStr(best.openDt)) : null;
 
-    return {
-      kobisMovieCd: kobisMovieCd || null,
-      kobisOpenDt: kobisOpenDtIso,
-    };
+    return { kobisMovieCd: kobisMovieCd || null, kobisOpenDt: kobisOpenDtIso };
+  }
+
+  async getDailyBoxOffice(
+    targetDt: string,
+  ): Promise<{ targetDt: string; items: BoxOfficeSnapshotItem[] }> {
+    const t = String(targetDt || '').trim();
+    if (!/^\d{8}$/.test(t)) return { targetDt: t, items: [] };
+
+    const existing = await this.prisma.kobisBoxOfficeSnapshot.findUnique({
+      where: { targetDt: t },
+    });
+
+    if (existing) {
+      return { targetDt: t, items: parseBoxOfficeItems(existing.items) };
+    }
+
+    const items = await this.fetchDailyBoxOffice(t);
+
+    await this.prisma.kobisBoxOfficeSnapshot.upsert({
+      where: { targetDt: t },
+      update: { items, fetchedAt: new Date() },
+      create: { targetDt: t, items, fetchedAt: new Date() },
+    });
+
+    return { targetDt: t, items };
+  }
+
+  async refreshYesterdayBoxOfficeSnapshot(): Promise<void> {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const targetDt = toYmdKR(d);
+    await this.getDailyBoxOffice(targetDt);
+  }
+
+  private async fetchDailyBoxOffice(
+    targetDt: string,
+  ): Promise<BoxOfficeSnapshotItem[]> {
+    try {
+      const json = await this.getJson<KobisDailyBoxOfficeResponse>(
+        '/boxoffice/searchDailyBoxOfficeList.json',
+        { targetDt },
+      );
+
+      const list = json.boxOfficeResult?.dailyBoxOfficeList;
+      if (!Array.isArray(list)) return [];
+
+      return list
+        .map((it) => {
+          const movieCd = toCleanStr(it.movieCd);
+          const movieNm = toCleanStr(it.movieNm);
+          const rankStr = toCleanStr(it.rank);
+          if (!movieCd || !movieNm) return null;
+          return {
+            rank: rankStr ? Number(rankStr) || null : null,
+            movieCd,
+            movieNm,
+          };
+        })
+        .filter((x): x is BoxOfficeSnapshotItem => x !== null);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `[KOBIS] fetchDailyBoxOffice failed(${targetDt}): ${msg}`,
+      );
+      return [];
+    }
   }
 }

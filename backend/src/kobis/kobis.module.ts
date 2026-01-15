@@ -2,9 +2,11 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { KobisService } from './kobis.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
+    PrismaModule,
     HttpModule.register({
       baseURL: 'https://kobis.or.kr/kobisopenapi/webservice/rest',
       timeout: 12_000,

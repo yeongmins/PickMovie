@@ -30,10 +30,7 @@ model User {
   emailVerifiedAt         DateTime?
   emailVerificationTokens EmailVerificationToken[]
 
-  // ✅ 찜(서버 동기화 MVP)
   favorites Favorite[]
-
-  // ✅ 플레이리스트(DB)
   playlists Playlist[]
 }
 
@@ -140,10 +137,6 @@ enum TrendMediaType {
   unknown
 }
 
-/**
- * ✅ 기존: 소스에서 들어온 키워드(Seed)
- * - v2에서 topicId를 추가해 "작품/주제(Topic)"로 통합
- */
 model TrendSeed {
   id        Int            @id @default(autoincrement())
   keyword   String
@@ -154,7 +147,6 @@ model TrendSeed {
   year   Int?
   raw    Json?
 
-  // ✅ 추가: 정규화 Topic 연결
   topicId Int?
   topic   TrendTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
 
@@ -169,16 +161,12 @@ model TrendSeed {
   @@index([topicId])
 }
 
-/**
- * ✅ 기존: 일자별 랭킹(Seed 기준) - 엔드포인트 호환 유지
- */
 model TrendRank {
   id     Int       @id @default(autoincrement())
   seedId Int
   seed   TrendSeed @relation(fields: [seedId], references: [id], onDelete: Cascade)
 
-  // ✅ 타임존 꼬임 방지용: YYYYMMDD 문자열(정렬도 그대로 먹힘)
-  date String // e.g. "20251229"
+  date String
 
   rank      Int
   score     Float
@@ -190,12 +178,6 @@ model TrendRank {
   @@index([date, score])
 }
 
-/**
- * =====================================
- * Trend DB v2 (고도화)
- * =====================================
- */
-
 enum TrendRunStatus {
   running
   success
@@ -204,7 +186,7 @@ enum TrendRunStatus {
 
 model TrendIngestRun {
   id     Int            @id @default(autoincrement())
-  date   String // YYYYMMDD
+  date   String
   region String         @default("KR")
   status TrendRunStatus @default(running)
 
@@ -235,10 +217,6 @@ model TrendSnapshot {
   @@index([source, fetchedAt])
 }
 
-/**
- * ✅ 작품/주제(Topic) 단위로 통합
- * - Picky/온보딩은 "Topic"을 참조하도록 설계
- */
 model TrendTopic {
   id        Int            @id @default(autoincrement())
   mediaType TrendMediaType @default(unknown)
@@ -276,16 +254,12 @@ model TrendTopicAlias {
   @@index([normAlias])
 }
 
-/**
- * ✅ 메트릭(row) 저장: 재가공/재스코어링/분석이 쉬움
- * metric 예: "kobis.invRank", "naver.blogTotal", "yt.totalResults"
- */
 model TrendMetric {
   id      Int        @id @default(autoincrement())
   topicId Int
   topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
-  date     String // YYYYMMDD
+  date     String
   source   TrendSource
   metric   String
   value    Float
@@ -300,16 +274,12 @@ model TrendMetric {
   @@index([source, metric, date])
 }
 
-/**
- * ✅ 알고리즘 버전별 최종 점수/랭크(Topic 기준)
- * - Picky boost는 이 테이블을 조회하면 됨
- */
 model TrendScore {
   id      Int        @id @default(autoincrement())
   topicId Int
   topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
-  date        String // YYYYMMDD
+  date        String
   algoVersion String @default("kr.daily.v1")
 
   rank      Int
@@ -320,4 +290,106 @@ model TrendScore {
 
   @@unique([topicId, date, algoVersion])
   @@index([date, algoVersion, score])
+}
+
+// ===== Enums =====
+enum MetaMediaType {
+  movie
+  tv
+}
+
+enum ContentKind {
+  MOVIE
+  TV
+  ANI
+}
+
+enum ReleaseStatus {
+  NOW_SHOWING
+  UPCOMING
+  RE_RELEASE
+  NONE
+}
+
+// ✅ FIX: Prisma enum 값은 '_'로 시작 불가 → R12/R15/R19로 변경
+enum AgeRating {
+  ALL
+  R12
+  R15
+  R19
+  UNKNOWN
+}
+
+enum HomeCollectionKey {
+  POPULAR_MOVIE
+  POPULAR_TV
+  TRENDING_MOVIE
+  TRENDING_TV
+}
+
+// ===== Models =====
+model ContentMetaResolved {
+  id            String        @id @default(cuid())
+  mediaType     MetaMediaType
+  tmdbId        Int
+
+  contentKind   ContentKind
+  releaseStatus ReleaseStatus
+  ageRating     AgeRating
+  releaseYear   Int?
+
+  watchProviders Json?
+
+  sourcesUsed  Json?
+  metaVersion  Int           @default(1)
+  resolvedAt   DateTime      @default(now())
+  expiresAt    DateTime?
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([mediaType, tmdbId])
+  @@index([resolvedAt])
+}
+
+model ContentMetaOverride {
+  id            String        @id @default(cuid())
+  mediaType     MetaMediaType
+  tmdbId        Int
+
+  contentKind   ContentKind?
+  releaseStatus ReleaseStatus?
+  ageRating     AgeRating?
+  releaseYear   Int?
+
+  watchProviders Json?
+
+  updatedBy    String?
+  updatedAt    DateTime      @default(now())
+
+  createdAt    DateTime      @default(now())
+
+  @@unique([mediaType, tmdbId])
+}
+
+model HomeCollectionSnapshot {
+  id          String            @id @default(cuid())
+  key         HomeCollectionKey @unique
+
+  items       Json
+  generatedAt DateTime          @default(now())
+  expiresAt   DateTime?
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model KobisBoxOfficeSnapshot {
+  id         String   @id @default(cuid())
+  targetDt   String   @unique
+  items      Json
+  fetchedAt  DateTime @default(now())
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

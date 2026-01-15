@@ -70,6 +70,22 @@ export interface MovieWithScore extends TMDBMovie {
   matchScore?: number;
 }
 
+type HomeCollectionKey =
+  | "POPULAR_MOVIE"
+  | "POPULAR_TV"
+  | "TRENDING_MOVIE"
+  | "TRENDING_TV";
+
+type HomeChartItem = { mediaType: MediaType; tmdbId: number; rank: number };
+
+type HomeChartsResponse = {
+  collections: Array<{
+    key: HomeCollectionKey;
+    generatedAt: string;
+    items: HomeChartItem[];
+  }>;
+};
+
 const sectionVariants = {
   initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0 },
@@ -83,22 +99,20 @@ function withMatchScore(
   return { ...movie, matchScore: calculateMatchScore(movie, prefs) };
 }
 
+function unwrapList<T = any>(v: any): T[] {
+  if (Array.isArray(v)) return v as T[];
+  if (Array.isArray(v?.results)) return v.results as T[];
+  if (Array.isArray(v?.items)) return v.items as T[];
+  if (Array.isArray(v?.data)) return v.data as T[];
+  return [];
+}
+
 const NEW_USER_FLAG = "pickmovie_new_signup";
 const ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
 const KR = { region: "KR", language: "ko-KR" } as const;
 
-async function safeCall<T>(fn: any, args: any): Promise<T> {
-  try {
-    return (await fn(args)) as T;
-  } catch {
-    return (await fn()) as T;
-  }
-}
-
 /**
- * ✅ 속도 최적화:
- * - TMDB detail 요청을 한 번에 폭주시키지 않고, 제한된 동시성으로 처리
- * - UI/디자인 변화 없음
+ * ✅ 동시성 제한 (기존 UI 유지, 폭주 방지)
  */
 async function pMapLimit<T, R>(
   items: T[],
@@ -236,6 +250,16 @@ function buildDetailPath(mediaType: MediaType, id: number) {
   return `/title/${mediaType}/${id}`;
 }
 
+function getHomeCollection(
+  resp: HomeChartsResponse | null,
+  key: HomeCollectionKey
+): HomeChartItem[] {
+  const cols = resp?.collections;
+  if (!Array.isArray(cols)) return [];
+  const c = cols.find((x) => x?.key === key);
+  return Array.isArray(c?.items) ? c!.items : [];
+}
+
 export function MainScreen({
   userPreferences,
   favorites,
@@ -271,11 +295,49 @@ export function MainScreen({
     title?: string;
   } | null>(null);
 
+  // ✅ 디테일 캐시(중복 호출 제거)
+  const detailCacheRef = useRef<Map<string, any>>(new Map());
+  const homeChartsRef = useRef<HomeChartsResponse | null>(null);
+
   const favoriteKeySet = useMemo(() => {
     return new Set(favorites.map((f) => `${f.mediaType}:${f.id}`));
   }, [favorites]);
 
   const favoriteIdList = useMemo(() => favorites.map((f) => f.id), [favorites]);
+
+  const fetchDetailCached = useCallback(
+    async (mediaType: MediaType, id: number) => {
+      const key = `${mediaType}:${id}`;
+      const cached = detailCacheRef.current.get(key);
+      if (cached) return cached;
+
+      const d = await apiGet<any>(`/tmdb/proxy/${mediaType}/${id}`, KR);
+      if (d) detailCacheRef.current.set(key, d);
+      return d;
+    },
+    []
+  );
+
+  const hydrateSnapshotItems = useCallback(
+    async (items: HomeChartItem[]) => {
+      const sorted = [...items].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+      const settled = await pMapLimit(
+        sorted,
+        6,
+        async (it): Promise<any | null> => {
+          try {
+            const d = await fetchDetailCached(it.mediaType, it.tmdbId);
+            if (!d) return null;
+            return { ...(d as any), media_type: it.mediaType } as any;
+          } catch {
+            return null;
+          }
+        }
+      );
+      return settled.filter(Boolean) as any[];
+    },
+    [fetchDetailCached]
+  );
 
   useEffect(() => {
     const sync = () => setLoggedIn(isLoggedInFallback());
@@ -326,21 +388,20 @@ export function MainScreen({
       return;
     }
 
-    // ✅ 폭주 방지: favorites detail은 제한 동시성으로 로드
     const settled = await pMapLimit(
       favorites,
       6,
       async (item): Promise<MovieWithScore | null> => {
         try {
-          const detail =
-            item.mediaType === "tv"
-              ? await getTVDetails(item.id)
-              : await getMovieDetails(item.id);
-
+          const detail = await fetchDetailCached(
+            item.mediaType as MediaType,
+            item.id
+          );
           if (!detail) return null;
 
           const baseMovie =
             item.mediaType === "tv" ? normalizeTVToMovie(detail) : detail;
+
           const fixed = { ...(baseMovie as any), media_type: item.mediaType };
           return withMatchScore(fixed as TMDBMovie, userPreferences);
         } catch {
@@ -350,30 +411,46 @@ export function MainScreen({
     );
 
     setFavoriteMovies(settled.filter((m): m is MovieWithScore => m !== null));
-  }, [favorites, userPreferences]);
+  }, [favorites, userPreferences, fetchDetailCached]);
+
+  async function safeCall<T>(
+    fn: (...args: any[]) => Promise<T>,
+    args?: any
+  ): Promise<T> {
+    try {
+      // 일부 tmdb 함수는 (options) 형태, 일부는 () 형태라 둘 다 대응
+      return args !== undefined ? await fn(args) : await fn();
+    } catch {
+      // args 넘겼다가 실패하면 한번 더 no-arg로 재시도
+      return await fn();
+    }
+  }
 
   const loadAllData = useCallback(async () => {
     setLoading(true);
 
     try {
-      const [popular, tv, topRated, latest] = await Promise.all([
-        safeCall<TMDBMovie[]>(getPopularMovies, KR),
-        safeCall<TMDBMovie[]>(getPopularTVShows, KR),
-        safeCall<TMDBMovie[]>(getTopRatedMovies, KR),
-        safeCall<TMDBMovie[]>(getNowPlayingMovies, KR),
+      const [popularRes, tvRes, topRatedRes, latestRes] = await Promise.all([
+        safeCall<any>(getPopularMovies, KR),
+        safeCall<any>(getPopularTVShows, KR),
+        safeCall<any>(getTopRatedMovies, KR),
+        safeCall<any>(getNowPlayingMovies, KR),
       ]);
 
+      const popular = unwrapList<TMDBMovie>(popularRes);
+      const tv = unwrapList<TMDBMovie>(tvRes);
+      const topRated = unwrapList<TMDBMovie>(topRatedRes);
+      const latest = unwrapList<TMDBMovie>(latestRes);
+
       setPopularMovies(
-        (popular || []).map((m) => ({ ...(m as any), media_type: "movie" }))
+        popular.map((m) => ({ ...(m as any), media_type: "movie" }))
       );
-      setPopularTV(
-        (tv || []).map((t) => ({ ...(t as any), media_type: "tv" }))
-      );
+      setPopularTV(tv.map((t) => ({ ...(t as any), media_type: "tv" })));
       setTopRatedMovies(
-        (topRated || []).map((m) => ({ ...(m as any), media_type: "movie" }))
+        topRated.map((m) => ({ ...(m as any), media_type: "movie" }))
       );
       setLatestMovies(
-        (latest || []).map((m) => ({ ...(m as any), media_type: "movie" }))
+        latest.map((m) => ({ ...(m as any), media_type: "movie" }))
       );
     } finally {
       setLoading(false);
@@ -402,6 +479,7 @@ export function MainScreen({
 
     (async () => {
       try {
+        // ✅ 기존 기능 유지: PickMovie 인기(트렌드) = /trends/kr
         const r = await apiGet<{
           date: string;
           items: Array<{
@@ -417,13 +495,12 @@ export function MainScreen({
           .filter((x) => typeof x.tmdbId === "number" && x.tmdbId)
           .slice(0, 20);
 
-        // ✅ 폭주 방지: 트렌드 detail도 제한 동시성
         const details = await pMapLimit(
           targets,
           6,
           async (it): Promise<any | null> => {
             try {
-              const d = await getMovieDetails(it.tmdbId as number);
+              const d = await fetchDetailCached("movie", it.tmdbId as number);
               if (!d) return null;
               return { ...(d as any), media_type: "movie" } as any;
             } catch {
@@ -432,8 +509,16 @@ export function MainScreen({
           }
         );
 
+        // ✅ fallback: trends가 비었으면 home snapshot의 TRENDING_MOVIE로 채움(디자인/흐름 유지)
+        const picked =
+          details.filter(Boolean).length > 0
+            ? (details.filter(Boolean) as any[])
+            : await hydrateSnapshotItems(
+                getHomeCollection(homeChartsRef.current, "TRENDING_MOVIE")
+              );
+
         if (!mounted) return;
-        setTrendMoviesRaw(details.filter(Boolean) as any[]);
+        setTrendMoviesRaw(picked as any);
       } catch {
         if (mounted) setTrendMoviesRaw([]);
       } finally {
@@ -444,7 +529,7 @@ export function MainScreen({
     return () => {
       mounted = false;
     };
-  }, [currentSection, loggedIn]);
+  }, [currentSection, loggedIn, fetchDetailCached, hydrateSnapshotItems]);
 
   useEffect(() => {
     if (forYouOnceRef.current) return;
@@ -484,16 +569,8 @@ export function MainScreen({
         }
 
         const [p1, p2] = await Promise.all([
-          safeCall<TMDBMovie[]>(discoverMovies, {
-            genres: seedGenreIds,
-            page: 1,
-            ...KR,
-          }),
-          safeCall<TMDBMovie[]>(discoverMovies, {
-            genres: seedGenreIds,
-            page: 2,
-            ...KR,
-          }),
+          discoverMovies({ genres: seedGenreIds, page: 1, ...KR }),
+          discoverMovies({ genres: seedGenreIds, page: 2, ...KR }),
         ]);
 
         const pool = [...(p1 || []), ...(p2 || [])];
