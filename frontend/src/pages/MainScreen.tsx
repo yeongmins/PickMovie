@@ -930,16 +930,17 @@ export function MainScreen({
         </AnimatePresence>
       </main>
 
-<div className="relative mt-10 [&>footer]:border-t-0">
-  <div
-    aria-hidden
-    className="pointer-events-none absolute -top-10 left-0 right-0 h-10"
-    style={{
-      backgroundImage: "linear-gradient(to bottom, #1a1a24 0%, #0b0b10 100%)",
-    }}
-  />
-  <Footer />
-</div>
+      <div className="relative mt-10 [&>footer]:border-t-0">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-10 left-0 right-0 h-10"
+          style={{
+            backgroundImage:
+              "linear-gradient(to bottom, #1a1a24 0%, #0b0b10 100%)",
+          }}
+        />
+        <Footer />
+      </div>
     </div>
   );
 }

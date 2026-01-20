@@ -250,6 +250,11 @@ function useTitleLogo(mediaType: "movie" | "tv", id: number): TitleLogoState {
 
 function TitleLogoOrText({ movie }: { movie: any }) {
   const title = getDisplayTitle(movie as any);
+  // 25자(문자 기준) 넘어가면 더 줄이기
+  const titleLen = Array.from(title).length; // 한글/이모지 안전하게
+  const fallbackFontEm =
+    titleLen > 40 ? 0.84 : titleLen > 32 ? 0.92 : titleLen > 25 ? 1.0 : 1.08;
+
   const mediaType = normalizeMediaType((movie as any)?.media_type);
 
   const logo = useTitleLogo(mediaType, (movie as any).id);
@@ -356,7 +361,7 @@ function TitleLogoOrText({ movie }: { movie: any }) {
               fontWeight: 800,
               letterSpacing: "-0.03em",
               lineHeight: 1.05,
-              fontSize: "1.08em",
+              fontSize: `${fallbackFontEm}em`,
               color: "rgba(255,255,255,0.98)",
               transform: "translateY(1px)",
               maxWidth: "min(680px, 90vw)",

@@ -3812,27 +3812,13 @@ body:after {
 
 @media (max-width: 431px) {
   .carousel-title {
-    font-size: var(--text-2xl);
+    font-size: var(--text-xl);
     line-height: var(--text-2xl--line-height);
     margin-bottom: calc(var(--spacing) * 3);
     transition: font-size 0.25s ease, line-height 0.25s ease;
   }
 }
 
-@media (min-width: 1025px) {
-  .carousel-title {
-    font-size: var(--text-4xl);
-    line-height: var(--text-4xl--line-height);
-    transition: font-size 0.25s ease, line-height 0.25s ease;
-  }
-}
-
-@media (min-width: 1920px) {
-  .carousel-title {
-    font-size: 45px;
-    transition: font-size 0.25s ease, line-height 0.25s ease;
-  }
-}
 
 /* 기본값: 모바일 + 태블릿에서는 안 보이게 */
 .logo-icon {
