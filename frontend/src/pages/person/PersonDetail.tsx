@@ -1,7 +1,7 @@
 // frontend/src/pages/person/PersonDetail.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { X, ChevronRight, Instagram, Globe } from "lucide-react";
+import { X, ChevronRight, Instagram, Globe, ChevronLeft } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { apiGet } from "../../lib/apiClient";
@@ -16,7 +16,6 @@ type TmdbPersonDetail = {
   deathday?: string | null;
   place_of_birth?: string | null;
   biography?: string | null;
-  also_known_as?: string[];
   gender?: number;
   popularity?: number;
   homepage?: string | null;
@@ -67,45 +66,88 @@ function locationToPath(loc: any): string | null {
   return `${p}${s}${h}`;
 }
 
+/** ✅ 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
+function lockBodyScroll() {
+  if (typeof document === "undefined") return () => {};
+  const attr = "data-pm-scroll-lock";
+  const cur = Number(document.body.getAttribute(attr) || "0") || 0;
+  const next = cur + 1;
+
+  document.body.setAttribute(attr, String(next));
+  if (cur === 0) document.body.style.overflow = "hidden";
+
+  return () => {
+    const now = Number(document.body.getAttribute(attr) || "0") || 0;
+    const dec = Math.max(0, now - 1);
+
+    if (dec === 0) {
+      document.body.style.overflow = "";
+      document.body.removeAttribute(attr);
+    } else {
+      document.body.setAttribute(attr, String(dec));
+    }
+  };
+}
+
 export default function PersonDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
 
   const personId = Number(params.id);
+  const st = location.state as any;
 
-  const closeTargetPath = useMemo(() => {
-    const st = location.state as any;
-    const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
-    return locationToPath(root) ?? "/";
-  }, [location.state]);
+  // ✅ overlay로 열린 케이스(상세 위에 배우 모달)
+  const hasBackgroundLocation = !!st?.backgroundLocation;
+
+  // ✅ 대표작 → 상세 이동 때 사용할 root(메인/리스트)
+  const rootLocation = st?.rootLocation ?? null;
+
+  // ✅ 닫기(=상세 들어오기 전 화면) 경로
+  const rootPath = useMemo(() => {
+    return (
+      locationToPath(st?.rootLocation ?? st?.backgroundLocation ?? null) ?? "/"
+    );
+  }, [st]);
+
+  // ✅ 이전(상세) 경로: titleStack이 있으면 그걸 우선, 없으면 history back
+  const detailPath = useMemo(() => {
+    return locationToPath(st?.titleStack ?? null) ?? null;
+  }, [st]);
 
   const [person, setPerson] = useState<TmdbPersonDetail | null>(null);
   const [external, setExternal] = useState<TmdbExternalIds | null>(null);
   const [credits, setCredits] = useState<TmdbCreditItem[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [closing, setClosing] = useState(false);
 
+  // ✅ 중첩 모달 스크롤락 안전 처리
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    const unlock = lockBodyScroll();
+    return () => unlock();
   }, []);
 
-  const requestClose = useCallback(() => {
+  // ✅ 닫기(X/바깥/ESC): 상세가 아니라 "상세 들어오기 전 화면(root)"로
+  const closeTargetRef = useRef<"root" | "detail">("root");
+
+  const requestCloseToRoot = useCallback(() => {
+    closeTargetRef.current = "root";
+    setClosing(true);
+  }, []);
+
+  // ✅ 이전 버튼: 이전 상세로
+  const requestBackToDetail = useCallback(() => {
+    closeTargetRef.current = "detail";
     setClosing(true);
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
+      if (e.key === "Escape") requestCloseToRoot();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [requestClose]);
+  }, [requestCloseToRoot]);
 
   useEffect(() => {
     let alive = true;
@@ -117,9 +159,7 @@ export default function PersonDetail() {
 
     if (!Number.isFinite(personId) || personId <= 0) {
       setLoading(false);
-      return () => {
-        alive = false;
-      };
+      return () => void (alive = false);
     }
 
     void (async () => {
@@ -129,12 +169,12 @@ export default function PersonDetail() {
             language: "ko-KR",
           }),
           apiGet<TmdbExternalIds>(
-            `/tmdb/proxy/person/${personId}/external_ids`
+            `/tmdb/proxy/person/${personId}/external_ids`,
           ).catch(() => null),
           apiGet<TmdbCombinedCredits>(
             `/tmdb/proxy/person/${personId}/combined_credits`,
-            { language: "ko-KR" }
-          ).catch(() => ({ cast: [] } as TmdbCombinedCredits)),
+            { language: "ko-KR" },
+          ).catch(() => ({ cast: [] }) as TmdbCombinedCredits),
         ]);
 
         if (!alive) return;
@@ -147,7 +187,7 @@ export default function PersonDetail() {
           .filter(
             (x) =>
               typeof x?.id === "number" &&
-              (x.media_type === "movie" || x.media_type === "tv")
+              (x.media_type === "movie" || x.media_type === "tv"),
           )
           .sort((a, b) => {
             const av = (a.vote_count ?? 0) + (a.popularity ?? 0);
@@ -168,9 +208,7 @@ export default function PersonDetail() {
       }
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => void (alive = false);
   }, [personId]);
 
   const profileSrc = useMemo(() => {
@@ -188,23 +226,20 @@ export default function PersonDetail() {
     return h || "";
   }, [person?.homepage]);
 
-  const rootLocation = useMemo(() => {
-    const st = location.state as any;
-    return st?.rootLocation ?? st?.backgroundLocation ?? null;
-  }, [location.state]);
-
   const goToTitle = (item: TmdbCreditItem) => {
     const mt = item.media_type;
     if (mt !== "movie" && mt !== "tv") return;
 
+    // ✅ 대표작에서 상세로 갈 때: 메인(root)을 background로 깔고 열기
     if (rootLocation) {
       navigate(`/title/${mt}/${item.id}`, {
-        state: { backgroundLocation: rootLocation, rootLocation: rootLocation },
+        state: { backgroundLocation: rootLocation, rootLocation },
         replace: true,
       });
-    } else {
-      navigate(`/title/${mt}/${item.id}`, { replace: true });
+      return;
     }
+
+    navigate(`/title/${mt}/${item.id}`, { replace: true });
   };
 
   return (
@@ -214,7 +249,7 @@ export default function PersonDetail() {
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
-        onClick={requestClose}
+        onClick={requestCloseToRoot}
       />
 
       <motion.div
@@ -237,13 +272,39 @@ export default function PersonDetail() {
         }
         onAnimationComplete={() => {
           if (!closing) return;
-          navigate(closeTargetPath, { replace: true });
+
+          // ✅ 이전 버튼만 상세로 / X·바깥·ESC는 root로
+          if (closeTargetRef.current === "detail") {
+            if (hasBackgroundLocation) {
+              navigate(-1);
+              return;
+            }
+            if (detailPath) {
+              const nextState = (st?.titleStack as any)?.state ?? null;
+              navigate(detailPath, { replace: true, state: nextState });
+              return;
+            }
+            navigate("/", { replace: true });
+            return;
+          }
+
+          // ✅ root로 닫기: overlay chain 끊기 위해 state 제거
+          navigate(rootPath, { replace: true, state: null as any });
         }}
       >
         <button
           type="button"
+          aria-label="이전"
+          onClick={requestBackToDetail}
+          className="absolute left-4 top-4 z-40 w-10 h-10 rounded-full bg-black/35 hover:bg-black/50 text-white flex items-center justify-center backdrop-blur-md"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+
+        <button
+          type="button"
           aria-label="닫기"
-          onClick={requestClose}
+          onClick={requestCloseToRoot}
           className="absolute right-4 top-4 z-40 w-10 h-10 rounded-full bg-black/35 hover:bg-black/50 text-white flex items-center justify-center backdrop-blur-md"
         >
           <X className="w-5 h-5" />
@@ -251,10 +312,10 @@ export default function PersonDetail() {
 
         <div className="h-full overflow-y-auto overscroll-contain">
           <div className="relative">
-            <div className="absolute inset-0">
+            {/* <div className="absolute inset-0">
               <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/55 to-[#0b0b10]" />
               <div className="absolute inset-0 shadow-[inset_0_0_220px_rgba(0,0,0,0.75)]" />
-            </div>
+            </div> */}
 
             <div className="relative px-4 sm:px-8 pt-16 pb-8">
               {loading ? (
@@ -262,7 +323,7 @@ export default function PersonDetail() {
               ) : person ? (
                 <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6 items-start">
                   <div className="w-[200px] max-w-full">
-                    <div className="relative rounded-2xl overflow-hidden bg-white/5 border border-white/10">
+                    <div className="relative rounded-2xl overflow-hidden bg-white/5">
                       <div className="aspect-[3/4] bg-black/30">
                         {profileSrc ? (
                           <img
@@ -344,18 +405,6 @@ export default function PersonDetail() {
                           </div>
                         </div>
                       ) : null}
-
-                      {Array.isArray(person.also_known_as) &&
-                      person.also_known_as.length ? (
-                        <div className="grid grid-cols-[92px_1fr] gap-3">
-                          <div className="text-white/45 text-[12px] font-semibold">
-                            다른 이름
-                          </div>
-                          <div className="text-white/85 text-[13px] font-bold line-clamp-2">
-                            {person.also_known_as.filter(Boolean).join(", ")}
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
 
                     {person.biography ? (
@@ -408,7 +457,7 @@ export default function PersonDetail() {
                       className="text-left group"
                       title={title}
                     >
-                      <div className="rounded-2xl bg-black/15 border border-white/10 overflow-hidden">
+                      <div className="rounded-2xl bg-black/15 overflow-hidden transform-gpu transition duration-200 ease-out group-hover:scale-[1.03]">
                         <div className="aspect-[2/3] bg-black/30">
                           {poster ? (
                             <img

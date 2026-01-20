@@ -470,7 +470,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
   const airingChip = useMemo(() => {
     if (!statusKind) return null;
     if (statusKind === "upcoming")
-      return { label: "상영예정", tone: "blue" as const };
+      return { label: "상영예정", tone: "dark" as const };
     if (statusKind === "rerun")
       return { label: "재개봉", tone: "dark" as const };
     if (statusKind === "now") return { label: "상영중", tone: "dark" as const };

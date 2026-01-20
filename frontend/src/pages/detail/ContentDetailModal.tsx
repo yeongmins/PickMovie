@@ -48,6 +48,29 @@ function getSeasonNoFromSearch(search: string): number {
   }
 }
 
+/** ✅ 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
+function lockBodyScroll() {
+  if (typeof document === "undefined") return () => {};
+  const attr = "data-pm-scroll-lock";
+  const cur = Number(document.body.getAttribute(attr) || "0") || 0;
+  const next = cur + 1;
+
+  document.body.setAttribute(attr, String(next));
+  if (cur === 0) document.body.style.overflow = "hidden";
+
+  return () => {
+    const now = Number(document.body.getAttribute(attr) || "0") || 0;
+    const dec = Math.max(0, now - 1);
+
+    if (dec === 0) {
+      document.body.style.overflow = "";
+      document.body.removeAttribute(attr);
+    } else {
+      document.body.setAttribute(attr, String(dec));
+    }
+  };
+}
+
 type ReleaseStatusKind = "now" | "upcoming" | "rerun" | null;
 
 type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
@@ -108,6 +131,12 @@ export default function ContentDetailModal({
     [mediaType, location.search],
   );
 
+  // ✅ underlay 모드: 배우 모달 아래에 깔릴 때 backdrop을 투명 처리
+  const isUnderPersonOverlay = useMemo(() => {
+    const st = location.state as any;
+    return st?.__underlay === "person";
+  }, [location.state]);
+
   const closeTargetPath = useMemo(() => {
     const st = location.state as any;
     const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
@@ -153,12 +182,10 @@ export default function ContentDetailModal({
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [mediaType, id, seasonNo]);
 
+  // ✅ 중첩 모달 스크롤락 안전 처리
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    const unlock = lockBodyScroll();
+    return () => unlock();
   }, []);
 
   const requestClose = useCallback(() => {
@@ -320,7 +347,6 @@ export default function ContentDetailModal({
         : statusKind === "upcoming"
           ? "상영예정"
           : "재개봉";
-
     return { label, tone: "dark" as const };
   }, [statusKind]);
 
@@ -341,7 +367,12 @@ export default function ContentDetailModal({
   return (
     <div className="fixed inset-0 z-[999]">
       <motion.div
-        className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
+        className={[
+          "absolute inset-0",
+          isUnderPersonOverlay
+            ? "bg-transparent"
+            : "bg-black/70 backdrop-blur-[2px]",
+        ].join(" ")}
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
@@ -412,11 +443,9 @@ export default function ContentDetailModal({
               <div
                 className="relative w-full overflow-hidden"
                 style={{ height: "clamp(460px, 68vh, 720px)" }}
-              >
-              </div>
+              />
             )}
 
-            {/* ✅ TS 오류 해결: ContentDetailBody는 기존 props만 전달 */}
             <ContentDetailBody
               key={`body:${renderKey}`}
               loading={loading || seasonLoading}

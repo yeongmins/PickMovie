@@ -59,8 +59,14 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const navState = (location.state as any) ?? {};
+
   // ✅ 모달 라우팅: backgroundLocation이 있으면 "그 페이지 위에" 오버레이로 띄움
-  const backgroundLocation = (location.state as any)?.backgroundLocation;
+  const backgroundLocation = navState?.backgroundLocation ?? null;
+
+  // ✅ 배우 모달이 "상세 위"로 떠야 하는 케이스: titleStackLocation을 별도로 렌더
+  // - DetailSections에서 /person 이동할 때 state.titleStack을 넣어줌
+  const titleStackLocation = navState?.titleStack ?? null;
 
   const API_BASE = useMemo(() => {
     return (
@@ -71,7 +77,7 @@ export default function App() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(
-    createEmptyPreferences
+    createEmptyPreferences,
   );
   const [me, setMe] = useState<MeUser | null>(null);
 
@@ -106,7 +112,7 @@ export default function App() {
         });
       return data;
     },
-    [API_BASE, authHeaders]
+    [API_BASE, authHeaders],
   );
 
   const getJson = useCallback(
@@ -124,7 +130,7 @@ export default function App() {
         });
       return data;
     },
-    [API_BASE, authHeaders]
+    [API_BASE, authHeaders],
   );
 
   const clearAuthLocal = useCallback(() => {
@@ -248,7 +254,7 @@ export default function App() {
     if (!isLoading) {
       localStorage.setItem(
         STORAGE_KEYS.PREFERENCES,
-        JSON.stringify(userPreferences)
+        JSON.stringify(userPreferences),
       );
     }
   }, [userPreferences, isLoading]);
@@ -302,7 +308,7 @@ export default function App() {
 
       setFavorites((prev) => {
         const exists = prev.some(
-          (f) => f.id === id && f.mediaType === mediaType
+          (f) => f.id === id && f.mediaType === mediaType,
         );
         const next = exists
           ? prev.filter((f) => !(f.id === id && f.mediaType === mediaType))
@@ -319,7 +325,7 @@ export default function App() {
         return next;
       });
     },
-    [me, navigate, postJson]
+    [me, navigate, postJson],
   );
 
   const isAuthed = !!me;
@@ -332,6 +338,8 @@ export default function App() {
       isAuthed={isAuthed}
     />
   );
+
+  const isPersonOverlayOnDetail = !!backgroundLocation && !!titleStackLocation;
 
   return (
     <>
@@ -352,7 +360,7 @@ export default function App() {
         {/* ✅ 상세 URL: 직접 접근/새로고침도 가능 */}
         <Route path="/title/:mediaType/:id" element={detailModalElement} />
 
-        {/* ✅ 배우 모달 URL: 직접 접근/새로고침도 가능 */}
+        {/* ✅ 배우 URL: 직접 접근/새로고침도 가능 */}
         <Route path="/person/:id" element={<PersonDetail />} />
 
         <Route
@@ -421,17 +429,43 @@ export default function App() {
 
       {/* ✅ 오버레이 라우트: backgroundLocation이 있을 때만 "덮어서" 렌더 */}
       {backgroundLocation ? (
-        <Routes>
-          <Route
-            path="/picky"
-            element={
-              <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
-            }
-          />
+        <>
+          {/* ✅ 핵심: /person으로 왔을 때도 /title을 "같이" 렌더해서 (상세 안에 배우를 감싸는 구조) */}
+          {titleStackLocation ? (
+            <Routes location={titleStackLocation}>
+              <Route
+                path="/title/:mediaType/:id"
+                element={detailModalElement}
+              />
+            </Routes>
+          ) : null}
 
-          <Route path="/title/:mediaType/:id" element={detailModalElement} />
-          <Route path="/person/:id" element={<PersonDetail />} />
-        </Routes>
+          {/* ✅ 오버레이 최상단: 실제 URL에 해당하는 모달만 렌더 */}
+          {isPersonOverlayOnDetail ? (
+            // ✅ 배우는 "상세 위"로만 띄우기 (경로는 /person 그대로)
+            <Routes>
+              <Route path="/person/:id" element={<PersonDetail />} />
+            </Routes>
+          ) : (
+            // ✅ 그 외 오버레이(기존 유지)
+            <Routes>
+              <Route
+                path="/picky"
+                element={
+                  <Picky
+                    searchQuery={pickyQuery}
+                    onSearchChange={setPickyQuery}
+                  />
+                }
+              />
+              <Route
+                path="/title/:mediaType/:id"
+                element={detailModalElement}
+              />
+              <Route path="/person/:id" element={<PersonDetail />} />
+            </Routes>
+          )}
+        </>
       ) : null}
     </>
   );

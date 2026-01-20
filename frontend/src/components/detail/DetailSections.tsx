@@ -297,12 +297,28 @@ export function DetailSections({
   const showTheaterSection =
     mediaType === "movie" && (statusKind === "now" || statusKind === "rerun");
 
+  // ✅ (핵심) 배우 모달을 "상세 위"로 올리기 위한 라우팅 state 구성
   const openPersonModal = (personId: number) => {
     const st = location.state as any;
     const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
 
     navigate(`/person/${personId}`, {
-      state: { backgroundLocation: location, rootLocation: root },
+      state: {
+        // ✅ background는 항상 메인(루트)로 유지
+        backgroundLocation: root,
+        rootLocation: root,
+
+        // ✅ 배우 모달 아래에 깔아둘 상세 모달 location(스택)
+        titleStack: {
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash,
+          state: {
+            ...(st ?? {}),
+            __underlay: "person", // ✅ ContentDetailModal이 underlay로 backdrop 투명 처리
+          },
+        },
+      },
     });
   };
 
@@ -323,9 +339,9 @@ export function DetailSections({
       originalDateRef.current.id === detailId
         ? originalDateRef.current.movieRelease
         : "";
+    void movieBaseDateFixed;
 
     // ✅ (중요) 영화 개봉/재개봉일 표시는 meta.theatrical 값을 그대로 사용
-    // - meta 없으면 표시하지 않음(프론트 추론/보정 금지)
     const movieOpenDate = safeText(theatrical?.originalTheatricalDate);
     const movieRerunDate = safeText(theatrical?.rerunTheatricalDate);
 
