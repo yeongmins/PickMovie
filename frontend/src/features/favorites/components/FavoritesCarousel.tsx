@@ -1,4 +1,4 @@
-// src/features/favorites/components/FavoritesCarousel.tsx
+// frontend/src/features/favorites/components/FavoritesCarousel.tsx
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -374,10 +374,17 @@ function TitleLogoOrText({ movie }: { movie: any }) {
   );
 }
 
-export function FavoritesCarousel(
+/**
+ * ✅ (중요) Hooks 에러 방지:
+ * - useFavoritesHeroState 내부가 movies 길이에 따라 훅 흐름이 달라질 수 있어서
+ * - "movies가 비어있을 때는 아예 훅을 호출하지 않고" (컴포넌트 자체를 안 마운트)
+ * - movies가 준비된 이후에만 Inner를 마운트해서 훅 호출 순서를 안정화
+ */
+function FavoritesCarouselInner(
   props: FavoritesCarouselProps & {
     layout?: CarouselLayout;
     onTrailerClick?: (movie: any) => void;
+    movies: any[]; // ✅ 여기서는 항상 배열(비어있지 않음) 보장
   },
 ) {
   const {
@@ -418,6 +425,7 @@ export function FavoritesCarousel(
 
   const displayYearText = yearText && yearText !== "—" ? yearText : "";
 
+  // ✅ Inner에서는 movies가 존재하더라도, 필터 결과(activeMovies)가 0일 수는 있음(안전)
   if (activeMovies.length === 0) {
     if (!loggedIn) {
       return (
@@ -547,7 +555,7 @@ export function FavoritesCarousel(
               <div className="flex items-center gap-4 mb-4 text-sm carousel-middle">
                 <div className="flex items-center gap-1 shrink-0">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
-                  <span className="text-white font-semibold">
+                  <span className="text-white font-bold">
                     {(currentMovie.vote_average ?? 0).toFixed(1)}
                   </span>
                 </div>
@@ -599,11 +607,12 @@ export function FavoritesCarousel(
                   {currentMovie.overview}
                 </p>
               )}
+
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => onMovieClick(currentMovie)}
                   size="lg"
-                  className="bg-white/20 backdrop-blur-md text-white hover:bg-white/30 hover:border-white/50 transition-all shadow-lg"
+                  className="bg-white/15 backdrop-blur-md text-white hover:bg-white/30 transition-all shadow-lg"
                 >
                   <Info className="w-5 h-5 mr-2" />
                   <span className="font-semibold">상세 정보</span>
@@ -636,7 +645,7 @@ export function FavoritesCarousel(
                 <Button
                   onClick={() => onTrailerClick?.(currentMovie)}
                   size="lg"
-                  className="bg-white/10 backdrop-blur-md text-white hover:bg-white/20 hover:border-white/35 transition-all shadow-lg"
+                  className="bg-white/15 backdrop-blur-md text-white hover:bg-white/30 transition-all shadow-lg"
                 >
                   <Play className="w-5 h-5 mr-2 fill-current" />
                   <span className="font-semibold">예고편 보기</span>
@@ -687,4 +696,82 @@ export function FavoritesCarousel(
       )}
     </div>
   );
+}
+
+function isLoggedInFallback(): boolean {
+  try {
+    return (
+      !!localStorage.getItem("pickmovie_access_token") ||
+      !!localStorage.getItem("pickmovie_user")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function FavoritesCarousel(
+  props: FavoritesCarouselProps & {
+    layout?: CarouselLayout;
+    onTrailerClick?: (movie: any) => void;
+  },
+) {
+  const { movies, layout = "fullscreen" } = props;
+
+  const heightClass =
+    layout === "embedded" ? "h-full min-h-0" : "h-[85svh] min-h-[85svh]";
+
+  // ✅ movies가 undefined/null로 들어오는 순간이 있으면 "로딩"으로 간주
+  const trendLoading = movies == null;
+  const moviesSafe = Array.isArray(movies) ? movies : [];
+
+  // ✅ movies가 비어있을 때는 Inner를 아예 마운트하지 않음 (Hooks 안정화)
+  if (moviesSafe.length === 0) {
+    const loggedIn = isLoggedInFallback();
+
+    if (!loggedIn) {
+      return (
+        <div
+          className={[
+            "relative w-full overflow-hidden",
+            heightClass,
+            "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+          ].join(" ")}
+        >
+          <div className="text-center">
+            <Sparkles className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+            <p className="text-gray-400 text-lg">
+              {trendLoading
+                ? "오늘의 인기 차트를 불러오는 중..."
+                : "오늘의 인기 차트가 없습니다"}
+            </p>
+            <p className="text-gray-500 text-sm mt-2">
+              {trendLoading
+                ? "잠시만 기다려주세요!"
+                : "잠시 후 다시 시도해보세요."}
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={[
+          "relative w-full overflow-hidden",
+          heightClass,
+          "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+        ].join(" ")}
+      >
+        <div className="text-center">
+          <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg">아직 찜한 컨텐츠가 없습니다</p>
+          <p className="text-gray-500 text-sm mt-2">
+            마음에 드는 컨텐츠를 찜해보세요!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <FavoritesCarouselInner {...props} movies={moviesSafe} />;
 }

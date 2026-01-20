@@ -229,7 +229,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
         />
 
         <div className="relative z-10 w-full flex items-center justify-between [text-shadow:0_1px_2px_rgba(0,0,0,0.65)]">
-          <div className="flex items-center gap-8 h-full">
+          <div className="flex items-center gap-4 h-full">
             <button
               onClick={() => go("home")}
               className="flex-shrink-0"

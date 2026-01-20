@@ -219,11 +219,7 @@ export async function fetchDetailSafe(
       if (first) detail.kr_first_release_date = first;
       if (rerun) detail.kr_release_date = rerun;
 
-      // UI에서 개봉일 표시가 “KR 최신”이어야 한다면 rerun으로 덮어쓰기
-      if (rerun) detail.release_date = rerun;
-
       detail.is_rerelease_kr = meta.statusKind === "rerun";
-      detail.kobis_movie_cd = meta.theatrical?.kobisMovieCd ?? null;
     }
   } catch {
     // ignore

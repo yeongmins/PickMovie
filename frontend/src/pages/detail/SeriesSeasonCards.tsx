@@ -1,5 +1,5 @@
 // frontend/src/pages/detail/SeriesSeasonCards.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -7,7 +7,6 @@ import {
   type ContentCardItem,
 } from "../../components/content/ContentCard";
 import { useDetailFavorites } from "./detailFavorites.context";
-import { fetchTVSeasonDetail, type TmdbTvSeasonDetail } from "../../lib/tmdb";
 
 type SeasonLike = {
   name?: string;
@@ -81,31 +80,6 @@ function writeSeasonMetaMap(map: Record<string, SeasonFavMeta>) {
   }
 }
 
-function yearFromIsoDate(v?: string | null): number | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{4})/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  return Number.isFinite(y) ? y : null;
-}
-
-// ✅ poster_path가 비어있을 때 ko→en fallback
-async function fetchSeasonDetailWithFallback(
-  tvId: number,
-  seasonNo: number,
-): Promise<TmdbTvSeasonDetail | null> {
-  const ko = await fetchTVSeasonDetail(tvId, seasonNo, { language: "ko-KR" });
-  const koPoster = (ko as any)?.poster_path ?? null;
-  if (ko && koPoster) return ko;
-
-  const en = await fetchTVSeasonDetail(tvId, seasonNo, { language: "en-US" });
-  const enPoster = (en as any)?.poster_path ?? null;
-  if (en && enPoster) return en;
-
-  return ko ?? en ?? null;
-}
-
 export function SeriesSeasonCards({
   tvId,
   tvTitle,
@@ -126,49 +100,7 @@ export function SeriesSeasonCards({
   const [autoShowFav, setAutoShowFav] = useState<Set<string>>(() =>
     readSet(AUTO_SHOW_FAV_STORAGE_KEY),
   );
-
-  const [seasonMeta, setSeasonMeta] = useState<
-    Record<number, TmdbTvSeasonDetail>
-  >({});
-
-  const seasonNos = useMemo(() => {
-    return (seasons || [])
-      .map((s) => Number(s?.season_number))
-      .filter((n) => Number.isFinite(n) && n > 0) as number[];
-  }, [seasons]);
-
-  useEffect(() => {
-    let alive = true;
-
-    setSeasonMeta({});
-
-    if (!tvId || !seasonNos.length) return () => void (alive = false);
-
-    void (async () => {
-      const pairs = await Promise.all(
-        seasonNos.map(async (no) => {
-          try {
-            const meta = await fetchSeasonDetailWithFallback(tvId, no);
-            return [no, meta] as const;
-          } catch {
-            return [no, null] as const;
-          }
-        }),
-      );
-
-      if (!alive) return;
-
-      const map: Record<number, TmdbTvSeasonDetail> = {};
-      for (const [no, meta] of pairs) {
-        if (meta) map[no] = meta;
-      }
-      setSeasonMeta(map);
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [tvId, seasonNos.join(",")]);
+  void autoShowFav; // eslint 방지용(직접 접근은 안 해도 set에서 씀)
 
   const isSeasonFavorite = useCallback(
     (seasonNo: number) => seasonFavs.has(`${tvId}:${seasonNo}`),
@@ -180,7 +112,7 @@ export function SeriesSeasonCards({
   }, [favorites, tvId]);
 
   const toggleSeasonFavorite = useCallback(
-    (seasonNo: number) => {
+    (seasonNo: number, seasonLike?: SeasonLike) => {
       if (!isAuthed) {
         navigate("/login");
         return;
@@ -199,21 +131,14 @@ export function SeriesSeasonCards({
 
         const metaMap = readSeasonMetaMap();
         if (willBeOn) {
-          const meta = seasonMeta[seasonNo] as any;
-          const fallback = (seasons || []).find(
-            (s) => (s?.season_number ?? 0) === seasonNo,
-          );
-
           metaMap[key] = {
             tvId,
             tvTitle,
             seasonNo,
-            seasonName:
-              (meta?.name ?? fallback?.name ?? "").trim() || undefined,
-            poster_path: meta?.poster_path ?? fallback?.poster_path ?? null,
-            air_date: meta?.air_date ?? fallback?.air_date ?? null,
-            vote_average:
-              typeof meta?.vote_average === "number" ? meta.vote_average : null,
+            seasonName: (seasonLike?.name ?? "").trim() || undefined,
+            poster_path: seasonLike?.poster_path ?? null,
+            air_date: seasonLike?.air_date ?? null,
+            vote_average: null,
             updatedAt: Date.now(),
           };
         } else {
@@ -247,75 +172,44 @@ export function SeriesSeasonCards({
         return next;
       });
     },
-    [
-      isAuthed,
-      navigate,
-      tvId,
-      tvTitle,
-      seasons,
-      seasonMeta,
-      showIsFavorite,
-      toggleFavorite,
-    ],
+    [isAuthed, navigate, tvId, tvTitle, showIsFavorite, toggleFavorite],
   );
 
   const items = useMemo(() => {
     return (seasons || [])
-      .filter((s) => (s?.season_number ?? 0) > 0)
+      .filter((s) => Number(s?.season_number ?? 0) > 0)
       .map((s) => {
-        const seasonNo = s.season_number ?? 0;
-        const meta = seasonMeta[seasonNo] as any;
-
-        const poster = (meta?.poster_path ?? s.poster_path ?? null) as
-          | string
-          | null;
-
-        const airDate = (meta?.air_date ?? s.air_date ?? null) as string | null;
-
-        const voteAvg =
-          typeof meta?.vote_average === "number"
-            ? meta.vote_average
-            : undefined;
-
-        const y = yearFromIsoDate(airDate);
+        const seasonNo = Number(s?.season_number ?? 0);
 
         const item: ContentCardItem & {
           __seasonNo: number;
-          __preferItemPoster: boolean;
-          __preferItemYear: boolean;
           __seasonNavContext: SeasonNavContext;
         } = {
           id: tvId,
           media_type: "tv",
           name: `${tvTitle} ${seasonNo}`,
-          poster_path: poster,
-          first_air_date: airDate ?? undefined,
-          vote_average: voteAvg,
+          poster_path: (s.poster_path ?? null) as any,
+          first_air_date: s.air_date ?? undefined,
+          vote_average: undefined,
 
           __seasonNo: seasonNo,
-          __preferItemPoster: true,
-          __preferItemYear: true,
           __seasonNavContext: {
             seasonNo,
-            name: (meta?.name ?? s?.name ?? "").trim() || undefined,
-            poster_path: poster,
-            air_date: airDate ?? null,
-            overview: meta?.overview ?? null,
-            vote_average:
-              typeof voteAvg === "number"
-                ? voteAvg
-                : (meta?.vote_average ?? null),
-            year: y,
+            name: (s?.name ?? "").trim() || undefined,
+            poster_path: s.poster_path ?? null,
+            air_date: s.air_date ?? null,
+            overview: null,
+            vote_average: null,
+            year: null,
           },
         };
 
         return item;
       });
-  }, [seasons, seasonMeta, tvId, tvTitle]);
+  }, [seasons, tvId, tvTitle]);
 
   if (!items.length) return null;
 
-  // ✅ DetailSections의 Section 스타일과 동일하게 맞춤
   const rightInfo = (
     <span className="text-white/35 text-[12px] font-semibold">
       총 {items.length}개
@@ -343,13 +237,19 @@ export function SeriesSeasonCards({
             const seasonContext = (item as any)
               .__seasonNavContext as SeasonNavContext;
 
+            const seasonLike = (seasons || []).find(
+              (x) => Number(x?.season_number ?? 0) === seasonNo,
+            );
+
             return (
               <div key={`season-${seasonNo}`} className="shrink-0">
                 <ContentCard
                   item={item}
                   isFavorite={isSeasonFavorite(seasonNo)}
                   canFavorite={isAuthed}
-                  onToggleFavorite={() => toggleSeasonFavorite(seasonNo)}
+                  onToggleFavorite={() =>
+                    toggleSeasonFavorite(seasonNo, seasonLike)
+                  }
                   onClick={() => {
                     const nextState = root
                       ? {

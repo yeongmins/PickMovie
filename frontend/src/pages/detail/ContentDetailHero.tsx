@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Play, Share2, Star, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button } from "../../components/ui/button";
-import { apiGet } from "../../lib/apiClient";
 import { getBackdropUrl, getPosterUrl } from "../../lib/tmdb";
 import {
   AgeBadge,
@@ -14,30 +13,22 @@ import {
 } from "../../features/favorites/components/favoritesCarousel.shared";
 
 import type { DetailBase, MediaType, ProviderItem } from "./contentDetail.data";
-import { tmdbDirect } from "./contentDetail.data";
 import { TitleLogoOrText } from "./ContentTitleLogo";
 import { getLogoSrcByProviderName } from "../../assets/logo";
 
+import {
+  peekResolvedMeta,
+  requestResolvedMeta,
+  type ResolvedMeta,
+} from "../../lib/metaClient";
+
 /* =========================
-   ✅ 최신 포스터: ko 우선, 없으면 en
-   + ✅ TV "시즌 상세(쿼리 season=)"면 해당 시즌 포스터(detail.poster_path OR seasonContext.poster_path)를 우선
-   + TV 기본 화면에서는 최신 시즌 포스터가 있으면 그걸 우선
-   + "옛 포스터 잔상" 제거: preload 후에만 렌더
-   + ✅ 시즌 클릭 시: 개봉일은 유지, "출시년도"는 season air_date 연도로 Hero 표시값을 덮어씀
+   ✅ 규칙 반영
+   - 프론트에서 시즌 air_date로 "출시년도" 덮어쓰기 금지 → yearText 그대로 표시
+   - 프론트에서 TV 시즌/언어별 포스터 선택 로직 금지
+     → Hero 포스터는 백엔드 meta.contentCardPosterPath 우선(없으면 detail.poster_path)
+   - "옛 포스터 잔상" 제거: preload 후에만 렌더
 ========================= */
-
-type TmdbImageAsset = {
-  file_path: string;
-  iso_639_1: string | null;
-  width: number;
-  height: number;
-  vote_average: number;
-  vote_count: number;
-};
-
-type TmdbImagesResponse = {
-  posters?: TmdbImageAsset[];
-};
 
 type SeasonNavContext = {
   seasonNo: number;
@@ -48,136 +39,6 @@ type SeasonNavContext = {
   vote_average?: number | null;
   year?: number | null;
 };
-
-const _detailPosterCache = new Map<string, string | null>();
-const _detailPosterInFlight = new Map<string, Promise<string | null>>();
-
-function pickBestPosterFilePath(posters?: TmdbImageAsset[]) {
-  const list = Array.isArray(posters) ? posters : [];
-  if (!list.length) return null;
-
-  const pickFrom = (lang: "ko" | "en" | "null") => {
-    const filtered =
-      lang === "null"
-        ? list.filter((p) => p.iso_639_1 == null)
-        : list.filter((p) => p.iso_639_1 === lang);
-
-    if (!filtered.length) return null;
-
-    filtered.sort((a, b) => {
-      const vc = (b.vote_count ?? 0) - (a.vote_count ?? 0);
-      if (vc !== 0) return vc;
-      return b.width * b.height - a.width * a.height;
-    });
-
-    return filtered[0]?.file_path ?? null;
-  };
-
-  return (
-    pickFrom("ko") ??
-    pickFrom("en") ??
-    pickFrom("null") ??
-    list[0]?.file_path ??
-    null
-  );
-}
-
-async function fetchImagesSafe(
-  mediaType: MediaType,
-  id: number,
-): Promise<TmdbImagesResponse | null> {
-  try {
-    return await apiGet<TmdbImagesResponse>(`/tmdb/images/${mediaType}/${id}`, {
-      include_image_language: "ko,en,null",
-    });
-  } catch {
-    return await tmdbDirect<TmdbImagesResponse>(`/${mediaType}/${id}/images`, {
-      include_image_language: "ko,en,null",
-    });
-  }
-}
-
-function pickLatestSeasonPosterFromDetail(detail: any): string | null {
-  const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
-  if (!seasons.length) return null;
-
-  const list = seasons
-    .filter(
-      (s: any) => typeof s?.season_number === "number" && s.season_number > 0,
-    )
-    .map((s: any) => {
-      const t = Date.parse(String(s?.air_date || "").trim());
-      const date = Number.isFinite(t) ? t : -1;
-      const sn = typeof s?.season_number === "number" ? s.season_number : -1;
-      return { s, date, sn };
-    })
-    .sort((a: any, b: any) => {
-      if (b.date !== a.date) return b.date - a.date;
-      return b.sn - a.sn;
-    });
-
-  const latest = list[0]?.s;
-  const p = (latest?.poster_path as string | null) ?? null;
-  return p;
-}
-
-async function resolveBestPosterPath(
-  mediaType: MediaType,
-  detail: DetailBase,
-  seasonNo: number,
-  preferSeasonPosterPath: string | null,
-): Promise<string | null> {
-  const key = `${mediaType}:${detail.id}:season=${seasonNo}:prefer=${
-    preferSeasonPosterPath ?? ""
-  }:poster=${detail.poster_path ?? ""}`;
-
-  if (_detailPosterCache.has(key)) return _detailPosterCache.get(key) ?? null;
-
-  const inflight = _detailPosterInFlight.get(key);
-  if (inflight) return inflight;
-
-  const p = (async () => {
-    try {
-      // ✅✅ TV 시즌 상세 화면이면: seasonContext.poster_path → detail.poster_path 순으로 최우선
-      if (mediaType === "tv" && seasonNo > 0) {
-        const seasonPoster =
-          preferSeasonPosterPath ?? detail.poster_path ?? null;
-        if (seasonPoster) {
-          _detailPosterCache.set(key, seasonPoster);
-          return seasonPoster;
-        }
-      }
-
-      // ✅ TV 기본 화면이면 최신 시즌 포스터 우선
-      if (mediaType === "tv") {
-        const latestSeasonPoster = pickLatestSeasonPosterFromDetail(
-          detail as any,
-        );
-        if (latestSeasonPoster) {
-          _detailPosterCache.set(key, latestSeasonPoster);
-          return latestSeasonPoster;
-        }
-      }
-
-      // ✅ 그 외: 이미지 API에서 ko → en → null 순으로 best pick
-      const images = await fetchImagesSafe(mediaType, detail.id);
-      const best = pickBestPosterFilePath(images?.posters);
-      const finalPath = best ?? detail.poster_path ?? null;
-
-      _detailPosterCache.set(key, finalPath);
-      return finalPath;
-    } catch {
-      const finalPath = detail.poster_path ?? null;
-      _detailPosterCache.set(key, finalPath);
-      return finalPath;
-    } finally {
-      _detailPosterInFlight.delete(key);
-    }
-  })();
-
-  _detailPosterInFlight.set(key, p);
-  return p;
-}
 
 function preloadImage(src: string): Promise<void> {
   return new Promise((resolve) => {
@@ -200,42 +61,6 @@ function getSeasonNoFromSearch(search: string): number {
     return 0;
   }
 }
-
-function yearFromIsoDate(v?: string | null): number | null {
-  const s = String(v ?? "").trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{4})/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  return Number.isFinite(y) ? y : null;
-}
-
-/* ✅ (추가) season= 이 없을 때도 "가장 최신 시즌 번호" 계산 */
-function pickLatestSeasonNoFromDetail(detail: any): number {
-  const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
-  if (!seasons.length) return 0;
-
-  const list = seasons
-    .filter(
-      (s: any) => typeof s?.season_number === "number" && s.season_number > 0,
-    )
-    .map((s: any) => {
-      const t = Date.parse(String(s?.air_date || "").trim());
-      const date = Number.isFinite(t) ? t : -1;
-      const sn = typeof s?.season_number === "number" ? s.season_number : -1;
-      return { date, sn };
-    })
-    .sort((a: any, b: any) => {
-      if (b.date !== a.date) return b.date - a.date;
-      return b.sn - a.sn;
-    });
-
-  return list[0]?.sn > 0 ? list[0].sn : 0;
-}
-
-/* =========================
-   기존 로직
-========================= */
 
 function ytCommand(
   iframe: HTMLIFrameElement | null,
@@ -384,55 +209,57 @@ export function ContentDetailHero({
   const title = getDisplayTitle(detail as any);
   const location = useLocation();
 
-  const seasonContext = useMemo(() => {
-    const st = location.state as any;
-    return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
-  }, [location.state]);
-
-  // ✅ TV 시즌 선택 상태(쿼리 기반)
+  // ✅ TV 시즌 선택 상태(쿼리 기반) - (표시용/네비용으로만 사용)
   const seasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
     return getSeasonNoFromSearch(location.search);
   }, [mediaType, location.search]);
 
-  // ✅ (추가) 뱃지 표시용 시즌 번호
+  // ✅ 시즌 뱃지: 프론트에서 "최신 시즌" 계산 금지
+  // - season=이 있을 때만 표시(>1)
   const badgeSeasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
-    const picked =
-      seasonNo > 0 ? seasonNo : pickLatestSeasonNoFromDetail(detail as any);
-    return picked > 1 ? picked : 0;
-  }, [mediaType, seasonNo, detail]);
+    return seasonNo > 1 ? seasonNo : 0;
+  }, [mediaType, seasonNo]);
 
-  // ✅ 시즌 클릭 시 Hero "출시년도"를 season air_date 연도로 덮어쓰기
-  // - 개봉일(상세 정보 섹션)은 그대로 두고, Hero/출시년도만 일치시키는 목적
-  const yearTextEffective = useMemo(() => {
-    if (mediaType !== "tv") return yearText;
+  // (참고) state로 넘어온 seasonContext는 프론트에서 포스터/년도 결정에 사용하지 않음
+  const seasonContext = useMemo(() => {
+    const st = location.state as any;
+    return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
+  }, [location.state]);
+  void seasonContext; // eslint 방지용(사용 안 함)
 
-    if (seasonNo <= 0) return yearText;
+  // ✅ meta 단일 소스(백엔드 값 우선)
+  const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
+    return peekResolvedMeta(mediaType as any, detail.id) ?? null;
+  });
 
-    const fromCtx = yearFromIsoDate(seasonContext?.air_date ?? null);
-    if (fromCtx) return String(fromCtx);
+  useEffect(() => {
+    let alive = true;
 
-    // fallback: detail.seasons에서 air_date 찾기
-    const seasons = Array.isArray((detail as any)?.seasons)
-      ? (detail as any).seasons
-      : [];
-    const found = seasons.find(
-      (s: any) => Number(s?.season_number) === seasonNo,
-    );
-    const fromDetail = yearFromIsoDate(
-      String(found?.air_date ?? "").trim() || null,
-    );
-    if (fromDetail) return String(fromDetail);
+    const cached = peekResolvedMeta(mediaType as any, detail.id) ?? null;
+    if (cached) setMeta(cached);
 
-    return yearText;
-  }, [mediaType, seasonNo, seasonContext?.air_date, detail, yearText]);
+    requestResolvedMeta(mediaType as any, detail.id)
+      .then((m) => {
+        if (!alive) return;
+        setMeta(m ?? null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setMeta((prev) => prev ?? null);
+      });
 
-  const preferSeasonPosterPath = useMemo(() => {
-    if (mediaType !== "tv") return null;
-    if (seasonNo <= 0) return null;
-    return (seasonContext?.poster_path ?? null) as string | null;
-  }, [mediaType, seasonNo, seasonContext?.poster_path]);
+    return () => {
+      alive = false;
+    };
+  }, [mediaType, detail.id]);
+
+  // ✅ 포스터: meta.contentCardPosterPath 우선(없으면 detail.poster_path)
+  const posterPathWanted = useMemo(() => {
+    const p = (meta?.contentCardPosterPath ?? null) as string | null;
+    return p ?? detail.poster_path ?? null;
+  }, [meta?.contentCardPosterPath, detail.poster_path]);
 
   const [posterPathResolved, setPosterPathResolved] = useState<string | null>(
     null,
@@ -446,12 +273,7 @@ export function ContentDetailHero({
     setPosterReady(false);
 
     void (async () => {
-      const bestPath = await resolveBestPosterPath(
-        mediaType,
-        detail,
-        seasonNo,
-        preferSeasonPosterPath,
-      );
+      const bestPath = posterPathWanted;
       if (!alive) return;
 
       if (!bestPath) {
@@ -477,13 +299,7 @@ export function ContentDetailHero({
     return () => {
       alive = false;
     };
-  }, [
-    mediaType,
-    detail.id,
-    detail.poster_path,
-    seasonNo,
-    preferSeasonPosterPath,
-  ]);
+  }, [posterPathWanted]);
 
   const heroBackdropSrc = useMemo(() => {
     if (detail.backdrop_path)
@@ -688,7 +504,7 @@ export function ContentDetailHero({
     trailerOpen,
     title,
     typeText,
-    yearTextEffective,
+    yearText, // ✅ 덮어쓰기 없음
     genreText,
     runtime,
     posterReady,
@@ -710,7 +526,6 @@ export function ContentDetailHero({
         const sr = sectionEl.getBoundingClientRect();
         const br = holeEl.getBoundingClientRect();
 
-        // 버튼 주변 여유(구멍을 조금 넉넉하게)
         const padX = 14;
         const padY = 12;
 
@@ -746,7 +561,7 @@ export function ContentDetailHero({
     trailerKey,
     isFavorite,
     typeText,
-    yearTextEffective,
+    yearText, // ✅ 덮어쓰기 없음
     posterReady,
     posterSrcSet?.src1x,
   ]);
@@ -832,7 +647,6 @@ export function ContentDetailHero({
               </div>
 
               <div className="max-w-[720px]">
-                {/* ✅ 최신 시즌이 1개뿐인 작품은 뱃지 숨김 */}
                 <TitleLogoOrText
                   detail={detail}
                   mediaType={mediaType}
@@ -848,9 +662,9 @@ export function ContentDetailHero({
                   </span>
                 </div>
 
-                {yearTextEffective ? (
+                {yearText ? (
                   <span className="text-white text-sm font-bold">
-                    {yearTextEffective}
+                    {yearText}
                   </span>
                 ) : null}
 
@@ -873,7 +687,11 @@ export function ContentDetailHero({
                     <Button
                       type="button"
                       size="lg"
-                      className="bg-red-500/30 backdrop-blur-md  text-white hover:bg-red-500/50 transition-all shadow-lg"
+                      className={`backdrop-blur-md text-white transition-all shadow-lg ${
+                        isFavorite
+                          ? "bg-red-500/55 hover:bg-red-500/70"
+                          : "bg-red-500/30 hover:bg-red-500/50"
+                      }`}
                       onClick={onClickFavorite}
                     >
                       <AnimatePresence mode="popLayout" initial={false}>

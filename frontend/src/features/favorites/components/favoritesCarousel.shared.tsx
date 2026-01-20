@@ -434,17 +434,14 @@ export function useFavoritesHeroState(movies: Movie[]) {
 
     requestResolvedMeta(mt, currentMovie.id).then((r) => {
       if (!mounted) return;
-      setMeta(r);
+      setMeta(r ?? null);
     });
 
     return () => void (mounted = false);
-  }, [currentMovie?.id]);
+  }, [currentMovie?.id, (currentMovie as any)?.media_type]);
 
-  // ✅ providers/age는 item 우선 → meta
-  const providers: (ProviderBadge | WatchProviderItem)[] =
-    (Array.isArray(currentMovie?.providers) && currentMovie!.providers!.length
-      ? currentMovie!.providers
-      : (meta?.providers as any)) ?? [];
+  // ✅ meta.providers만 사용 (프론트 계산/추론 X)
+  const providers: WatchProviderItem[] = (meta?.providers ?? []) as any;
 
   const providerLogos = providers
     .map((p: any) => {
@@ -457,21 +454,18 @@ export function useFavoritesHeroState(movies: Movie[]) {
   const MAX_PROVIDER = 4;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER);
 
-  const ageValue = normalizeAge(
-    currentMovie?.ageRating || meta?.ageRating || "—",
-  );
+  const ageValue = String(meta?.ageRating ?? "—").trim() || "—";
   const showAge = ageValue !== "—";
 
-  const typeText = currentMovie ? typeLabelOf(currentMovie) : "Movie";
+  const typeText = (() => {
+    const ck = String(meta?.contentKind ?? "").toUpperCase();
+    if (ck === "ANI") return "Ani";
+    if (ck === "TV") return "TV";
+    if (ck === "MOVIE") return "Movie";
+    return "Movie";
+  })();
 
-  // ✅ statusKind/yearText는 meta 우선 (프론트 계산 제거)
-  const statusKind: StatusKind = useMemo(() => {
-    const fromItem = String(currentMovie?.statusKind ?? "").trim();
-    if (fromItem === "now" || fromItem === "upcoming" || fromItem === "rerun") {
-      return fromItem as any;
-    }
-    return (meta?.statusKind ?? null) as any;
-  }, [currentMovie?.statusKind, meta?.statusKind]);
+  const statusKind: StatusKind = (meta?.statusKind ?? null) as any;
 
   const airingChip = useMemo(() => {
     if (!statusKind) return null;
@@ -487,25 +481,13 @@ export function useFavoritesHeroState(movies: Movie[]) {
     currentMovie?.backdrop_path || currentMovie?.poster_path
   );
 
+  // ✅ ✅ 핵심 수정:
+  // - useMemo 안에서 useMemo 호출(훅 중첩) 제거
+  // - 프론트 계산 금지: meta.unifiedYearLabel만 사용
   const yearText = useMemo(() => {
-    const fromItem = String(currentMovie?.unifiedYearLabel ?? "").trim();
-    if (fromItem) return fromItem;
-
-    const fromMeta = String(meta?.unifiedYearLabel ?? "").trim();
-    if (fromMeta) return fromMeta;
-
-    const d =
-      inferMediaType(currentMovie) === "tv"
-        ? currentMovie?.first_air_date
-        : currentMovie?.release_date;
-
-    return yearFromDate(d ?? "") || null;
-  }, [
-    currentMovie?.unifiedYearLabel,
-    meta?.unifiedYearLabel,
-    currentMovie?.release_date,
-    currentMovie?.first_air_date,
-  ]);
+    const y = String(meta?.unifiedYearLabel ?? "").trim();
+    return y || "—";
+  }, [meta?.unifiedYearLabel]);
 
   return {
     loggedIn,
@@ -537,3 +519,4 @@ export function useFavoritesHeroState(movies: Movie[]) {
     trailerOpen,
   };
 }
+

@@ -26,7 +26,12 @@ export type TheatricalInfo = {
   hasMultipleTheatrical: boolean;
   originalTheatricalDate: string | null;
   rerunTheatricalDate: string | null;
-  kobisMovieCd: string | null;
+
+  /**
+   * ✅ KOBIS는 메타데이터에 절대 적용하지 않음.
+   * - 메인화면 하단 Top10 차트 용도로만 사용
+   * - 따라서 메타에서는 항상 null로 유지
+   */
   rerunKobisMovieCd: string | null;
 };
 

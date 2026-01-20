@@ -6,7 +6,6 @@ import { getPosterUrl } from "../../lib/tmdb";
 import type { ContentCardProps } from "./contentCard.types";
 import {
   getDisplayTitle,
-  inferMediaType,
   isKoreanTitle,
   isLoggedInFallback,
 } from "./contentCard.utils";
@@ -76,20 +75,14 @@ function typeTextFromMeta(meta: ResolvedMeta | null) {
   return "—";
 }
 
-function isPreferItemPoster(item: any): boolean {
-  return (
-    item?.__preferItemPoster === true || typeof item?.__seasonNo === "number"
-  );
-}
-function isPreferItemYear(item: any): boolean {
-  return (
-    item?.__preferItemYear === true || typeof item?.__seasonNo === "number"
-  );
-}
-function yearFromDateStr(v?: string | null): string {
-  const s = String(v ?? "").trim();
-  const m = s.match(/^(\d{4})/);
-  return m ? m[1] : "";
+/**
+ * ✅ 프론트 추론 금지:
+ * - media_type이 명확할 때만 meta 요청
+ */
+function mediaTypeFromItemStrict(item: any): "movie" | "tv" | null {
+  const mt = String(item?.media_type ?? "").toLowerCase();
+  if (mt === "movie" || mt === "tv") return mt;
+  return null;
 }
 
 export function ContentCard({
@@ -114,18 +107,19 @@ export function ContentCard({
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
 
-  // ✅ meta 요청을 위해 필요한 최소값(요청 키)
-  const mediaType = inferMediaType(item);
+  // ✅ 추론 금지: item.media_type이 없으면 meta 요청 자체를 하지 않음
+  const mediaType = useMemo(() => mediaTypeFromItemStrict(item), [item]);
 
-  // ✅ 백엔드 Meta 단일 소스(캐시 우선)
-  const [meta, setMeta] = useState<ResolvedMeta | null>(() =>
-    peekResolvedMeta(mediaType as any, item.id),
-  );
+  const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
+    if (!mediaType) return null;
+    return peekResolvedMeta(mediaType as any, item.id) ?? null;
+  });
 
   // ✅ meta는 보이면 요청(캐시 없을 때만)
   useEffect(() => {
     let mounted = true;
     if (!inView) return;
+    if (!mediaType) return;
 
     const cached = peekResolvedMeta(mediaType as any, item.id);
     if (cached) {
@@ -148,12 +142,7 @@ export function ContentCard({
 
   // =========================
   // ✅ “표시값” (원칙: meta only)
-  // 단, 시즌 카드(__preferItemPoster/__preferItemYear)는
-  // poster/year만 item 우선 적용
   // =========================
-
-  const preferPoster = isPreferItemPoster(item);
-  const preferYear = isPreferItemYear(item);
 
   const typeText = useMemo(() => typeTextFromMeta(meta), [meta]);
 
@@ -175,27 +164,16 @@ export function ContentCard({
           ? "재개봉"
           : null;
 
+  // ✅ 연도 표시도 meta only
   const yearLabel = useMemo(() => {
-    if (preferYear) {
-      const y =
-        yearFromDateStr((item as any)?.first_air_date ?? null) ||
-        yearFromDateStr((item as any)?.release_date ?? null) ||
-        yearFromDateStr((item as any)?.air_date ?? null) ||
-        yearFromDateStr((item as any)?.last_air_date ?? null);
-      return y ? y : "—";
-    }
-
     const y = String(meta?.unifiedYearLabel ?? "").trim();
     return y ? y : "—";
-  }, [preferYear, item, meta?.unifiedYearLabel]);
+  }, [meta?.unifiedYearLabel]);
 
-  // ✅ 카드 포스터:
-  // - 기본: 백엔드 meta.contentCardPosterPath만 사용
-  // - 시즌 카드: item.poster_path 우선 (meta로 덮어쓰기 금지)
-  const effectivePosterPath = preferPoster
-    ? ((item as any)?.poster_path ?? null)
-    : (meta?.contentCardPosterPath ?? null);
-
+  // ✅ 카드 포스터: meta.contentCardPosterPath만 사용
+  const effectivePosterPath = (meta?.contentCardPosterPath ?? null) as
+    | string
+    | null;
   const posterUrl = effectivePosterPath
     ? getPosterUrl(effectivePosterPath, "w500")
     : "";

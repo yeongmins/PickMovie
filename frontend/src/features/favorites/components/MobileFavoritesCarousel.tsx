@@ -34,7 +34,6 @@ export function MobileFavoritesCarousel({
     jumpTo,
 
     visibleProviders,
-    hiddenCount,
 
     ageValue,
     showAge,
@@ -340,12 +339,6 @@ export function MobileFavoritesCarousel({
                         />
                       </div>
                     ))}
-
-                    {hiddenCount > 0 && (
-                      <span className="h-[24px] rounded-[6px] bg-black/35 backdrop-blur-sm px-2 text-[12px] font-extrabold text-white/90 flex items-center shadow-sm border border-white/10 shrink-0">
-                        +{hiddenCount}
-                      </span>
-                    )}
                   </div>
                 )}
               </div>

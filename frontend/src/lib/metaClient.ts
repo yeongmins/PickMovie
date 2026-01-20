@@ -1,4 +1,6 @@
 // frontend/src/lib/metaClient.ts
+import { apiGet } from "./apiClient";
+
 export type MediaType = "movie" | "tv";
 
 /** 백엔드 meta.types.ts 기준 */
@@ -14,11 +16,28 @@ export type WatchProviderItem = {
   display_priority?: number;
 };
 
+export type WatchProviders = {
+  link?: string;
+  flatrate?: WatchProviderItem[];
+  free?: WatchProviderItem[];
+  ads?: WatchProviderItem[];
+  rent?: WatchProviderItem[];
+  buy?: WatchProviderItem[];
+};
+
 export type TheatricalInfo = {
   hasMultipleTheatrical: boolean;
   originalTheatricalDate: string | null;
   rerunTheatricalDate: string | null;
   rerunKobisMovieCd: string | null;
+};
+
+export type SeasonMeta = {
+  seasonNumber: number;
+  name: string | null;
+  airDate: string | null; // YYYY-MM-DD
+  yearLabel: string | null; // "2026"
+  posterPath: string | null; // TMDB poster_path
 };
 
 export type ResolvedMeta = {
@@ -30,7 +49,7 @@ export type ResolvedMeta = {
 
   ageRating: AgeRating;
   releaseYear: number | null;
-  watchProviders: unknown | null;
+  watchProviders: WatchProviders | null;
 
   statusKind: StatusKind;
   unifiedYearLabel: string | null;
@@ -40,6 +59,12 @@ export type ResolvedMeta = {
   contentCardPosterPath: string | null;
 
   theatrical: TheatricalInfo | null;
+
+  // ✅ 백엔드가 "아예 숨김" 판정 내려줌
+  hidden?: boolean;
+
+  // ✅ TV 상세 시즌 메타(프론트 계산 X)
+  seasons?: SeasonMeta[] | null;
 
   metaVersion: number;
   resolvedAt: string;
