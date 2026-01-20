@@ -1,8 +1,11 @@
 // frontend/src/components/content/contentCard.ui.tsx
 import React from "react";
 import { normalizeAge } from "./contentCard.utils";
-import { logoUrl } from "./contentCard.meta";
 import { AGE_BADGE_SRC, type AgeKey } from "../../assets/ages";
+
+const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
+const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
+  `${TMDB_LOGO_CDN}${size}${path}`;
 
 function toAgeKey(v: string): AgeKey | null {
   if (v === "ALL" || v === "12" || v === "15" || v === "18") return v;
@@ -54,10 +57,10 @@ export function Chip({
     tone === "green"
       ? "bg-green-500/90 text-white"
       : tone === "purple"
-      ? "bg-purple-600/90 text-white"
-      : tone === "blue"
-      ? "bg-sky-500/90 text-white"
-      : "bg-black/45 text-white";
+        ? "bg-purple-600/90 text-white"
+        : tone === "blue"
+          ? "bg-sky-500/90 text-white"
+          : "bg-black/45 text-white";
 
   return <div className={`${base} ${cls}`}>{children}</div>;
 }
@@ -92,7 +95,7 @@ export function ProviderBadges({
             src={logoUrl(p.path, "w92")}
             srcSet={`${logoUrl(p.path, "w92")} 1x, ${logoUrl(
               p.path,
-              "w185"
+              "w185",
             )} 2x`}
             alt={p.name}
             className="w-full h-full object-contain"

@@ -34,6 +34,14 @@ export type KobisMatch = {
   kobisOpenDt: string | null; // "YYYY-MM-DD"
 };
 
+export type KobisTheatricalInfo = {
+  kobisMovieCd: string | null;
+  kobisOpenDt: string | null; // original YYYY-MM-DD
+  rerunKobisMovieCd: string | null;
+  rerunOpenDt: string | null; // rerun YYYY-MM-DD
+  hasMultipleTheatrical: boolean;
+};
+
 type TmdbDetailLike = {
   title?: unknown;
   original_title?: unknown;
@@ -100,6 +108,20 @@ function parseBoxOfficeItems(v: unknown): BoxOfficeSnapshotItem[] {
     });
   }
   return out;
+}
+
+function pickPrimaryTitle(titlePool: string[]): string {
+  // 짧은 제목이 검색에 잘 걸리는 경우가 많아서 기존 로직 유지
+  return [...titlePool].sort((a, b) => a.length - b.length)[0] ?? '';
+}
+
+function buildYmdRangeByYearSpan(
+  startYear: number,
+  endYear: number,
+): { openStartDt: string; openEndDt: string } {
+  const a = Math.min(startYear, endYear);
+  const b = Math.max(startYear, endYear);
+  return { openStartDt: `${a}0101`, openEndDt: `${b}1231` };
 }
 
 @Injectable()
@@ -172,6 +194,12 @@ export class KobisService {
     }
   }
 
+  /**
+   * ✅ nowPlaying 판정용 movieCd set
+   * - 기존: KOBIS API를 days만큼 직접 호출(최대 7회)
+   * - 변경: DB 스냅샷(KobisBoxOfficeSnapshot)을 우선 사용하고,
+   *         없을 때만 1회 fetch 후 저장(getDailyBoxOffice가 처리)
+   */
   async getNowPlayingMovieCds(days = 7): Promise<Set<string>> {
     const now = Date.now();
     const OK_TTL = 6 * 60 * 60 * 1000;
@@ -185,24 +213,18 @@ export class KobisService {
     }
 
     const set = new Set<string>();
-
     const today = new Date();
+
     for (let i = 0; i < days; i += 1) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
       const targetDt = toYmdKR(d);
 
       try {
-        const json = await this.getJson<KobisDailyBoxOfficeResponse>(
-          '/boxoffice/searchDailyBoxOfficeList.json',
-          { targetDt },
-        );
-
-        const list = json.boxOfficeResult?.dailyBoxOfficeList;
-        if (!Array.isArray(list)) continue;
-
-        for (const it of list) {
-          const cd = toCleanStr(it?.movieCd);
+        // ✅ DB 스냅샷 기반(없으면 내부에서 fetch 후 upsert)
+        const snap = await this.getDailyBoxOffice(targetDt);
+        for (const it of snap.items) {
+          const cd = toCleanStr(it.movieCd);
           if (cd) set.add(cd);
         }
       } catch {
@@ -214,7 +236,14 @@ export class KobisService {
     return set;
   }
 
-  async findOpenDtByTmdbDetail(detail: TmdbDetailLike): Promise<KobisMatch> {
+  /**
+   * ✅ (신규) 원개봉/재개봉 openDt를 둘 다 뽑아줌
+   * - 원개봉: TMDB release_year 주변(yr-1 ~ yr+1)
+   * - 재개봉: 현재 연도 주변(thisYear-1 ~ thisYear+1)
+   */
+  async findTheatricalInfoByTmdbDetail(
+    detail: TmdbDetailLike,
+  ): Promise<KobisTheatricalInfo> {
     const titlePool = [
       toCleanStr(detail.title),
       toCleanStr(detail.original_title),
@@ -223,34 +252,25 @@ export class KobisService {
     ].filter(Boolean);
 
     const releaseIso = toCleanStr(detail.release_date);
-    const releaseYear = isoToYear(releaseIso);
+    const releaseYearStr = isoToYear(releaseIso);
+    const tmdbYear = /^\d{4}$/.test(releaseYearStr)
+      ? Number(releaseYearStr)
+      : null;
 
-    if (!titlePool.length) return { kobisMovieCd: null, kobisOpenDt: null };
-
-    const primaryTitle =
-      [...titlePool].sort((a, b) => a.length - b.length)[0] ?? '';
-
-    const yr = /^\d{4}$/.test(releaseYear) ? Number(releaseYear) : null;
-    const openStartDt = yr ? `${yr - 1}0101` : undefined;
-    const openEndDt = yr ? `${yr + 1}1231` : undefined;
-
-    const candidates = await this.searchMovieList({
-      movieNm: primaryTitle,
-      openStartDt,
-      openEndDt,
-      itemPerPage: 50,
-    });
-
-    if (!candidates.length) {
-      const fallback = await this.searchMovieList({
-        movieNm: primaryTitle,
-        itemPerPage: 50,
-      });
-      candidates.push(...fallback);
+    if (!titlePool.length) {
+      return {
+        kobisMovieCd: null,
+        kobisOpenDt: null,
+        rerunKobisMovieCd: null,
+        rerunOpenDt: null,
+        hasMultipleTheatrical: false,
+      };
     }
 
-    const tmdbNorms = titlePool.map(normTitle);
-    const score = (it: KobisMovieListItem) => {
+    const primaryTitle = pickPrimaryTitle(titlePool);
+    const tmdbNorms = titlePool.map(normTitle).filter(Boolean);
+
+    const score = (it: KobisMovieListItem, targetYear: number | null) => {
       const nm = normTitle(toCleanStr(it.movieNm));
       const en = normTitle(toCleanStr(it.movieNmEn));
       const openIso = ymdToIso(toCleanStr(it.openDt)) ?? '';
@@ -269,8 +289,8 @@ export class KobisService {
           s += 350;
       }
 
-      if (yr && /^\d{4}$/.test(openYear)) {
-        const dy = Math.abs(Number(openYear) - yr);
+      if (targetYear && /^\d{4}$/.test(openYear)) {
+        const dy = Math.abs(Number(openYear) - targetYear);
         if (dy === 0) s += 120;
         else if (dy === 1) s += 60;
         else if (dy === 2) s += 20;
@@ -280,21 +300,103 @@ export class KobisService {
       return s;
     };
 
-    let best: KobisMovieListItem | null = null;
-    let bestScore = -1;
-
-    for (const it of candidates) {
-      const sc = score(it);
-      if (sc > bestScore) {
-        bestScore = sc;
-        best = it;
+    const pickBest = (
+      candidates: KobisMovieListItem[],
+      targetYear: number | null,
+    ) => {
+      let best: KobisMovieListItem | null = null;
+      let bestScore = -1;
+      for (const it of candidates) {
+        const sc = score(it, targetYear);
+        if (sc > bestScore) {
+          bestScore = sc;
+          best = it;
+        }
       }
+      return best;
+    };
+
+    const thisYear = new Date().getFullYear();
+
+    // 1) 원개봉 후보(주로 TMDB release_year 근처)
+    let originalCandidates: KobisMovieListItem[] = [];
+    if (tmdbYear) {
+      const { openStartDt, openEndDt } = buildYmdRangeByYearSpan(
+        tmdbYear - 1,
+        tmdbYear + 1,
+      );
+      originalCandidates = await this.searchMovieList({
+        movieNm: primaryTitle,
+        openStartDt,
+        openEndDt,
+        itemPerPage: 50,
+      });
+    } else {
+      originalCandidates = await this.searchMovieList({
+        movieNm: primaryTitle,
+        itemPerPage: 50,
+      });
     }
 
-    const kobisMovieCd = best ? toCleanStr(best.movieCd) : '';
-    const kobisOpenDtIso = best ? ymdToIso(toCleanStr(best.openDt)) : null;
+    // fallback (원개봉 후보가 너무 빈약할 때)
+    if (!originalCandidates.length) {
+      const fallback = await this.searchMovieList({
+        movieNm: primaryTitle,
+        itemPerPage: 50,
+      });
+      originalCandidates.push(...fallback);
+    }
 
-    return { kobisMovieCd: kobisMovieCd || null, kobisOpenDt: kobisOpenDtIso };
+    const bestOriginal = pickBest(originalCandidates, tmdbYear);
+    const originalCd = bestOriginal ? toCleanStr(bestOriginal.movieCd) : '';
+    const originalOpenIso = bestOriginal
+      ? ymdToIso(toCleanStr(bestOriginal.openDt))
+      : null;
+
+    // 2) 재개봉 후보(현재 연도 근처)
+    const { openStartDt: rerunStart, openEndDt: rerunEnd } =
+      buildYmdRangeByYearSpan(thisYear - 1, thisYear + 1);
+
+    const rerunCandidates = await this.searchMovieList({
+      movieNm: primaryTitle,
+      openStartDt: rerunStart,
+      openEndDt: rerunEnd,
+      itemPerPage: 50,
+    });
+
+    const bestRerun = pickBest(rerunCandidates, thisYear);
+    const rerunCd = bestRerun ? toCleanStr(bestRerun.movieCd) : '';
+    const rerunOpenIso = bestRerun
+      ? ymdToIso(toCleanStr(bestRerun.openDt))
+      : null;
+
+    // 재개봉 후보가 원개봉이랑 완전히 같으면 “재개봉 없음” 취급
+    const hasMultiple =
+      !!originalOpenIso &&
+      !!rerunOpenIso &&
+      originalOpenIso !== rerunOpenIso &&
+      // 재개봉은 "최근"이어야 의미가 있음(현재연도-1 이상)
+      Number(isoToYear(rerunOpenIso) || 0) >= thisYear - 1;
+
+    return {
+      kobisMovieCd: originalCd || null,
+      kobisOpenDt: originalOpenIso,
+      rerunKobisMovieCd: hasMultiple ? rerunCd || null : null,
+      rerunOpenDt: hasMultiple ? rerunOpenIso : null,
+      hasMultipleTheatrical: hasMultiple,
+    };
+  }
+
+  /**
+   * ✅ 기존 호환 유지: "원개봉" 기준으로만 반환
+   * (기존 코드가 이 메서드에 의존)
+   */
+  async findOpenDtByTmdbDetail(detail: TmdbDetailLike): Promise<KobisMatch> {
+    const info = await this.findTheatricalInfoByTmdbDetail(detail);
+    return {
+      kobisMovieCd: info.kobisMovieCd,
+      kobisOpenDt: info.kobisOpenDt,
+    };
   }
 
   async getDailyBoxOffice(

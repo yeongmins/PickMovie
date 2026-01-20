@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
-import { getReleaseStatusKind } from "../../lib/contentMeta";
 
 import type { ContentCardProps } from "./contentCard.types";
 import {
@@ -10,19 +9,14 @@ import {
   inferMediaType,
   isKoreanTitle,
   isLoggedInFallback,
-  normalizeAge,
-  typeLabelOf,
 } from "./contentCard.utils";
-import { useContentCardMeta } from "./contentCard.meta";
-import {
-  useMovieRerunInfo,
-  useOttOnlyState,
-  useScreeningSetsState,
-  useSyncOttOnly,
-  useTvLatestState,
-  useUnifiedYearLabelFromItem,
-} from "./contentCard.hooks";
 import { AgeBadge, Chip, ProviderBadges } from "./contentCard.ui";
+import {
+  peekResolvedMeta,
+  requestResolvedMeta,
+  type ResolvedMeta,
+  type StatusKind,
+} from "../../lib/metaClient";
 
 export type {
   MediaType,
@@ -33,9 +27,8 @@ export type {
 
 /**
  * ✅ 속도 최적화:
- * - 카드가 "보이기 전"에는 meta 호출을 막고(=enabled false),
- * - 화면에 들어오면 그때 meta를 lazy 로드
- * - UI/디자인은 그대로, 네트워크 폭주만 억제
+ * - 카드가 "보이기 전" meta 호출 X
+ * - 화면 진입 시 meta lazy 로드
  */
 function useInViewOnce<T extends Element>(opts?: {
   rootMargin?: string;
@@ -47,7 +40,6 @@ function useInViewOnce<T extends Element>(opts?: {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-
     if (inView) return;
 
     const io = new IntersectionObserver(
@@ -62,7 +54,7 @@ function useInViewOnce<T extends Element>(opts?: {
         root: null,
         rootMargin: opts?.rootMargin ?? "250px",
         threshold: opts?.threshold ?? 0.01,
-      }
+      },
     );
 
     io.observe(el);
@@ -72,39 +64,32 @@ function useInViewOnce<T extends Element>(opts?: {
   return { ref, inView };
 }
 
-function yearFromYmd(ymd?: string | null): string | null {
-  const raw = String(ymd || "").trim();
-  if (raw.length < 4) return null;
-  const y = Number(raw.slice(0, 4));
-  if (!Number.isFinite(y) || y <= 0) return null;
-  return String(y);
+/**
+ * ✅ type 표시도 meta 단일 소스
+ * - meta 없으면 “표시 안 함(—)”
+ */
+function typeTextFromMeta(meta: ResolvedMeta | null) {
+  const ck = String(meta?.contentKind ?? "").toUpperCase();
+  if (ck === "ANI") return "Ani";
+  if (ck === "TV") return "TV";
+  if (ck === "MOVIE") return "Movie";
+  return "—";
 }
 
-function diffFullMonths(fromYmd?: string, toYmd?: string): number {
-  const a = new Date(String(fromYmd || "").slice(0, 10));
-  const b = new Date(String(toYmd || "").slice(0, 10));
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
-
-  let months =
-    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() < a.getDate()) months -= 1;
-  return months;
-}
-
-function isRerunGapQualified(
-  info: {
-    hasMultipleTheatrical: boolean;
-    originalTheatricalDate: string;
-    rerunTheatricalDate: string;
-  },
-  minMonths: number
-) {
-  if (!info?.hasMultipleTheatrical) return false;
-  const m = diffFullMonths(
-    info.originalTheatricalDate,
-    info.rerunTheatricalDate
+function isPreferItemPoster(item: any): boolean {
+  return (
+    item?.__preferItemPoster === true || typeof item?.__seasonNo === "number"
   );
-  return m >= minMonths;
+}
+function isPreferItemYear(item: any): boolean {
+  return (
+    item?.__preferItemYear === true || typeof item?.__seasonNo === "number"
+  );
+}
+function yearFromDateStr(v?: string | null): string {
+  const s = String(v ?? "").trim();
+  const m = s.match(/^(\d{4})/);
+  return m ? m[1] : "";
 }
 
 export function ContentCard({
@@ -129,153 +114,104 @@ export function ContentCard({
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
 
+  // ✅ meta 요청을 위해 필요한 최소값(요청 키)
   const mediaType = inferMediaType(item);
-  const typeText = typeLabelOf(item);
 
-  const screening = useScreeningSetsState();
+  // ✅ 백엔드 Meta 단일 소스(캐시 우선)
+  const [meta, setMeta] = useState<ResolvedMeta | null>(() =>
+    peekResolvedMeta(mediaType as any, item.id),
+  );
 
-  const needsMeta = useMemo(() => {
-    const hasProviders =
-      Array.isArray(item.providers) && item.providers.length > 0;
+  // ✅ meta는 보이면 요청(캐시 없을 때만)
+  useEffect(() => {
+    let mounted = true;
+    if (!inView) return;
 
-    const rawAge = (item.ageRating || "").trim();
-    const hasAge = !!rawAge && rawAge !== "-" && rawAge !== "—";
-
-    return !hasProviders || !hasAge;
-  }, [item.providers, item.ageRating]);
-
-  // ✅ 핵심: "보이기 전"엔 meta 호출 막기
-  const meta = useContentCardMeta({
-    mediaType,
-    id: item.id,
-    needsMeta,
-    enabled: inView, // ✅ 여기만으로도 초기 폭주가 크게 줄어듦
-    region: "KR",
-  });
-
-  const tvLatest = useTvLatestState(mediaType, item.id);
-
-  const [ottOnly, setOttOnly] = useOttOnlyState(item.id);
-
-  const providers =
-    (Array.isArray(item.providers) && item.providers.length
-      ? item.providers
-      : meta?.providers) ?? [];
-
-  const ageValue = normalizeAge(item.ageRating || meta?.ageRating || "—");
-
-  const baseStatusKind = useMemo(() => {
-    return getReleaseStatusKind({
-      mediaType,
-      id: item.id,
-      releaseDate: item.release_date ?? null,
-      firstAirDate: item.first_air_date ?? null,
-      sets: screening,
-      ottOnly,
-    });
-  }, [
-    mediaType,
-    item.id,
-    item.release_date,
-    item.first_air_date,
-    screening,
-    ottOnly,
-  ]);
-
-  const rerunInfo = useMovieRerunInfo({
-    mediaType,
-    id: item.id,
-    enabled:
-      mediaType === "movie" &&
-      (baseStatusKind === "now" || baseStatusKind === "upcoming"),
-    region: "KR",
-  });
-
-  const statusKind = useMemo(() => {
-    if (!baseStatusKind) return null;
-
-    if (
-      mediaType === "movie" &&
-      isRerunGapQualified(rerunInfo, 4) &&
-      (baseStatusKind === "now" || baseStatusKind === "upcoming")
-    ) {
-      return "rerun" as const;
+    const cached = peekResolvedMeta(mediaType as any, item.id);
+    if (cached) {
+      setMeta(cached);
+      return;
     }
 
-    return baseStatusKind;
-  }, [
-    baseStatusKind,
-    mediaType,
-    rerunInfo.hasMultipleTheatrical,
-    rerunInfo.originalTheatricalDate,
-    rerunInfo.rerunTheatricalDate,
-  ]);
+    requestResolvedMeta(mediaType as any, item.id)
+      .then((r) => {
+        if (!mounted) return;
+        setMeta(r ?? null);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setMeta((prev) => prev ?? null);
+      });
 
-  useSyncOttOnly({
-    mediaType,
-    id: item.id,
-    statusKind: statusKind ?? null,
-    setOttOnly,
-  });
+    return () => void (mounted = false);
+  }, [inView, mediaType, item.id]);
 
-  const unifiedYear = useUnifiedYearLabelFromItem({
-    item,
-    mediaType,
-    tvLatest,
-    statusKind: statusKind ?? null,
-    region: "KR",
-  });
+  // =========================
+  // ✅ “표시값” (원칙: meta only)
+  // 단, 시즌 카드(__preferItemPoster/__preferItemYear)는
+  // poster/year만 item 우선 적용
+  // =========================
 
-  const effectiveYearMovie = useMemo(() => {
-    if (mediaType !== "movie") return unifiedYear;
+  const preferPoster = isPreferItemPoster(item);
+  const preferYear = isPreferItemYear(item);
 
-    if (statusKind === "rerun") {
+  const typeText = useMemo(() => typeTextFromMeta(meta), [meta]);
+
+  const providers = meta?.providers ?? [];
+
+  const ageValue = useMemo(() => {
+    const a = String(meta?.ageRating ?? "").trim();
+    return a ? a : "—";
+  }, [meta?.ageRating]);
+
+  const statusKind: StatusKind = (meta?.statusKind ?? null) as any;
+
+  const statusLabel =
+    statusKind === "now"
+      ? "상영중"
+      : statusKind === "upcoming"
+        ? "상영예정"
+        : statusKind === "rerun"
+          ? "재개봉"
+          : null;
+
+  const yearLabel = useMemo(() => {
+    if (preferYear) {
       const y =
-        yearFromYmd(rerunInfo.originalTheatricalDate) ??
-        yearFromYmd(item.release_date ?? null);
-
-      return y ?? unifiedYear;
+        yearFromDateStr((item as any)?.first_air_date ?? null) ||
+        yearFromDateStr((item as any)?.release_date ?? null) ||
+        yearFromDateStr((item as any)?.air_date ?? null) ||
+        yearFromDateStr((item as any)?.last_air_date ?? null);
+      return y ? y : "—";
     }
 
-    return unifiedYear;
-  }, [
-    mediaType,
-    statusKind,
-    rerunInfo.originalTheatricalDate,
-    item.release_date,
-    unifiedYear,
-  ]);
+    const y = String(meta?.unifiedYearLabel ?? "").trim();
+    return y ? y : "—";
+  }, [preferYear, item, meta?.unifiedYearLabel]);
 
-  // ✅✅ 시즌 카드에서 TV 최신 포스터/년도 덮어쓰기 방지 플래그
-  const preferItemPoster = !!(item as any).__preferItemPoster;
-  const preferItemYear = !!(item as any).__preferItemYear;
+  // ✅ 카드 포스터:
+  // - 기본: 백엔드 meta.contentCardPosterPath만 사용
+  // - 시즌 카드: item.poster_path 우선 (meta로 덮어쓰기 금지)
+  const effectivePosterPath = preferPoster
+    ? ((item as any)?.poster_path ?? null)
+    : (meta?.contentCardPosterPath ?? null);
 
-  const forcedTvYear = useMemo(() => {
-    if (mediaType !== "tv" || !preferItemYear) return null;
-    return (
-      yearFromYmd(item.first_air_date ?? null) ??
-      yearFromYmd(item.release_date ?? null) ??
-      ""
-    );
-  }, [mediaType, preferItemYear, item.first_air_date, item.release_date]);
-
-  const effectiveYear =
-    mediaType === "tv" && preferItemYear
-      ? forcedTvYear ?? ""
-      : effectiveYearMovie;
+  const posterUrl = effectivePosterPath
+    ? getPosterUrl(effectivePosterPath, "w500")
+    : "";
 
   const providerLogos = providers
-    .map((p) => {
+    .map((p: any) => {
       const name = p.provider_name ?? p.providerName ?? p.name ?? "";
       const lp = p.logo_path ?? p.logoPath ?? p.logo ?? null;
       return { name, path: lp };
     })
-    .filter((x) => !!x.name && !!x.path)
-    .map((x) => ({ name: x.name, path: x.path as string }));
+    .filter((x: any) => !!x.name && !!x.path)
+    .map((x: any) => ({ name: x.name, path: x.path as string }));
 
   const providerNamesOnly = providers
-    .map((p) => p.provider_name ?? p.providerName ?? p.name ?? "")
-    .map((s) => String(s).trim())
+    .map((p: any) => p.provider_name ?? p.providerName ?? p.name ?? "")
+    .map((s: any) => String(s).trim())
     .filter(Boolean);
 
   const hasProviders = providerLogos.length > 0 || providerNamesOnly.length > 0;
@@ -284,27 +220,9 @@ export function ContentCard({
   const canFav =
     typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
 
-  // ✅✅ 시즌 카드면 item.poster_path를 무조건 우선
-  const effectivePosterPath =
-    mediaType === "tv"
-      ? preferItemPoster
-        ? item.poster_path
-        : tvLatest?.posterPath ?? item.poster_path
-      : item.poster_path;
-
-  const posterUrl = getPosterUrl(effectivePosterPath, "w500");
-
-  const statusLabel =
-    statusKind === "now"
-      ? "상영중"
-      : statusKind === "upcoming"
-      ? "상영예정"
-      : statusKind === "rerun"
-      ? "재개봉"
-      : null;
-
   const showTrend =
-    typeof item.trendRank === "number" && Number.isFinite(item.trendRank);
+    typeof (item as any).trendRank === "number" &&
+    Number.isFinite((item as any).trendRank);
 
   return (
     <div
@@ -315,9 +233,7 @@ export function ContentCard({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}
-      className={`group cursor-pointer select-none ${
-        className ?? ""
-      } w-[200px]`}
+      className={`group cursor-pointer select-none ${className ?? ""} w-[200px]`}
       aria-label={`${title} 상세 보기`}
     >
       <div className="relative w-[200px] h-[300px] overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
@@ -361,17 +277,17 @@ export function ContentCard({
           {showTrend && (
             <div
               className="self-start"
-              title={`트렌드 점수 ${item.trendScore ?? "-"}`}
+              title={`트렌드 점수 ${(item as any).trendScore ?? "-"}`}
             >
               <Chip tone="purple">
-                {item.trendRank === 1
+                {(item as any).trendRank === 1
                   ? "🥇"
-                  : item.trendRank === 2
-                  ? "🥈"
-                  : item.trendRank === 3
-                  ? "🥉"
-                  : "🔥"}{" "}
-                #{item.trendRank}
+                  : (item as any).trendRank === 2
+                    ? "🥈"
+                    : (item as any).trendRank === 3
+                      ? "🥉"
+                      : "🔥"}{" "}
+                #{(item as any).trendRank}
               </Chip>
             </div>
           )}
@@ -421,9 +337,9 @@ export function ContentCard({
           {title}
         </div>
 
-        {item.recommendReason && (
+        {(item as any).recommendReason && (
           <div className="mt-1 text-[11px] text-white/55 line-clamp-1">
-            {item.recommendReason}
+            {(item as any).recommendReason}
           </div>
         )}
 
@@ -432,7 +348,7 @@ export function ContentCard({
             <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
             {rating}
           </span>
-          <span className="text-white/50">{effectiveYear}</span>
+          <span className="text-white/50">{yearLabel}</span>
         </div>
       </div>
     </div>

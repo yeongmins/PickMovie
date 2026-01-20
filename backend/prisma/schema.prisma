@@ -320,6 +320,13 @@ enum AgeRating {
   UNKNOWN
 }
 
+// ✅ (신규) 프론트가 쓰는 statusKind를 DB에도 캐시
+enum StatusKind {
+  now
+  upcoming
+  rerun
+}
+
 enum HomeCollectionKey {
   POPULAR_MOVIE
   POPULAR_TV
@@ -337,6 +344,15 @@ model ContentMetaResolved {
   releaseStatus ReleaseStatus
   ageRating     AgeRating
   releaseYear   Int?
+
+  // ✅ (신규) 프론트에서 추가 계산 제거용 캐시 필드
+  statusKind         StatusKind?
+  unifiedYearLabel   String?
+  originalTheatricalDate String?
+  rerunTheatricalDate    String?
+  kobisMovieCd        String?
+  rerunKobisMovieCd   String?
+  hasMultipleTheatrical Boolean @default(false)
 
   watchProviders Json?
 
@@ -361,6 +377,15 @@ model ContentMetaOverride {
   releaseStatus ReleaseStatus?
   ageRating     AgeRating?
   releaseYear   Int?
+
+  // ✅ (신규) 운영/수정 override 지원
+  statusKind            StatusKind?
+  unifiedYearLabel      String?
+  originalTheatricalDate String?
+  rerunTheatricalDate    String?
+  kobisMovieCd          String?
+  rerunKobisMovieCd     String?
+  hasMultipleTheatrical Boolean?
 
   watchProviders Json?
 

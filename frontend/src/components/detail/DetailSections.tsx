@@ -1,5 +1,5 @@
 // frontend/src/components/detail/DetailSections.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronRight, ExternalLink } from "lucide-react";
 
@@ -8,26 +8,30 @@ import { getPosterUrl } from "../../lib/tmdb";
 import type {
   DetailBase,
   MediaType,
-  WatchProviderRegion,
 } from "../../pages/detail/contentDetail.data";
-import type { MovieRerunInfo } from "../../pages/detail/ContentDetailModal";
-import {
-  getReleaseStatusKind,
-  getUnifiedYearFromDetail,
-  isOttOnlyMovie,
-  loadScreeningSets,
-  peekOttOnlyMovie,
-  peekScreeningSets,
-  yearFromDate,
-  type ReleaseStatusKind,
-  type ScreeningSets,
-} from "../../lib/contentMeta";
-import { useMovieRerunInfo } from "../content/contentCard.hooks";
 
 import cgvLogo from "../../assets/logo/cgv_logo.svg";
 import lotteLogo from "../../assets/logo/lotte_logo.svg";
 import megaboxLogo from "../../assets/logo/megabox_logo.svg";
 import { SeriesSeasonCards } from "../../pages/detail/SeriesSeasonCards";
+
+import {
+  peekResolvedMeta,
+  requestResolvedMeta,
+  type ResolvedMeta,
+} from "../../lib/metaClient";
+
+type ReleaseStatusKind = "now" | "upcoming" | "rerun" | null;
+
+type SeasonNavContext = {
+  seasonNo: number;
+  name?: string;
+  poster_path?: string | null;
+  air_date?: string | null;
+  overview?: string | null;
+  vote_average?: number | null;
+  year?: number | null;
+};
 
 type TmdbCreditPerson = {
   id: number;
@@ -55,34 +59,13 @@ type TmdbReviewsResponse = {
   results?: TmdbReviewItem[];
 };
 
-function diffFullMonths(fromYmd?: string, toYmd?: string): number {
-  const a = new Date(String(fromYmd || "").slice(0, 10));
-  const b = new Date(String(toYmd || "").slice(0, 10));
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
-
-  let months =
-    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() < a.getDate()) months -= 1;
-  return months;
+function safeText(v: unknown) {
+  return typeof v === "string" ? v.trim() : String(v ?? "").trim();
 }
 
-function isRerunGapQualified(
-  info:
-    | {
-        hasMultipleTheatrical: boolean;
-        originalTheatricalDate: string;
-        rerunTheatricalDate: string;
-      }
-    | null
-    | undefined,
-  minMonths: number
-) {
-  if (!info?.hasMultipleTheatrical) return false;
-  const m = diffFullMonths(
-    info.originalTheatricalDate,
-    info.rerunTheatricalDate
-  );
-  return m >= minMonths;
+function toStatusKind(v: unknown): ReleaseStatusKind {
+  if (v === "now" || v === "upcoming" || v === "rerun") return v;
+  return null;
 }
 
 function formatKoreanDate(ymd?: string) {
@@ -94,44 +77,6 @@ function formatKoreanDate(ymd?: string) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-function safeText(v: unknown) {
-  return String(v ?? "").trim();
-}
-
-function pickProviders(regionData: WatchProviderRegion | null) {
-  const rAny = regionData as any;
-  const region =
-    (rAny?.results?.KR as any) ||
-    (rAny?.results?.kr as any) ||
-    (rAny?.KR as any) ||
-    rAny ||
-    null;
-
-  const pools: any[] = [
-    ...(Array.isArray(region?.flatrate) ? region.flatrate : []),
-    ...(Array.isArray(region?.rent) ? region.rent : []),
-    ...(Array.isArray(region?.buy) ? region.buy : []),
-    ...(Array.isArray(region?.free) ? region.free : []),
-    ...(Array.isArray(region?.ads) ? region.ads : []),
-  ];
-
-  const uniq = new Map<number, any>();
-  for (const p of pools) {
-    const id = Number(p?.provider_id);
-    if (!Number.isFinite(id)) continue;
-    if (!uniq.has(id)) uniq.set(id, p);
-  }
-
-  const items = Array.from(uniq.values()).slice(0, 12);
-  return { items };
-}
-
-/**
- * TMDB Watch link(JustWatch)로 가지 않고,
- * “해당 OTT 사이트”로 보내기:
- * - 가능한 건 검색 URL
- * - 확실하지 않은 건 공식 홈으로
- */
 function providerOutboundUrl(provider: any, title: string) {
   const nameRaw = safeText(provider?.provider_name);
   const name = nameRaw.toLowerCase();
@@ -158,6 +103,38 @@ function providerOutboundUrl(provider: any, title: string) {
   return "";
 }
 
+function getSeasonNoFromSearch(search: string): number {
+  try {
+    const sp = new URLSearchParams(search);
+    const raw = sp.get("season");
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    const v = Math.floor(n);
+    return v > 0 ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function yearFromIsoDate(v?: string | null): number | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+
+function pickSeasonAirDateFromDetail(
+  detail: any,
+  seasonNo: number,
+): string | null {
+  const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
+  const found = seasons.find((s: any) => Number(s?.season_number) === seasonNo);
+  const v = String(found?.air_date ?? "").trim();
+  return v ? v : null;
+}
+
 function Section({
   title,
   right,
@@ -182,17 +159,13 @@ function Section({
 export function DetailSections({
   detail,
   mediaType,
-  providersKR,
   loading,
   statusKindOverride,
-  rerunInfo,
 }: {
   detail: DetailBase | null;
   mediaType: MediaType;
-  providersKR: WatchProviderRegion | null;
   loading?: boolean;
   statusKindOverride?: ReleaseStatusKind | null;
-  rerunInfo?: MovieRerunInfo | null;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -200,20 +173,68 @@ export function DetailSections({
   const [cast, setCast] = useState<TmdbCreditPerson[]>([]);
   const [reviews, setReviews] = useState<TmdbReviewItem[]>([]);
 
-  const [screening, setScreening] = useState<ScreeningSets | null>(() => {
-    return peekScreeningSets();
-  });
-
   const detailId = Number((detail as any)?.id ?? 0);
 
-  const [ottOnly, setOttOnly] = useState<boolean>(() => {
-    return detailId ? peekOttOnlyMovie(detailId, "KR") ?? false : false;
+  // ✅ 시즌 선택 정보(출시년도 동기화용)
+  const seasonNo = useMemo(() => {
+    if (mediaType !== "tv") return 0;
+    return getSeasonNoFromSearch(location.search);
+  }, [mediaType, location.search]);
+
+  const seasonContext = useMemo(() => {
+    const st = location.state as any;
+    return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
+  }, [location.state]);
+
+  // ✅ TV/Ani: 시즌 선택으로 detail이 바뀌어도 "첫 방영일(최초 개봉)"은 고정
+  const originalDateRef = useRef<{
+    id: number;
+    tvFirstAir: string;
+    movieRelease: string;
+  }>({ id: 0, tvFirstAir: "", movieRelease: "" });
+
+  useEffect(() => {
+    if (!detailId || !detail) return;
+    const d: any = detail;
+
+    if (originalDateRef.current.id !== detailId) {
+      originalDateRef.current = {
+        id: detailId,
+        tvFirstAir: safeText(d?.first_air_date),
+        movieRelease: safeText(d?.release_date),
+      };
+    }
+  }, [detailId, detail]);
+
+  // ✅ meta 단일 소스(여기서만 fetch)
+  const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
+    if (!detailId) return null;
+    return peekResolvedMeta(mediaType as any, detailId) ?? null;
   });
 
-  const { items: providerItems } = useMemo(
-    () => pickProviders(providersKR),
-    [providersKR]
-  );
+  useEffect(() => {
+    let alive = true;
+
+    if (!detailId) {
+      setMeta(null);
+      return () => void (alive = false);
+    }
+
+    const cached = peekResolvedMeta(mediaType as any, detailId) ?? null;
+    if (cached) setMeta(cached);
+
+    requestResolvedMeta(mediaType as any, detailId)
+      .then((m) => {
+        if (!alive) return;
+        setMeta(m ?? null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setMeta((prev) => prev ?? null);
+      });
+
+    return () => void (alive = false);
+  }, [mediaType, detailId]);
 
   const contentTitle = useMemo(() => {
     const d: any = detail;
@@ -225,6 +246,24 @@ export function DetailSections({
     );
   }, [detail]);
 
+  const statusKind: ReleaseStatusKind = useMemo(() => {
+    const o = toStatusKind(statusKindOverride);
+    if (o) return o;
+    const m = toStatusKind(meta?.statusKind);
+    if (m) return m;
+    return null;
+  }, [statusKindOverride, meta?.statusKind]);
+
+  const theatrical = meta?.theatrical ?? null;
+
+  // ✅ providers는 meta.providers만 사용
+  const providerItems = useMemo(() => {
+    const list = meta?.providers;
+    return Array.isArray(list) ? list.slice(0, 12) : [];
+  }, [meta?.providers]);
+
+  const hasProviders = providerItems.length > 0;
+
   useEffect(() => {
     let alive = true;
 
@@ -235,7 +274,7 @@ export function DetailSections({
 
     void apiGet<TmdbCreditsResponse>(
       `/tmdb/proxy/${mediaType}/${detailId}/credits`,
-      { language: "ko-KR" }
+      { language: "ko-KR" },
     )
       .then((r) => {
         if (!alive) return;
@@ -253,7 +292,7 @@ export function DetailSections({
 
     void apiGet<TmdbReviewsResponse>(
       `/tmdb/proxy/${mediaType}/${detailId}/reviews`,
-      { language: "ko-KR", page: 1 }
+      { language: "ko-KR", page: 1 },
     )
       .then((r) => {
         if (!alive) return;
@@ -268,106 +307,12 @@ export function DetailSections({
     return () => void (alive = false);
   }, [detailId, mediaType]);
 
-  useEffect(() => {
-    let alive = true;
+  // ✅ 재개봉이어도 providers가 있으면 OTT 섹션은 무조건 표시(요구사항)
+  const showOttSection = hasProviders;
 
-    if (!detailId) return;
-    if (mediaType !== "movie") return;
-
-    loadScreeningSets()
-      .then((s) => {
-        if (!alive) return;
-        setScreening(s);
-
-        const inNow = !!s?.nowPlaying?.has(detailId);
-        if (!inNow) {
-          setOttOnly(false);
-          return;
-        }
-
-        const cached = peekOttOnlyMovie(detailId, "KR");
-        if (typeof cached === "boolean") {
-          setOttOnly(cached);
-          return;
-        }
-
-        isOttOnlyMovie(detailId, "KR")
-          .then((v) => {
-            if (!alive) return;
-            setOttOnly(v);
-          })
-          .catch(() => {
-            if (!alive) return;
-            setOttOnly(false);
-          });
-      })
-      .catch(() => {
-        if (!alive) return;
-        setScreening((prev) => prev ?? null);
-      });
-
-    return () => void (alive = false);
-  }, [detailId, mediaType]);
-
-  const statusKindComputed: ReleaseStatusKind | null = useMemo(() => {
-    if (!detailId) return null;
-
-    return getReleaseStatusKind({
-      mediaType,
-      id: detailId,
-      releaseDate: (detail as any)?.release_date ?? null,
-      firstAirDate: (detail as any)?.first_air_date ?? null,
-      sets: screening,
-      ottOnly,
-    });
-  }, [detailId, detail, mediaType, screening, ottOnly]);
-
-  const baseForRerun = (statusKindOverride ??
-    statusKindComputed) as ReleaseStatusKind | null;
-
-  // ✅ rerunInfo prop이 없을 때도, 내부에서 동일 로직으로 보정 가능하게 fallback
-  const rerunInfoFallback = useMovieRerunInfo({
-    mediaType,
-    id: detailId,
-    enabled:
-      mediaType === "movie" &&
-      !!detailId &&
-      (baseForRerun === "now" || baseForRerun === "upcoming"),
-    region: "KR",
-  });
-
-  const effectiveRerunInfo = (rerunInfo ?? rerunInfoFallback) as any;
-
-  // ✅ override 우선 + “극장 개봉 2회 이상이면 rerun” 보정
-  const statusKind: ReleaseStatusKind | null = useMemo(() => {
-    const base = (statusKindOverride ??
-      statusKindComputed) as ReleaseStatusKind | null;
-
-    if (
-      mediaType === "movie" &&
-      isRerunGapQualified(effectiveRerunInfo, 4) &&
-      (base === "now" || base === "upcoming")
-    ) {
-      return "rerun";
-    }
-
-    return base;
-  }, [
-    statusKindOverride,
-    statusKindComputed,
-    mediaType,
-    effectiveRerunInfo?.hasMultipleTheatrical,
-    effectiveRerunInfo?.originalTheatricalDate,
-    effectiveRerunInfo?.rerunTheatricalDate,
-  ]);
-
+  // ✅ 영화관 섹션은 기존 유지(상영중/재개봉이면 표시)
   const showTheaterSection =
-    mediaType === "movie" &&
-    (statusKind === "now" || statusKind === "rerun") &&
-    !ottOnly;
-
-  // ✅ 상영중/재개봉이면 OTT 섹션 숨김 (요구사항 유지)
-  const showOttSection = !showTheaterSection;
+    mediaType === "movie" && (statusKind === "now" || statusKind === "rerun");
 
   const openPersonModal = (personId: number) => {
     const st = location.state as any;
@@ -383,20 +328,36 @@ export function DetailSections({
     const d: any = detail;
 
     const original = safeText(
-      mediaType === "tv" ? d?.original_name : d?.original_title
+      mediaType === "tv" ? d?.original_name : d?.original_title,
     );
 
-    const originalRelease = safeText(
-      mediaType === "tv" ? d?.first_air_date : d?.release_date
-    );
+    // ✅ TV/Ani: 시즌 선택으로 detail.first_air_date가 바뀌어도 최초값 유지
+    const tvBaseDateFixed =
+      originalDateRef.current.id === detailId
+        ? originalDateRef.current.tvFirstAir
+        : "";
+    const movieBaseDateFixed =
+      originalDateRef.current.id === detailId
+        ? originalDateRef.current.movieRelease
+        : "";
 
-    const rerunRelease =
-      mediaType === "movie" && statusKind === "rerun"
-        ? safeText(effectiveRerunInfo?.rerunTheatricalDate) || originalRelease
-        : originalRelease;
+    const baseDate =
+      mediaType === "movie"
+        ? safeText(theatrical?.originalTheatricalDate) ||
+          movieBaseDateFixed ||
+          safeText(d?.release_date)
+        : tvBaseDateFixed || safeText(d?.first_air_date);
 
-    const dateLabel =
-      mediaType === "movie" && statusKind === "rerun" ? "재개봉일" : "개봉일";
+    // ✅ 재개봉일이 있으면 "재개봉일"로 표시(개봉일은 건드리지 않음)
+    const hasRerunDate = !!safeText(theatrical?.rerunTheatricalDate);
+    const isRerunMovie =
+      mediaType === "movie" && (statusKind === "rerun" || hasRerunDate);
+
+    const rerunDate =
+      safeText(theatrical?.rerunTheatricalDate) || baseDate || "";
+
+    const dateLabel = isRerunMovie ? "재개봉일" : "개봉일";
+    const dateValue = isRerunMovie ? rerunDate : baseDate;
 
     const runtime =
       mediaType === "tv"
@@ -407,20 +368,23 @@ export function DetailSections({
             return typeof v === "number" && v > 0 ? `${v}분` : "";
           })()
         : typeof d?.runtime === "number" && d.runtime > 0
-        ? `${d.runtime}분`
-        : "";
+          ? `${d.runtime}분`
+          : "";
 
-    // ✅ “출시년도”는 카드/상세와 동일한 통일 로직 사용
-    // - TV: 최신 시즌/마지막 방영 연도 우선
-    // - Movie rerun: 최초 극장 개봉 연도(가능하면 KR earliest) 고정
-    const yearForRow =
-      mediaType === "movie"
-        ? yearFromDate(effectiveRerunInfo?.originalTheatricalDate) ||
-          yearFromDate(d?.release_date) ||
-          ""
-        : getUnifiedYearFromDetail(detail, mediaType, { statusKind });
+    // ✅ 출시년도 동기화 규칙:
+    // - TV/ANI에서 season= 선택 시: season air_date의 연도(=Hero와 동일) 사용
+    // - 그 외: meta.unifiedYearLabel 사용(=백엔드 단일 소스)
+    let yearLabel = safeText(meta?.unifiedYearLabel);
 
-    const yearTextRow = yearForRow ? `${yearForRow}년` : "";
+    if (mediaType === "tv" && seasonNo > 0) {
+      const air =
+        (seasonContext?.air_date ?? null) ||
+        pickSeasonAirDateFromDetail(detail as any, seasonNo);
+      const y = yearFromIsoDate(air);
+      if (y) yearLabel = String(y);
+    }
+
+    const yearTextRow = yearLabel ? `${yearLabel}년` : "";
 
     const genres = Array.isArray(d?.genres)
       ? d.genres
@@ -435,11 +399,11 @@ export function DetailSections({
           ? d.origin_country.filter(Boolean).join(", ")
           : ""
         : Array.isArray(d?.production_countries)
-        ? d.production_countries
-            .map((c: any) => safeText(c?.name) || safeText(c?.iso_3166_1))
-            .filter(Boolean)
-            .join(", ")
-        : "";
+          ? d.production_countries
+              .map((c: any) => safeText(c?.name) || safeText(c?.iso_3166_1))
+              .filter(Boolean)
+              .join(", ")
+          : "";
 
     const status = safeText(d?.status);
 
@@ -454,7 +418,7 @@ export function DetailSections({
 
     const rows: Array<{ k: string; v: string } | null> = [
       original ? { k: "원제", v: original } : null,
-      rerunRelease ? { k: dateLabel, v: formatKoreanDate(rerunRelease) } : null,
+      dateValue ? { k: dateLabel, v: formatKoreanDate(dateValue) } : null,
       runtime ? { k: "러닝타임", v: runtime } : null,
       yearTextRow ? { k: "출시년도", v: yearTextRow } : null,
       genres ? { k: "장르", v: genres } : null,
@@ -467,10 +431,13 @@ export function DetailSections({
     return rows.filter(Boolean) as Array<{ k: string; v: string }>;
   }, [
     detail,
+    detailId,
     mediaType,
     statusKind,
-    effectiveRerunInfo?.rerunTheatricalDate,
-    effectiveRerunInfo?.originalTheatricalDate,
+    meta?.unifiedYearLabel,
+    theatrical,
+    seasonNo,
+    seasonContext?.air_date,
   ]);
 
   if (loading && !detail) {

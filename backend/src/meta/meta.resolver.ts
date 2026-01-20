@@ -25,6 +25,26 @@ export function yearFromIsoDate(iso: string): number | null {
   return Number.isFinite(y) ? y : null;
 }
 
+/** "YYYY-MM-DD..." => "YYYY-MM-DD" */
+export function toIsoYmd(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) return null;
+  return s.length >= 10 ? s.slice(0, 10) : null;
+}
+
+/** ✅ 월 단위 gap(프론트 diffFullMonths와 동일 방식) */
+export function diffFullMonths(fromYmd?: string | null, toYmd?: string | null) {
+  const a = new Date(String(fromYmd || '').slice(0, 10));
+  const b = new Date(String(toYmd || '').slice(0, 10));
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0;
+
+  let months =
+    (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+
+  if (b.getDate() < a.getDate()) months -= 1;
+  return months;
+}
+
 /** TMDB genres에 애니메이션(보통 id=16)이 포함되면 true */
 export function hasAnimationGenre(genres: unknown): boolean {
   const arr = asArray(genres);

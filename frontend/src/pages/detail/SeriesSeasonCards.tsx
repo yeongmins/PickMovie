@@ -18,8 +18,6 @@ type SeasonLike = {
 
 const SEASON_FAV_STORAGE_KEY = "pickmovie_favorite_tv_seasons_v1";
 const AUTO_SHOW_FAV_STORAGE_KEY = "pickmovie_favorite_tv_seasons_auto_tv_v1";
-
-// ✅ 시즌 찜 메타(플레이리스트 리팩토링 때 사용)
 const SEASON_FAV_META_STORAGE_KEY = "pickmovie_favorite_tv_season_meta_v1";
 
 type SeasonFavMeta = {
@@ -33,7 +31,6 @@ type SeasonFavMeta = {
   updatedAt: number;
 };
 
-// ✅ 클릭 직후(시즌 상세 fetch 전)에도 히어로가 시즌 포스터/정보를 바로 쓰도록 seed 전달
 type SeasonNavContext = {
   seasonNo: number;
   name?: string;
@@ -41,6 +38,7 @@ type SeasonNavContext = {
   air_date?: string | null;
   overview?: string | null;
   vote_average?: number | null;
+  year?: number | null;
 };
 
 function readSet(key: string): Set<string> {
@@ -83,6 +81,31 @@ function writeSeasonMetaMap(map: Record<string, SeasonFavMeta>) {
   }
 }
 
+function yearFromIsoDate(v?: string | null): number | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+
+// ✅ poster_path가 비어있을 때 ko→en fallback
+async function fetchSeasonDetailWithFallback(
+  tvId: number,
+  seasonNo: number,
+): Promise<TmdbTvSeasonDetail | null> {
+  const ko = await fetchTVSeasonDetail(tvId, seasonNo, { language: "ko-KR" });
+  const koPoster = (ko as any)?.poster_path ?? null;
+  if (ko && koPoster) return ko;
+
+  const en = await fetchTVSeasonDetail(tvId, seasonNo, { language: "en-US" });
+  const enPoster = (en as any)?.poster_path ?? null;
+  if (en && enPoster) return en;
+
+  return ko ?? en ?? null;
+}
+
 export function SeriesSeasonCards({
   tvId,
   tvTitle,
@@ -97,15 +120,13 @@ export function SeriesSeasonCards({
 
   const { favorites, isAuthed, toggleFavorite } = useDetailFavorites();
 
-  // ✅ 시즌별 하트 UI는 로컬(시즌 단위), 하지만 "실제 찜"은 TV(id)로 유지
   const [seasonFavs, setSeasonFavs] = useState<Set<string>>(() =>
-    readSet(SEASON_FAV_STORAGE_KEY)
+    readSet(SEASON_FAV_STORAGE_KEY),
   );
   const [autoShowFav, setAutoShowFav] = useState<Set<string>>(() =>
-    readSet(AUTO_SHOW_FAV_STORAGE_KEY)
+    readSet(AUTO_SHOW_FAV_STORAGE_KEY),
   );
 
-  // ✅ 시즌 상세 메타(포스터/air_date/vote_average 등)
   const [seasonMeta, setSeasonMeta] = useState<
     Record<number, TmdbTvSeasonDetail>
   >({});
@@ -126,11 +147,13 @@ export function SeriesSeasonCards({
     void (async () => {
       const pairs = await Promise.all(
         seasonNos.map(async (no) => {
-          const meta = await fetchTVSeasonDetail(tvId, no, {
-            language: "ko-KR",
-          });
-          return [no, meta] as const;
-        })
+          try {
+            const meta = await fetchSeasonDetailWithFallback(tvId, no);
+            return [no, meta] as const;
+          } catch {
+            return [no, null] as const;
+          }
+        }),
       );
 
       if (!alive) return;
@@ -148,10 +171,8 @@ export function SeriesSeasonCards({
   }, [tvId, seasonNos.join(",")]);
 
   const isSeasonFavorite = useCallback(
-    (seasonNo: number) => {
-      return seasonFavs.has(`${tvId}:${seasonNo}`);
-    },
-    [seasonFavs, tvId]
+    (seasonNo: number) => seasonFavs.has(`${tvId}:${seasonNo}`),
+    [seasonFavs, tvId],
   );
 
   const showIsFavorite = useMemo(() => {
@@ -176,12 +197,11 @@ export function SeriesSeasonCards({
 
         writeSet(SEASON_FAV_STORAGE_KEY, next);
 
-        // ✅ 시즌 메타 저장/삭제 (플레이리스트 리팩토링 때 사용)
         const metaMap = readSeasonMetaMap();
         if (willBeOn) {
-          const meta = seasonMeta[seasonNo];
+          const meta = seasonMeta[seasonNo] as any;
           const fallback = (seasons || []).find(
-            (s) => (s?.season_number ?? 0) === seasonNo
+            (s) => (s?.season_number ?? 0) === seasonNo,
           );
 
           metaMap[key] = {
@@ -201,9 +221,6 @@ export function SeriesSeasonCards({
         }
         writeSeasonMetaMap(metaMap);
 
-        // ✅ "실제 찜" 서버/전역 반영:
-        // - 시즌을 처음 찜(ON)하는 순간, TV가 찜이 아니면 TV 찜을 켠다
-        // - 시즌을 모두 해제했을 때 TV 찜을 자동으로 끄는 건 '자동으로 켰던 경우'만
         setAutoShowFav((prevAuto) => {
           const nextAuto = new Set(prevAuto);
           const autoKey = String(tvId);
@@ -215,7 +232,7 @@ export function SeriesSeasonCards({
             }
           } else {
             const hasAnySeasonLeft = Array.from(next).some((k) =>
-              k.startsWith(`${tvId}:`)
+              k.startsWith(`${tvId}:`),
             );
             if (!hasAnySeasonLeft && nextAuto.has(autoKey)) {
               if (showIsFavorite) toggleFavorite(tvId, "tv");
@@ -239,7 +256,7 @@ export function SeriesSeasonCards({
       seasonMeta,
       showIsFavorite,
       toggleFavorite,
-    ]
+    ],
   );
 
   const items = useMemo(() => {
@@ -247,15 +264,20 @@ export function SeriesSeasonCards({
       .filter((s) => (s?.season_number ?? 0) > 0)
       .map((s) => {
         const seasonNo = s.season_number ?? 0;
-        const meta = seasonMeta[seasonNo];
+        const meta = seasonMeta[seasonNo] as any;
 
-        // ✅ 시즌 상세 메타 우선(없으면 TV detail seasons fallback)
-        const poster = meta?.poster_path ?? s.poster_path ?? null;
-        const airDate = meta?.air_date ?? s.air_date ?? undefined;
+        const poster = (meta?.poster_path ?? s.poster_path ?? null) as
+          | string
+          | null;
+
+        const airDate = (meta?.air_date ?? s.air_date ?? null) as string | null;
+
         const voteAvg =
           typeof meta?.vote_average === "number"
             ? meta.vote_average
             : undefined;
+
+        const y = yearFromIsoDate(airDate);
 
         const item: ContentCardItem & {
           __seasonNo: number;
@@ -269,6 +291,7 @@ export function SeriesSeasonCards({
           poster_path: poster,
           first_air_date: airDate ?? undefined,
           vote_average: voteAvg,
+
           __seasonNo: seasonNo,
           __preferItemPoster: true,
           __preferItemYear: true,
@@ -277,11 +300,12 @@ export function SeriesSeasonCards({
             name: (meta?.name ?? s?.name ?? "").trim() || undefined,
             poster_path: poster,
             air_date: airDate ?? null,
-            overview: (meta as any)?.overview ?? null,
+            overview: meta?.overview ?? null,
             vote_average:
               typeof voteAvg === "number"
                 ? voteAvg
-                : (meta as any)?.vote_average ?? null,
+                : (meta?.vote_average ?? null),
+            year: y,
           },
         };
 
@@ -291,46 +315,60 @@ export function SeriesSeasonCards({
 
   if (!items.length) return null;
 
+  // ✅ DetailSections의 Section 스타일과 동일하게 맞춤
+  const rightInfo = (
+    <span className="text-white/35 text-[12px] font-semibold">
+      총 {items.length}개
+    </span>
+  );
+
   return (
-    <div className="mt-5">
-      <div className="mb-2 text-white/90 font-semibold">시리즈 / 시즌</div>
-
-      <div className="flex gap-3 overflow-x-auto pb-1">
-        {items.map((item) => {
-          const seasonNo = (item as any).__seasonNo as number;
-
-          const st = location.state as any;
-          const bg = st?.backgroundLocation ?? null;
-          const root = st?.rootLocation ?? bg;
-
-          const seasonContext = (item as any)
-            .__seasonNavContext as SeasonNavContext;
-
-          return (
-            <div key={`season-${seasonNo}`} className="shrink-0">
-              <ContentCard
-                item={item}
-                isFavorite={isSeasonFavorite(seasonNo)}
-                canFavorite={isAuthed}
-                onToggleFavorite={() => toggleSeasonFavorite(seasonNo)}
-                onClick={() => {
-                  const nextState = root
-                    ? {
-                        backgroundLocation: root,
-                        rootLocation: root,
-                        seasonContext,
-                      }
-                    : { seasonContext };
-
-                  navigate(`/title/tv/${tvId}?season=${seasonNo}`, {
-                    state: nextState,
-                  });
-                }}
-              />
-            </div>
-          );
-        })}
+    <section className="mt-10">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="text-white/90 font-extrabold text-[16px]">
+          시리즈 / 시즌
+        </h3>
+        <div className="shrink-0">{rightInfo}</div>
       </div>
-    </div>
+
+      <div className="border-t border-white/10 pt-4">
+        <div className="flex gap-3 overflow-x-auto pb-1">
+          {items.map((item) => {
+            const seasonNo = (item as any).__seasonNo as number;
+
+            const st = location.state as any;
+            const bg = st?.backgroundLocation ?? null;
+            const root = st?.rootLocation ?? bg;
+
+            const seasonContext = (item as any)
+              .__seasonNavContext as SeasonNavContext;
+
+            return (
+              <div key={`season-${seasonNo}`} className="shrink-0">
+                <ContentCard
+                  item={item}
+                  isFavorite={isSeasonFavorite(seasonNo)}
+                  canFavorite={isAuthed}
+                  onToggleFavorite={() => toggleSeasonFavorite(seasonNo)}
+                  onClick={() => {
+                    const nextState = root
+                      ? {
+                          backgroundLocation: root,
+                          rootLocation: root,
+                          seasonContext,
+                        }
+                      : { seasonContext };
+
+                    navigate(`/title/tv/${tvId}?season=${seasonNo}`, {
+                      state: nextState,
+                    });
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }

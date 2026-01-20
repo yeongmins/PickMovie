@@ -20,9 +20,10 @@ import { getLogoSrcByProviderName } from "../../assets/logo";
 
 /* =========================
    ✅ 최신 포스터: ko 우선, 없으면 en
-   + ✅ TV "시즌 상세(쿼리 season=)"면 해당 시즌 포스터(detail.poster_path)를 우선
+   + ✅ TV "시즌 상세(쿼리 season=)"면 해당 시즌 포스터(detail.poster_path OR seasonContext.poster_path)를 우선
    + TV 기본 화면에서는 최신 시즌 포스터가 있으면 그걸 우선
    + "옛 포스터 잔상" 제거: preload 후에만 렌더
+   + ✅ 시즌 클릭 시: 개봉일은 유지, "출시년도"는 season air_date 연도로 Hero 표시값을 덮어씀
 ========================= */
 
 type TmdbImageAsset = {
@@ -36,6 +37,16 @@ type TmdbImageAsset = {
 
 type TmdbImagesResponse = {
   posters?: TmdbImageAsset[];
+};
+
+type SeasonNavContext = {
+  seasonNo: number;
+  name?: string;
+  poster_path?: string | null;
+  air_date?: string | null;
+  overview?: string | null;
+  vote_average?: number | null;
+  year?: number | null;
 };
 
 const _detailPosterCache = new Map<string, string | null>();
@@ -73,7 +84,7 @@ function pickBestPosterFilePath(posters?: TmdbImageAsset[]) {
 
 async function fetchImagesSafe(
   mediaType: MediaType,
-  id: number
+  id: number,
 ): Promise<TmdbImagesResponse | null> {
   try {
     return await apiGet<TmdbImagesResponse>(`/tmdb/images/${mediaType}/${id}`, {
@@ -92,7 +103,7 @@ function pickLatestSeasonPosterFromDetail(detail: any): string | null {
 
   const list = seasons
     .filter(
-      (s: any) => typeof s?.season_number === "number" && s.season_number > 0
+      (s: any) => typeof s?.season_number === "number" && s.season_number > 0,
     )
     .map((s: any) => {
       const t = Date.parse(String(s?.air_date || "").trim());
@@ -113,12 +124,12 @@ function pickLatestSeasonPosterFromDetail(detail: any): string | null {
 async function resolveBestPosterPath(
   mediaType: MediaType,
   detail: DetailBase,
-  seasonNo: number
+  seasonNo: number,
+  preferSeasonPosterPath: string | null,
 ): Promise<string | null> {
-  // ✅ id가 같아도 시즌 포스터(detail.poster_path)가 바뀌면 다시 로딩되도록 key에 포함
-  const key = `${mediaType}:${detail.id}:season=${seasonNo}:poster=${
-    detail.poster_path ?? ""
-  }`;
+  const key = `${mediaType}:${detail.id}:season=${seasonNo}:prefer=${
+    preferSeasonPosterPath ?? ""
+  }:poster=${detail.poster_path ?? ""}`;
 
   if (_detailPosterCache.has(key)) return _detailPosterCache.get(key) ?? null;
 
@@ -127,9 +138,10 @@ async function resolveBestPosterPath(
 
   const p = (async () => {
     try {
-      // ✅✅ TV 시즌 상세 화면이면: ContentDetailModal에서 덮어쓴 시즌 poster_path를 최우선 사용
+      // ✅✅ TV 시즌 상세 화면이면: seasonContext.poster_path → detail.poster_path 순으로 최우선
       if (mediaType === "tv" && seasonNo > 0) {
-        const seasonPoster = detail.poster_path ?? null;
+        const seasonPoster =
+          preferSeasonPosterPath ?? detail.poster_path ?? null;
         if (seasonPoster) {
           _detailPosterCache.set(key, seasonPoster);
           return seasonPoster;
@@ -139,7 +151,7 @@ async function resolveBestPosterPath(
       // ✅ TV 기본 화면이면 최신 시즌 포스터 우선
       if (mediaType === "tv") {
         const latestSeasonPoster = pickLatestSeasonPosterFromDetail(
-          detail as any
+          detail as any,
         );
         if (latestSeasonPoster) {
           _detailPosterCache.set(key, latestSeasonPoster);
@@ -189,6 +201,15 @@ function getSeasonNoFromSearch(search: string): number {
   }
 }
 
+function yearFromIsoDate(v?: string | null): number | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  return Number.isFinite(y) ? y : null;
+}
+
 /* ✅ (추가) season= 이 없을 때도 "가장 최신 시즌 번호" 계산 */
 function pickLatestSeasonNoFromDetail(detail: any): number {
   const seasons = Array.isArray(detail?.seasons) ? detail.seasons : [];
@@ -196,7 +217,7 @@ function pickLatestSeasonNoFromDetail(detail: any): number {
 
   const list = seasons
     .filter(
-      (s: any) => typeof s?.season_number === "number" && s.season_number > 0
+      (s: any) => typeof s?.season_number === "number" && s.season_number > 0,
     )
     .map((s: any) => {
       const t = Date.parse(String(s?.air_date || "").trim());
@@ -219,12 +240,12 @@ function pickLatestSeasonNoFromDetail(detail: any): number {
 function ytCommand(
   iframe: HTMLIFrameElement | null,
   func: string,
-  args: any[] = []
+  args: any[] = [],
 ) {
   if (!iframe?.contentWindow) return;
   iframe.contentWindow.postMessage(
     JSON.stringify({ event: "command", func, args }),
-    "*"
+    "*",
   );
 }
 
@@ -363,6 +384,11 @@ export function ContentDetailHero({
   const title = getDisplayTitle(detail as any);
   const location = useLocation();
 
+  const seasonContext = useMemo(() => {
+    const st = location.state as any;
+    return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
+  }, [location.state]);
+
   // ✅ TV 시즌 선택 상태(쿼리 기반)
   const seasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
@@ -370,9 +396,6 @@ export function ContentDetailHero({
   }, [mediaType, location.search]);
 
   // ✅ (추가) 뱃지 표시용 시즌 번호
-  // - season= 있으면 그 값
-  // - 없으면 최신 시즌
-  // - 단, "최신 시즌이 1"인 작품은 뱃지 숨김
   const badgeSeasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
     const picked =
@@ -380,8 +403,39 @@ export function ContentDetailHero({
     return picked > 1 ? picked : 0;
   }, [mediaType, seasonNo, detail]);
 
+  // ✅ 시즌 클릭 시 Hero "출시년도"를 season air_date 연도로 덮어쓰기
+  // - 개봉일(상세 정보 섹션)은 그대로 두고, Hero/출시년도만 일치시키는 목적
+  const yearTextEffective = useMemo(() => {
+    if (mediaType !== "tv") return yearText;
+
+    if (seasonNo <= 0) return yearText;
+
+    const fromCtx = yearFromIsoDate(seasonContext?.air_date ?? null);
+    if (fromCtx) return String(fromCtx);
+
+    // fallback: detail.seasons에서 air_date 찾기
+    const seasons = Array.isArray((detail as any)?.seasons)
+      ? (detail as any).seasons
+      : [];
+    const found = seasons.find(
+      (s: any) => Number(s?.season_number) === seasonNo,
+    );
+    const fromDetail = yearFromIsoDate(
+      String(found?.air_date ?? "").trim() || null,
+    );
+    if (fromDetail) return String(fromDetail);
+
+    return yearText;
+  }, [mediaType, seasonNo, seasonContext?.air_date, detail, yearText]);
+
+  const preferSeasonPosterPath = useMemo(() => {
+    if (mediaType !== "tv") return null;
+    if (seasonNo <= 0) return null;
+    return (seasonContext?.poster_path ?? null) as string | null;
+  }, [mediaType, seasonNo, seasonContext?.poster_path]);
+
   const [posterPathResolved, setPosterPathResolved] = useState<string | null>(
-    null
+    null,
   );
   const [posterReady, setPosterReady] = useState(false);
 
@@ -392,7 +446,12 @@ export function ContentDetailHero({
     setPosterReady(false);
 
     void (async () => {
-      const bestPath = await resolveBestPosterPath(mediaType, detail, seasonNo);
+      const bestPath = await resolveBestPosterPath(
+        mediaType,
+        detail,
+        seasonNo,
+        preferSeasonPosterPath,
+      );
       if (!alive) return;
 
       if (!bestPath) {
@@ -418,8 +477,13 @@ export function ContentDetailHero({
     return () => {
       alive = false;
     };
-    // ✅ seasonNo / detail.poster_path 변경에도 재실행되어 시즌 포스터로 즉시 갱신
-  }, [mediaType, detail.id, detail.poster_path, seasonNo]);
+  }, [
+    mediaType,
+    detail.id,
+    detail.poster_path,
+    seasonNo,
+    preferSeasonPosterPath,
+  ]);
 
   const heroBackdropSrc = useMemo(() => {
     if (detail.backdrop_path)
@@ -446,7 +510,7 @@ export function ContentDetailHero({
 
   const runtime = useMemo(
     () => runtimeText(detail, mediaType),
-    [detail, mediaType]
+    [detail, mediaType],
   );
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -622,7 +686,7 @@ export function ContentDetailHero({
     trailerOpen,
     title,
     typeText,
-    yearText,
+    yearTextEffective,
     genreText,
     runtime,
     posterReady,
@@ -715,8 +779,10 @@ export function ContentDetailHero({
                 </span>
               </div>
 
-              {yearText ? (
-                <span className="text-white text-sm font-bold">{yearText}</span>
+              {yearTextEffective ? (
+                <span className="text-white text-sm font-bold">
+                  {yearTextEffective}
+                </span>
               ) : null}
 
               {genreText ? (

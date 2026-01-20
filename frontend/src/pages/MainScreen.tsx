@@ -24,8 +24,6 @@ import {
   getTopRatedMovies,
   getNowPlayingMovies,
   discoverMovies,
-  getMovieDetails,
-  getTVDetails,
   calculateMatchScore,
   normalizeTVToMovie,
   GENRE_IDS,
@@ -33,25 +31,25 @@ import {
 } from "../lib/tmdb";
 
 const Header = lazy(() =>
-  import("../components/layout/Header").then((m) => ({ default: m.Header }))
+  import("../components/layout/Header").then((m) => ({ default: m.Header })),
 );
 
 const FavoritesCarousel = lazy(() =>
   import("../features/favorites/components/FavoritesCarousel").then((m) => ({
     default: m.FavoritesCarousel,
-  }))
+  })),
 );
 
-const MovieRow = lazy(() =>
+const ContentRow = lazy(() =>
   import("../components/content/ContentRow").then((m) => ({
-    default: m.MovieRow,
-  }))
+    default: m.ContentRow,
+  })),
 );
 
 const TrailerOverlay = lazy(() =>
   import("../features/favorites/components/TrailerOverlay").then((m) => ({
     default: m.TrailerOverlay,
-  }))
+  })),
 );
 
 type Section = "home" | "popular-movies" | "popular-tv";
@@ -94,7 +92,7 @@ const sectionVariants = {
 
 function withMatchScore(
   movie: TMDBMovie,
-  prefs: UserPreferences
+  prefs: UserPreferences,
 ): MovieWithScore {
   return { ...movie, matchScore: calculateMatchScore(movie, prefs) };
 }
@@ -117,7 +115,7 @@ const KR = { region: "KR", language: "ko-KR" } as const;
 async function pMapLimit<T, R>(
   items: T[],
   limit: number,
-  mapper: (item: T, idx: number) => Promise<R>
+  mapper: (item: T, idx: number) => Promise<R>,
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   let idx = 0;
@@ -250,16 +248,6 @@ function buildDetailPath(mediaType: MediaType, id: number) {
   return `/title/${mediaType}/${id}`;
 }
 
-function getHomeCollection(
-  resp: HomeChartsResponse | null,
-  key: HomeCollectionKey
-): HomeChartItem[] {
-  const cols = resp?.collections;
-  if (!Array.isArray(cols)) return [];
-  const c = cols.find((x) => x?.key === key);
-  return Array.isArray(c?.items) ? c!.items : [];
-}
-
 export function MainScreen({
   userPreferences,
   favorites,
@@ -315,7 +303,7 @@ export function MainScreen({
       if (d) detailCacheRef.current.set(key, d);
       return d;
     },
-    []
+    [],
   );
 
   const hydrateSnapshotItems = useCallback(
@@ -332,11 +320,11 @@ export function MainScreen({
           } catch {
             return null;
           }
-        }
+        },
       );
       return settled.filter(Boolean) as any[];
     },
-    [fetchDetailCached]
+    [fetchDetailCached],
   );
 
   useEffect(() => {
@@ -395,7 +383,7 @@ export function MainScreen({
         try {
           const detail = await fetchDetailCached(
             item.mediaType as MediaType,
-            item.id
+            item.id,
           );
           if (!detail) return null;
 
@@ -407,7 +395,7 @@ export function MainScreen({
         } catch {
           return null;
         }
-      }
+      },
     );
 
     setFavoriteMovies(settled.filter((m): m is MovieWithScore => m !== null));
@@ -415,13 +403,11 @@ export function MainScreen({
 
   async function safeCall<T>(
     fn: (...args: any[]) => Promise<T>,
-    args?: any
+    args?: any,
   ): Promise<T> {
     try {
-      // 일부 tmdb 함수는 (options) 형태, 일부는 () 형태라 둘 다 대응
       return args !== undefined ? await fn(args) : await fn();
     } catch {
-      // args 넘겼다가 실패하면 한번 더 no-arg로 재시도
       return await fn();
     }
   }
@@ -443,14 +429,14 @@ export function MainScreen({
       const latest = unwrapList<TMDBMovie>(latestRes);
 
       setPopularMovies(
-        popular.map((m) => ({ ...(m as any), media_type: "movie" }))
+        popular.map((m) => ({ ...(m as any), media_type: "movie" })),
       );
       setPopularTV(tv.map((t) => ({ ...(t as any), media_type: "tv" })));
       setTopRatedMovies(
-        topRated.map((m) => ({ ...(m as any), media_type: "movie" }))
+        topRated.map((m) => ({ ...(m as any), media_type: "movie" })),
       );
       setLatestMovies(
-        latest.map((m) => ({ ...(m as any), media_type: "movie" }))
+        latest.map((m) => ({ ...(m as any), media_type: "movie" })),
       );
     } finally {
       setLoading(false);
@@ -465,6 +451,7 @@ export function MainScreen({
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
 
+  // ✅ 로그인 시 트렌드 로드
   useEffect(() => {
     if (currentSection !== "home") return;
 
@@ -479,7 +466,6 @@ export function MainScreen({
 
     (async () => {
       try {
-        // ✅ 기존 기능 유지: PickMovie 인기(트렌드) = /trends/kr
         const r = await apiGet<{
           date: string;
           items: Array<{
@@ -506,15 +492,16 @@ export function MainScreen({
             } catch {
               return null;
             }
-          }
+          },
         );
 
-        // ✅ fallback: trends가 비었으면 home snapshot의 TRENDING_MOVIE로 채움(디자인/흐름 유지)
         const picked =
           details.filter(Boolean).length > 0
             ? (details.filter(Boolean) as any[])
             : await hydrateSnapshotItems(
-                getHomeCollection(homeChartsRef.current, "TRENDING_MOVIE")
+                (homeChartsRef.current?.collections?.find(
+                  (c) => c.key === "TRENDING_MOVIE",
+                )?.items ?? []) as any,
               );
 
         if (!mounted) return;
@@ -531,6 +518,7 @@ export function MainScreen({
     };
   }, [currentSection, loggedIn, fetchDetailCached, hydrateSnapshotItems]);
 
+  // ✅ 로그인+찜 충분할 때 forYou 생성
   useEffect(() => {
     if (forYouOnceRef.current) return;
     if (!loggedIn || currentSection !== "home") return;
@@ -560,7 +548,7 @@ export function MainScreen({
           .slice(0, 5);
 
         const seedGenreIds = Array.from(
-          new Set([...topFromFav, ...prefIds])
+          new Set([...topFromFav, ...prefIds]),
         ).slice(0, 6);
 
         if (!seedGenreIds.length) {
@@ -577,7 +565,7 @@ export function MainScreen({
 
         const seen = new Set<number>();
         const favMovieIds = new Set(
-          favorites.filter((x) => x.mediaType === "movie").map((x) => x.id)
+          favorites.filter((x) => x.mediaType === "movie").map((x) => x.id),
         );
 
         const candidates = pool
@@ -639,23 +627,23 @@ export function MainScreen({
         movie?.media_type === "tv"
           ? "tv"
           : movie?.media_type === "movie"
-          ? "movie"
-          : movie?.first_air_date
-          ? "tv"
-          : "movie";
+            ? "movie"
+            : movie?.first_air_date
+              ? "tv"
+              : "movie";
 
       navigate(buildDetailPath(mt, id), {
         state: { backgroundLocation: location },
       });
     },
-    [navigate, location]
+    [navigate, location],
   );
 
   const toggleFav = useCallback(
     (id: number, type?: MediaType) => {
       onToggleFavorite?.(id, (type || "movie") as MediaType);
     },
-    [onToggleFavorite]
+    [onToggleFavorite],
   );
 
   const openTrailerFromCarousel = useCallback((movie: any) => {
@@ -691,8 +679,21 @@ export function MainScreen({
 
       <OnboardingPromptModal
         open={showOnboardingPrompt}
-        onStart={startOnboarding}
-        onLater={dismissOnboardingPrompt}
+        onStart={() => {
+          try {
+            localStorage.setItem(ONBOARDING_PROMPT_SEEN, "1");
+            localStorage.setItem(NEW_USER_FLAG, "0");
+          } catch {}
+          if (onReanalyze) onReanalyze();
+          else navigate("/onboarding");
+        }}
+        onLater={() => {
+          setShowOnboardingPrompt(false);
+          try {
+            localStorage.setItem(ONBOARDING_PROMPT_SEEN, "1");
+            localStorage.setItem(NEW_USER_FLAG, "0");
+          } catch {}
+        }}
       />
 
       <Suspense fallback={null}>
@@ -768,7 +769,7 @@ export function MainScreen({
                       </div>
                     ) : (
                       <Suspense fallback={<div className="h-40" />}>
-                        <MovieRow
+                        <ContentRow
                           title=""
                           movies={forYouMovies as any}
                           favorites={favoriteIdList}
@@ -776,7 +777,8 @@ export function MainScreen({
                           onToggleFavorite={(id: number, type?: MediaType) =>
                             toggleFav(id, type)
                           }
-                          onMovieClick={openContentDetail}
+                          onMovieClick={openContentDetail as any}
+                          showMatchScore
                         />
                       </Suspense>
                     )}
@@ -807,7 +809,7 @@ export function MainScreen({
                       </div>
                     ) : (
                       <Suspense fallback={<div className="h-40" />}>
-                        <MovieRow
+                        <ContentRow
                           title=""
                           movies={trendMoviesRaw as any}
                           favorites={favoriteIdList}
@@ -815,7 +817,7 @@ export function MainScreen({
                           onToggleFavorite={(id: number, type?: MediaType) =>
                             toggleFav(id, type)
                           }
-                          onMovieClick={openContentDetail}
+                          onMovieClick={openContentDetail as any}
                         />
                       </Suspense>
                     )}
@@ -828,7 +830,7 @@ export function MainScreen({
                   desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 영화입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title=""
                     movies={popularMovies as any}
                     favorites={favoriteIdList}
@@ -836,7 +838,7 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
 
@@ -846,7 +848,7 @@ export function MainScreen({
                   desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 TV 콘텐츠입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title=""
                     movies={popularTV as any}
                     favorites={favoriteIdList}
@@ -854,7 +856,7 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
 
@@ -864,7 +866,7 @@ export function MainScreen({
                   desc="현재 상영 중 / 재개봉 중인 작품입니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title=""
                     movies={latestMovies as any}
                     favorites={favoriteIdList}
@@ -872,7 +874,7 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
               </>
@@ -881,7 +883,7 @@ export function MainScreen({
             {currentSection === "popular-movies" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title="인기 영화"
                     movies={popularMovies as any}
                     favorites={favoriteIdList}
@@ -889,12 +891,12 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
 
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title="평점 높은 영화"
                     movies={topRatedMovies as any}
                     favorites={favoriteIdList}
@@ -902,7 +904,7 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
               </section>
@@ -911,7 +913,7 @@ export function MainScreen({
             {currentSection === "popular-tv" && (
               <section className="pt-24">
                 <Suspense fallback={<div className="h-40" />}>
-                  <MovieRow
+                  <ContentRow
                     title="인기 TV 프로그램"
                     movies={popularTV as any}
                     favorites={favoriteIdList}
@@ -919,7 +921,7 @@ export function MainScreen({
                     onToggleFavorite={(id: number, type?: MediaType) =>
                       toggleFav(id, type)
                     }
-                    onMovieClick={openContentDetail}
+                    onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
               </section>

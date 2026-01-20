@@ -1,54 +1,34 @@
-// frontend/src/features/content/components/ContentRow.tsx
+// frontend/src/components/content/ContentRow.tsx
 import { useState, useRef, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { ContentCard } from "../../components/content/ContentCard";
+import {
+  ContentCard,
+  type ContentCardItem,
+  type MediaType,
+} from "./ContentCard";
 
-interface Movie {
-  id: number;
-  title?: string;
-  name?: string;
-  original_title?: string;
-  original_name?: string;
-
-  poster_path: string | null;
-  vote_average: number;
-
-  release_date?: string;
-  first_air_date?: string;
-
-  matchScore?: number;
-  media_type?: "movie" | "tv";
-  genre_ids?: number[];
-
-  providers?: any[];
-  platform?: string;
-  ageRating?: string;
-  isNowPlaying?: boolean;
-  isUpcoming?: boolean;
-}
-
-interface MovieRowProps {
+export interface ContentRowProps {
   title: string;
-  movies: Movie[];
+  movies: ContentCardItem[];
 
   favorites?: number[];
   favoriteKeySet?: Set<string>;
 
-  onToggleFavorite: (movieId: number, mediaType?: "movie" | "tv") => void;
-  onMovieClick: (movie: Movie) => void;
+  onToggleFavorite: (movieId: number, mediaType?: MediaType) => void;
+  onMovieClick: (movie: ContentCardItem) => void;
 
   showMatchScore?: boolean;
 }
 
-export function MovieRow({
+export function ContentRow({
   title,
   movies,
   favorites = [],
   favoriteKeySet,
   onToggleFavorite,
   onMovieClick,
-}: MovieRowProps) {
+}: ContentRowProps) {
   const [scrollPosition, setScrollPosition] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -104,7 +84,7 @@ export function MovieRow({
           {uniqueMovies.map((movie) => {
             if (hiddenMovieIds.includes(movie.id)) return null;
 
-            const mt = (movie.media_type || "movie") as "movie" | "tv";
+            const mt = (movie.media_type || "movie") as MediaType;
             const key = `${mt}:${movie.id}`;
             const isFav = favoriteKeySet
               ? favoriteKeySet.has(key)
@@ -123,7 +103,7 @@ export function MovieRow({
                   context="default"
                   onPosterError={() => {
                     setHiddenMovieIds((prev) =>
-                      prev.includes(movie.id) ? prev : [...prev, movie.id]
+                      prev.includes(movie.id) ? prev : [...prev, movie.id],
                     );
                   }}
                 />
@@ -143,3 +123,5 @@ export function MovieRow({
     </div>
   );
 }
+
+export default ContentRow;

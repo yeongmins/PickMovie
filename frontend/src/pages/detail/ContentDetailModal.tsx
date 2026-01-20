@@ -4,16 +4,11 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import { motion } from "framer-motion";
 
-import { apiGet } from "../../lib/apiClient";
 import {
   detectOriginalProvider,
-  fetchAge,
   fetchDetailSafe,
-  fetchProvidersKR,
   fetchTrailerKey,
-  isAnime,
   normalizeMediaType,
-  yearTextFrom,
   type DetailBase,
   type MediaType,
   type ProviderItem,
@@ -23,125 +18,13 @@ import {
 import { ContentDetailHero } from "./ContentDetailHero";
 import { ContentDetailBody } from "./ContentDetailBody";
 
-import {
-  getReleaseStatusKind,
-  getUnifiedYearFromDetail,
-  isOttOnlyMovie,
-  loadScreeningSets,
-  peekOttOnlyMovie,
-  peekScreeningSets,
-  type ReleaseStatusKind,
-  type ScreeningSets,
-} from "../../lib/contentMeta";
-
 import { DetailFavoritesProvider } from "./detailFavorites.context";
 import { fetchTVSeasonDetail, type TmdbTvSeasonDetail } from "../../lib/tmdb";
-
-/* =========================
-   ✅ 재개봉 판정(중요)
-========================= */
-
-type TmdbReleaseDateItem = {
-  release_date?: string;
-  type?: number;
-};
-
-type TmdbReleaseDatesResult = {
-  iso_3166_1?: string;
-  release_dates?: TmdbReleaseDateItem[];
-};
-
-type TmdbReleaseDatesResponse = {
-  results?: TmdbReleaseDatesResult[];
-};
-
-export type MovieRerunInfo = {
-  hasMultipleTheatrical: boolean;
-  originalTheatricalDate: string; // YYYY-MM-DD
-  rerunTheatricalDate: string; // YYYY-MM-DD
-};
-
-const _detailRerunCache = new Map<string, MovieRerunInfo>();
-const _detailRerunInFlight = new Map<string, Promise<MovieRerunInfo>>();
-
-function toYmd(v: unknown): string {
-  const s = String(v ?? "").trim();
-  if (!s) return "";
-  return s.length >= 10 ? s.slice(0, 10) : s;
-}
-
-function extractTheatricalDates(
-  res: TmdbReleaseDatesResponse | null,
-  region: string
-): string[] {
-  const list = Array.isArray(res?.results) ? res!.results! : [];
-  const bucket =
-    list.find(
-      (x) => String(x?.iso_3166_1 || "").toUpperCase() === region.toUpperCase()
-    ) ?? null;
-
-  const dates = Array.isArray(bucket?.release_dates)
-    ? bucket!.release_dates!
-    : [];
-
-  const theatrical = dates
-    .filter((d) => {
-      const t = Number(d?.type);
-      return t === 2 || t === 3;
-    })
-    .map((d) => toYmd(d?.release_date))
-    .filter(Boolean);
-
-  const uniq = Array.from(new Set(theatrical));
-  uniq.sort((a, b) => a.localeCompare(b));
-  return uniq;
-}
-
-async function loadMovieRerunInfoNoThreshold(
-  id: number,
-  region: string
-): Promise<MovieRerunInfo> {
-  const key = `${id}:${region.toUpperCase()}`;
-  const cached = _detailRerunCache.get(key);
-  if (cached) return cached;
-
-  const inflight = _detailRerunInFlight.get(key);
-  if (inflight) return inflight;
-
-  const p = (async () => {
-    try {
-      const res = await apiGet<TmdbReleaseDatesResponse>(
-        `/tmdb/proxy/movie/${id}/release_dates`
-      );
-      const theatricalDates = extractTheatricalDates(res, region);
-
-      const info: MovieRerunInfo = {
-        hasMultipleTheatrical: theatricalDates.length >= 2,
-        originalTheatricalDate: theatricalDates[0] ?? "",
-        rerunTheatricalDate:
-          theatricalDates.length >= 2
-            ? theatricalDates[theatricalDates.length - 1] ?? ""
-            : "",
-      };
-
-      _detailRerunCache.set(key, info);
-      return info;
-    } catch {
-      const info: MovieRerunInfo = {
-        hasMultipleTheatrical: false,
-        originalTheatricalDate: "",
-        rerunTheatricalDate: "",
-      };
-      _detailRerunCache.set(key, info);
-      return info;
-    } finally {
-      _detailRerunInFlight.delete(key);
-    }
-  })();
-
-  _detailRerunInFlight.set(key, p);
-  return p;
-}
+import {
+  peekResolvedMeta,
+  requestResolvedMeta,
+  type ResolvedMeta,
+} from "../../lib/metaClient";
 
 function locationToPath(loc: any): string | null {
   if (!loc) return null;
@@ -165,6 +48,8 @@ function getSeasonNoFromSearch(search: string): number {
   }
 }
 
+type ReleaseStatusKind = "now" | "upcoming" | "rerun" | null;
+
 type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
 
 // ✅ SeriesSeasonCards에서 전달하는 seed
@@ -179,13 +64,12 @@ type SeasonNavContext = {
 
 function seasonSeedFromState(
   st: any,
-  seasonNo: number
+  seasonNo: number,
 ): TmdbTvSeasonDetail | null {
   const ctx = (st as any)?.seasonContext as SeasonNavContext | undefined;
   if (!ctx) return null;
   if (Number(ctx.seasonNo) !== Number(seasonNo)) return null;
 
-  // 타입은 lib/tmdb에 있지만 여기서 쓰는 필드만 seed로 넣고 캐스팅
   return {
     name: ctx.name ?? undefined,
     poster_path: ctx.poster_path ?? null,
@@ -193,6 +77,14 @@ function seasonSeedFromState(
     overview: ctx.overview ?? "",
     vote_average: typeof ctx.vote_average === "number" ? ctx.vote_average : 0,
   } as any;
+}
+
+function typeTextFromMeta(meta: ResolvedMeta | null) {
+  const ck = String(meta?.contentKind ?? "").toUpperCase();
+  if (ck === "ANI") return "Ani";
+  if (ck === "TV") return "TV";
+  if (ck === "MOVIE") return "Movie";
+  return "—";
 }
 
 export default function ContentDetailModal({
@@ -211,10 +103,9 @@ export default function ContentDetailModal({
   const mediaType = normalizeMediaType(params.mediaType) as MediaType;
   const id = Number(params.id);
 
-  // ✅ season query
   const seasonNo = useMemo(
     () => (mediaType === "tv" ? getSeasonNoFromSearch(location.search) : 0),
-    [mediaType, location.search]
+    [mediaType, location.search],
   );
 
   const closeTargetPath = useMemo(() => {
@@ -226,12 +117,7 @@ export default function ContentDetailModal({
   const [detail, setDetail] = useState<DetailBase | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [providersKR, setProvidersKR] = useState<WatchProviderRegion | null>(
-    null
-  );
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
-
-  const [ageValue, setAgeValue] = useState<string | null>(null);
 
   const [trailerOpen, setTrailerOpen] = useState(false);
   const [trailerMuted, setTrailerMuted] = useState(false);
@@ -239,29 +125,22 @@ export default function ContentDetailModal({
   const closingRef = useRef(false);
   const [closing, setClosing] = useState(false);
 
-  const [screening, setScreening] = useState<ScreeningSets | null>(() =>
-    peekScreeningSets()
-  );
-  const [heroOttOnly, setHeroOttOnly] = useState<boolean>(() => {
-    if (mediaType !== "movie" || !Number.isFinite(id) || id <= 0) return false;
-    return peekOttOnlyMovie(id, "KR") ?? false;
-  });
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  const [rerunInfo, setRerunInfo] = useState<MovieRerunInfo>(() => ({
-    hasMultipleTheatrical: false,
-    originalTheatricalDate: "",
-    rerunTheatricalDate: "",
-  }));
+  // ✅ meta (단일 소스)
+  const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
+    if (!Number.isFinite(id) || id <= 0) return null;
+    return peekResolvedMeta(mediaType as any, id) ?? null;
+  });
 
   // ✅ 시즌 상세 (TV)
   const [seasonDetail, setSeasonDetail] = useState<TmdbTvSeasonDetail | null>(
-    null
+    null,
   );
+  const seasonLoading = useMemo(() => {
+    return mediaType === "tv" && seasonNo > 0 && seasonDetail === null;
+  }, [mediaType, seasonNo, seasonDetail]);
 
-  // ✅ 모달 스크롤 컨테이너 ref (시즌 이동 시 히어로로 올라가기)
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-
-  // ✅ 시즌/컨텐츠가 바뀌면 위로 올리고(빠르게), 트레일러도 닫기
   useEffect(() => {
     setTrailerOpen(false);
     setTrailerMuted(false);
@@ -275,50 +154,10 @@ export default function ContentDetailModal({
   }, [mediaType, id, seasonNo]);
 
   useEffect(() => {
-    let mounted = true;
-
-    setRerunInfo({
-      hasMultipleTheatrical: false,
-      originalTheatricalDate: "",
-      rerunTheatricalDate: "",
-    });
-
-    if (mediaType !== "movie" || !Number.isFinite(id) || id <= 0) {
-      return () => void (mounted = false);
-    }
-
-    void (async () => {
-      const info = await loadMovieRerunInfoNoThreshold(id, "KR");
-      if (!mounted) return;
-      setRerunInfo(info);
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [mediaType, id]);
-
-  useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    loadScreeningSets()
-      .then((s) => {
-        if (!mounted) return;
-        setScreening(s);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setScreening((prev) => prev ?? null);
-      });
-    return () => {
-      mounted = false;
     };
   }, []);
 
@@ -345,27 +184,24 @@ export default function ContentDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [requestClose, trailerOpen]);
 
-  // ✅ base detail 로딩 (id/mediaType 기준)
+  // ✅ base detail + meta 로딩
   useEffect(() => {
     let alive = true;
 
     setTrailerOpen(false);
     setTrailerMuted(false);
-    setProvidersKR(null);
     setTrailerKey(null);
-    setAgeValue(null);
     setDetail(null);
     setLoading(true);
 
     if (!Number.isFinite(id) || id <= 0) {
       setLoading(false);
-      return () => {
-        alive = false;
-      };
+      return () => void (alive = false);
     }
 
     void (async () => {
       try {
+        // 1) detail
         const data = await fetchDetailSafe(mediaType, id);
         if (!alive) return;
 
@@ -377,35 +213,38 @@ export default function ContentDetailModal({
         setDetail(data);
         setLoading(false);
 
-        const [p, t, a] = await Promise.all([
-          fetchProvidersKR(mediaType, id),
-          fetchTrailerKey(mediaType, id),
-          fetchAge(mediaType, id, data?.adult),
-        ]);
+        // 2) meta 단일 소스 (cache 먼저)
+        const cached = peekResolvedMeta(mediaType as any, id) ?? null;
+        if (cached) setMeta(cached);
 
+        requestResolvedMeta(mediaType as any, id)
+          .then((m) => {
+            if (!alive) return;
+            setMeta(m ?? null);
+          })
+          .catch(() => {
+            if (!alive) return;
+            setMeta((prev) => prev ?? null);
+          });
+
+        // 3) trailer만
+        const t = await fetchTrailerKey(mediaType, id);
         if (!alive) return;
-
-        setProvidersKR(p);
         setTrailerKey(t);
-        setAgeValue(String(a));
       } catch {
         if (!alive) return;
         setLoading(false);
       }
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => void (alive = false);
   }, [mediaType, id]);
 
   // ✅ season query가 바뀌면 시즌 상세 로딩
   useEffect(() => {
     let alive = true;
 
-    // ✅ 클릭 직후에도 포스터/연도 등이 바로 바뀌도록 seed 먼저 주입
     const seed = seasonSeedFromState(location.state, seasonNo);
-
     setSeasonDetail(seed ?? null);
 
     if (mediaType !== "tv") return () => void (alive = false);
@@ -415,16 +254,13 @@ export default function ContentDetailModal({
     void (async () => {
       const s = await fetchTVSeasonDetail(id, seasonNo, { language: "ko-KR" });
       if (!alive) return;
-      // ✅ fetch 실패(null)면 seed 유지
       if (s) setSeasonDetail(s);
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => void (alive = false);
   }, [mediaType, id, seasonNo, location.state]);
 
-  // ✅ 시즌이 선택되면 "렌더용 detail"을 시즌 값으로 덮어씌움 (디자인/컴포넌트 변경 없이)
+  // ✅ 시즌 선택이면 렌더용 detail을 시즌 값으로 덮어씌움 (기존 기능 유지)
   const renderDetail: DetailBase | null = useMemo(() => {
     if (!detail) return null;
     if (mediaType !== "tv" || !seasonNo || !seasonDetail) return detail;
@@ -433,82 +269,60 @@ export default function ContentDetailModal({
 
     return {
       ...detail,
-      // ✅ 시즌 포스터/시즌 개요/시즌 첫방일/시즌 평점 우선
       poster_path: seasonDetail.poster_path ?? detail.poster_path ?? null,
       overview: seasonOverview || detail.overview,
       vote_average:
         typeof (seasonDetail as any).vote_average === "number"
           ? (seasonDetail as any).vote_average
           : detail.vote_average,
-
-      // ✅ 히어로에서 시즌 배지/분기용
       __seasonNo: seasonNo,
       __seasonName: (seasonDetail as any).name ?? undefined,
+      first_air_date:
+        (seasonDetail as any)?.air_date ?? detail.first_air_date ?? undefined,
     } as any;
   }, [detail, mediaType, seasonNo, seasonDetail]);
 
-  // ✅ 시즌 로딩 중이면 바디도 loading으로 (스켈레톤/로딩 UI는 기존 컴포넌트가 알아서)
-  const seasonLoading = useMemo(() => {
-    return mediaType === "tv" && seasonNo > 0 && seasonDetail === null;
-  }, [mediaType, seasonNo, seasonDetail]);
+  // ✅ statusKind/year/age/type: meta 단일 소스
+  const statusKind: ReleaseStatusKind = useMemo(() => {
+    return (meta?.statusKind ?? null) as ReleaseStatusKind;
+  }, [meta?.statusKind]);
 
-  const statusKind: ReleaseStatusKind | null = useMemo(() => {
+  const yearText = useMemo(() => {
+    const y = String(meta?.unifiedYearLabel ?? "").trim();
+    return y ? y : "—";
+  }, [meta?.unifiedYearLabel]);
+
+  const ageValue = useMemo(() => {
+    const a = String(meta?.ageRating ?? "").trim();
+    return a ? a : null;
+  }, [meta?.ageRating]);
+
+  const typeText = useMemo(() => typeTextFromMeta(meta), [meta]);
+
+  // ✅ providers: meta.providers 기반으로만 (detectOriginalProvider 유지)
+  const providersKRFromMeta: WatchProviderRegion | null = useMemo(() => {
+    const list = meta?.providers;
+    if (!Array.isArray(list) || !list.length) return null;
+    return { flatrate: list as any };
+  }, [meta?.providers]);
+
+  const providerOriginal: ProviderItem | null = useMemo(() => {
     if (!renderDetail) return null;
+    return detectOriginalProvider(renderDetail, providersKRFromMeta);
+  }, [renderDetail, providersKRFromMeta]);
 
-    const base = getReleaseStatusKind({
-      mediaType,
-      id: renderDetail.id,
-      releaseDate: (renderDetail as any)?.release_date,
-      firstAirDate: (renderDetail as any)?.first_air_date,
-      sets: screening,
-      ottOnly: heroOttOnly,
-    });
+  const theatricalChip = useMemo(() => {
+    if (!statusKind) return null;
 
-    if (
-      mediaType === "movie" &&
-      rerunInfo.hasMultipleTheatrical &&
-      (base === "now" || base === "upcoming")
-    ) {
-      return "rerun";
-    }
+    const label =
+      statusKind === "now"
+        ? "상영중"
+        : statusKind === "upcoming"
+          ? "상영예정"
+          : "재개봉";
 
-    return base;
-  }, [
-    renderDetail,
-    mediaType,
-    screening,
-    heroOttOnly,
-    rerunInfo.hasMultipleTheatrical,
-  ]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    if (mediaType !== "movie" || !renderDetail?.id) {
-      setHeroOttOnly(false);
-      return () => void (mounted = false);
-    }
-
-    if (statusKind !== "now" && statusKind !== "rerun") {
-      setHeroOttOnly(false);
-      return () => void (mounted = false);
-    }
-
-    const cached = peekOttOnlyMovie(renderDetail.id, "KR");
-    if (typeof cached === "boolean") {
-      setHeroOttOnly(cached);
-      return () => void (mounted = false);
-    }
-
-    isOttOnlyMovie(renderDetail.id, "KR").then((v) => {
-      if (!mounted) return;
-      setHeroOttOnly(v);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [mediaType, renderDetail?.id, statusKind]);
+    return { label, tone: "dark" as const };
+  }, [statusKind]);
 
   const isFavorite = useMemo(() => {
     return favorites.some((f) => f?.id === id && f?.mediaType === mediaType);
@@ -518,77 +332,11 @@ export default function ContentDetailModal({
     (contentId: number, mt?: "movie" | "tv") => {
       onToggleFavorite(contentId, mt);
     },
-    [onToggleFavorite]
+    [onToggleFavorite],
   );
 
-  const typeText = useMemo(() => {
-    if (!renderDetail) return mediaType === "tv" ? "TV" : "Movie";
-    if (isAnime(renderDetail.genres)) return "Ani";
-    return mediaType === "tv" ? "TV" : "Movie";
-  }, [renderDetail, mediaType]);
-
-  const yearText = useMemo(() => {
-    if (!renderDetail) return "";
-
-    // ✅ TV: 시즌 선택이면 해당 시즌 air_date 우선
-    if (mediaType === "tv" && seasonNo && (seasonDetail as any)?.air_date) {
-      const y = String((seasonDetail as any).air_date)
-        .trim()
-        .slice(0, 4);
-      if (/^\d{4}$/.test(y)) return y;
-    }
-
-    // ✅ TV: 시즌 미선택(처음 진입)일 때는 "최신 시즌 기준 연도"
-    if (mediaType === "tv") {
-      const y = yearTextFrom(renderDetail as any, "tv");
-      if (y) return y;
-    }
-
-    if (mediaType === "movie" && statusKind === "rerun") {
-      const src =
-        rerunInfo.originalTheatricalDate ||
-        (renderDetail as any)?.kr_first_release_date ||
-        (renderDetail as any)?.global_release_date ||
-        "";
-
-      const y = String(src).trim().slice(0, 4);
-      if (/^\d{4}$/.test(y)) return y;
-
-      return getUnifiedYearFromDetail(renderDetail as any, mediaType);
-    }
-
-    return getUnifiedYearFromDetail(renderDetail as any, mediaType);
-  }, [
-    renderDetail,
-    mediaType,
-    statusKind,
-    rerunInfo.originalTheatricalDate,
-    seasonNo,
-    (seasonDetail as any)?.air_date,
-  ]);
-
-  const providerOriginal: ProviderItem | null = useMemo(() => {
-    if (!renderDetail) return null;
-    return detectOriginalProvider(renderDetail, providersKR);
-  }, [renderDetail, providersKR]);
-
-  const theatricalChip = useMemo(() => {
-    if (!renderDetail) return null;
-    if (!statusKind) return null;
-
-    const label =
-      statusKind === "now"
-        ? "상영중"
-        : statusKind === "upcoming"
-        ? "상영예정"
-        : "재개봉";
-
-    return { label, tone: "dark" as const };
-  }, [renderDetail, statusKind]);
-
-  // ✅ 바디는 시즌별 갱신, 히어로(로고 포함)는 컨텐츠 단위로만 유지
-  const renderKey = `${mediaType}:${id}:${seasonNo || 0}`; // Body용(시즌별)
-  const heroKey = `${mediaType}:${id}`; // Hero용(시즌 바뀌어도 유지)
+  const renderKey = `${mediaType}:${id}:${seasonNo || 0}`;
+  const heroKey = `${mediaType}:${id}`;
 
   return (
     <div className="fixed inset-0 z-[999]">
@@ -672,14 +420,13 @@ export default function ContentDetailModal({
               </div>
             )}
 
+            {/* ✅ TS 오류 해결: ContentDetailBody는 기존 props만 전달 */}
             <ContentDetailBody
               key={`body:${renderKey}`}
               loading={loading || seasonLoading}
               detail={renderDetail}
               mediaType={mediaType}
-              providersKR={providersKR}
               statusKindOverride={statusKind}
-              rerunInfo={rerunInfo}
             />
           </DetailFavoritesProvider>
         </div>

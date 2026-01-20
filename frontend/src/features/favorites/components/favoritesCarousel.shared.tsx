@@ -4,19 +4,13 @@ import { motion } from "framer-motion";
 import { Trophy, Medal } from "lucide-react";
 
 import { apiGet } from "../../../lib/apiClient";
-import { getMovieDetails } from "../../../lib/tmdb";
 import {
-  getReleaseStatusKind,
-  getUnifiedYearFromItem,
-  isOttOnlyMovie,
-  loadScreeningSets as loadScreeningSetsUnified,
-  loadTvLatest,
-  peekOttOnlyMovie,
-  peekScreeningSets,
-  peekTvLatest,
-  type ScreeningSets,
-  type TvLatestPayload,
-} from "../../../lib/contentMeta";
+  peekResolvedMeta,
+  requestResolvedMeta,
+  type MediaType as MetaMediaType,
+  type StatusKind,
+  type WatchProviderItem,
+} from "../../../lib/metaClient";
 import { AGE_BADGE_SRC, type AgeKey } from "../../../assets/ages";
 
 export type MediaType = "movie" | "tv";
@@ -53,9 +47,11 @@ export interface Movie {
   genre_ids?: number[];
   genres?: Array<{ id: number; name?: string }>;
 
-  isNowPlaying?: boolean;
   providers?: ProviderBadge[];
   ageRating?: string;
+
+  statusKind?: StatusKind | null;
+  unifiedYearLabel?: string | null;
 
   trendRank?: number;
   trendScore?: number;
@@ -83,23 +79,11 @@ export const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 export const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-const detailCache = new Map<number, any>();
+// ✅ (이전 호환) 외부에서 import하던 코드가 있을 수 있어 안전하게 유지
+export type ScreeningSets = null;
+export const loadScreeningSets = async () => null;
 
-const metaCache = new Map<
-  string,
-  { providers: ProviderBadge[]; ageRating: string }
->();
-const inflight = new Map<
-  string,
-  Promise<{ providers: ProviderBadge[]; ageRating: string }>
->();
-
-const TRAILER_OPEN_EVENT = "pickmovie-trailer-open";
-const TRAILER_CLOSE_EVENT = "pickmovie-trailer-close";
-
-// ✅ 외부에서 쓰는 기존 export 유지(DetailSections 등)
-export type { ScreeningSets } from "../../../lib/contentMeta";
-export const loadScreeningSets = loadScreeningSetsUnified;
+const KR = { region: "KR", language: "ko-KR" } as const;
 
 export function isLoggedInFallback(): boolean {
   try {
@@ -212,62 +196,10 @@ export function Chip({
     tone === "green"
       ? "bg-green-500/90 text-white"
       : tone === "blue"
-      ? "bg-sky-500/90 text-white"
-      : "bg-black/45 text-white";
+        ? "bg-sky-500/90 text-white"
+        : "bg-black/45 text-white";
 
   return <div className={`${base} ${cls}`}>{children}</div>;
-}
-
-function normalizeProviders(input: any): ProviderBadge[] {
-  const arr: any[] = Array.isArray(input) ? input : [];
-  return arr
-    .map((p) => {
-      const provider_name =
-        p?.provider_name ?? p?.providerName ?? p?.name ?? "";
-      const logo_path = p?.logo_path ?? p?.logoPath ?? p?.logo ?? null;
-      if (!provider_name) return null;
-      return { provider_name, logo_path } as ProviderBadge;
-    })
-    .filter(Boolean) as ProviderBadge[];
-}
-
-function pickAgeFromResponse(r: any): string {
-  const v =
-    r?.ageRating ??
-    r?.age_rating ??
-    r?.age ??
-    r?.rating ??
-    r?.certification ??
-    "";
-  const s = String(v || "").trim();
-  return s || "—";
-}
-
-/**
- * ✅ 메인 캐러셀 상단 칩: 상영중/상영예정/재개봉 통일
- * (tone은 기존 캐러셀 디자인 유지: upcoming만 blue)
- */
-export function getAiringChip(
-  item: Movie,
-  sets: ScreeningSets | null,
-  ottOnly: boolean
-): { label: string; tone: "dark" | "blue" } | null {
-  const mt = inferMediaType(item);
-
-  const kind = getReleaseStatusKind({
-    mediaType: mt,
-    id: item.id,
-    releaseDate: item.release_date ?? null,
-    firstAirDate: item.first_air_date ?? null,
-    sets,
-    ottOnly,
-  });
-
-  if (!kind) return null;
-
-  if (kind === "upcoming") return { label: "상영예정", tone: "blue" as const };
-  if (kind === "rerun") return { label: "재개봉", tone: "dark" as const };
-  return { label: "상영중", tone: "dark" as const };
 }
 
 export function RankBadge({ rank }: { rank: number }) {
@@ -315,6 +247,18 @@ export function ScrollMouseHint({ className = "" }: { className?: string }) {
 
 type IndexOrigin = "auto" | "nav" | "thumb" | "scroll";
 
+const detailCache = new Map<number, any>();
+
+const TRAILER_OPEN_EVENT = "pickmovie-trailer-open";
+const TRAILER_CLOSE_EVENT = "pickmovie-trailer-close";
+
+function yearFromDate(d?: string | null) {
+  const raw = String(d ?? "").trim();
+  if (!raw) return "";
+  const y = raw.slice(0, 4);
+  return /^\d{4}$/.test(y) ? y : "";
+}
+
 export function useFavoritesHeroState(movies: Movie[]) {
   const [loggedIn, setLoggedIn] = useState<boolean>(() => isLoggedInFallback());
   const [trendMovies, setTrendMovies] = useState<Movie[]>([]);
@@ -324,29 +268,14 @@ export function useFavoritesHeroState(movies: Movie[]) {
   const timerRef = useRef<number | null>(null);
   const indexOriginRef = useRef<IndexOrigin>("auto");
 
-  const [heroMeta, setHeroMeta] = useState<{
-    providers: ProviderBadge[];
-    ageRating: string;
-  } | null>(null);
-
-  const [screening, setScreening] = useState<ScreeningSets | null>(() =>
-    peekScreeningSets()
-  );
-  const [heroOttOnly, setHeroOttOnly] = useState(false);
-
-  const [heroTvLatest, setHeroTvLatest] = useState<TvLatestPayload | null>(
-    null
-  );
-
+  const [meta, setMeta] = useState<any | null>(null);
   const [trailerOpen, setTrailerOpen] = useState(false);
 
   useEffect(() => {
     const onOpen = () => setTrailerOpen(true);
     const onClose = () => setTrailerOpen(false);
-
     window.addEventListener(TRAILER_OPEN_EVENT, onOpen);
     window.addEventListener(TRAILER_CLOSE_EVENT, onClose);
-
     return () => {
       window.removeEventListener(TRAILER_OPEN_EVENT, onOpen);
       window.removeEventListener(TRAILER_CLOSE_EVENT, onClose);
@@ -363,22 +292,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    loadScreeningSetsUnified()
-      .then((s) => {
-        if (!mounted) return;
-        setScreening(s);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setScreening((prev) => prev ?? null);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
+  // ✅ 비로그인 트렌드 로딩 (기존 유지)
   useEffect(() => {
     if (loggedIn) return;
 
@@ -403,16 +317,13 @@ export function useFavoritesHeroState(movies: Movie[]) {
         for (const it of items) {
           const tmdbId =
             typeof it.tmdbId === "number" && it.tmdbId > 0 ? it.tmdbId : null;
-
           if (!tmdbId) continue;
 
           let detail: any = null;
-
-          if (detailCache.has(tmdbId)) {
-            detail = detailCache.get(tmdbId);
-          } else {
+          if (detailCache.has(tmdbId)) detail = detailCache.get(tmdbId);
+          else {
             try {
-              detail = await getMovieDetails(tmdbId);
+              detail = await apiGet<any>(`/tmdb/proxy/movie/${tmdbId}`, KR);
             } catch {
               detail = null;
             }
@@ -441,9 +352,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
       }
     })();
 
-    return () => {
-      mounted = false;
-    };
+    return () => void (mounted = false);
   }, [loggedIn]);
 
   const activeMovies = useMemo(() => {
@@ -451,43 +360,9 @@ export function useFavoritesHeroState(movies: Movie[]) {
     return (Array.isArray(raw) ? raw : []).filter(isKoreanTitle);
   }, [loggedIn, movies, trendMovies]);
 
-  const currentMovieRaw: Movie | null = useMemo(() => {
+  const currentMovie: Movie | null = useMemo(() => {
     return activeMovies[currentIndex] ?? null;
   }, [activeMovies, currentIndex]);
-
-  // ✅ TV 최신 시즌 포스터/연도(현재 히어로 기준)
-  useEffect(() => {
-    let mounted = true;
-
-    if (!currentMovieRaw || inferMediaType(currentMovieRaw) !== "tv") {
-      setHeroTvLatest(null);
-      return;
-    }
-
-    const cached = peekTvLatest(currentMovieRaw.id);
-    if (cached) setHeroTvLatest(cached);
-
-    loadTvLatest(currentMovieRaw.id).then((r) => {
-      if (!mounted) return;
-      setHeroTvLatest(r);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [currentMovieRaw?.id]);
-
-  const currentMovie: Movie | null = useMemo(() => {
-    if (!currentMovieRaw) return null;
-    const mt = inferMediaType(currentMovieRaw);
-    if (mt !== "tv") return currentMovieRaw;
-
-    const poster = heroTvLatest?.posterPath ?? null;
-    if (!poster) return currentMovieRaw;
-    if (poster === currentMovieRaw.poster_path) return currentMovieRaw;
-
-    return { ...currentMovieRaw, poster_path: poster };
-  }, [currentMovieRaw, heroTvLatest?.posterPath]);
 
   useEffect(() => {
     setCurrentIndexRaw(0);
@@ -496,7 +371,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
 
   const setIndex = (
     updater: number | ((prev: number) => number),
-    origin: IndexOrigin
+    origin: IndexOrigin,
   ) => {
     indexOriginRef.current = origin;
     setCurrentIndexRaw(updater as any);
@@ -525,7 +400,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     setIndex(
       (prev) => (prev - 1 + activeMovies.length) % activeMovies.length,
-      "nav"
+      "nav",
     );
   };
 
@@ -543,174 +418,94 @@ export function useFavoritesHeroState(movies: Movie[]) {
     setIndex(index, "thumb");
   };
 
-  const metaKey = useMemo(() => {
-    if (!currentMovie) return null;
-    const mt = inferMediaType(currentMovie);
-    return `${mt}:${currentMovie.id}`;
-  }, [currentMovie]);
-
-  const needsMeta = useMemo(() => {
-    if (!currentMovie) return false;
-
-    const hasProviders =
-      Array.isArray(currentMovie.providers) &&
-      currentMovie.providers.length > 0;
-
-    const rawAge = (currentMovie.ageRating || "").trim();
-    const hasAge = !!rawAge && rawAge !== "-" && rawAge !== "—";
-
-    return !(hasProviders && hasAge);
-  }, [currentMovie]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    if (!metaKey || !currentMovie) {
-      setHeroMeta(null);
-      return;
-    }
-
-    const cached = metaCache.get(metaKey);
-    if (cached) {
-      setHeroMeta(cached);
-      return;
-    }
-
-    if (!needsMeta) {
-      setHeroMeta(null);
-      return;
-    }
-
-    if (!inflight.has(metaKey)) {
-      const mt = inferMediaType(currentMovie);
-
-      inflight.set(
-        metaKey,
-        apiGet<any>(`/tmdb/meta/${mt}/${currentMovie.id}`, { region: "KR" })
-          .then((r) => {
-            const providers = normalizeProviders(
-              r?.providers ?? r?.providerList ?? []
-            );
-            const ageRating = pickAgeFromResponse(r);
-            const safe = { providers, ageRating };
-            metaCache.set(metaKey, safe);
-            return safe;
-          })
-          .catch((e) => {
-            if ((import.meta as any).env?.DEV) {
-              console.warn(
-                "[FavoritesCarousel] meta fetch failed:",
-                metaKey,
-                e
-              );
-            }
-            const safe = { providers: [], ageRating: "—" as const };
-            metaCache.set(metaKey, safe);
-            return safe;
-          })
-          .finally(() => {
-            inflight.delete(metaKey);
-          })
-      );
-    }
-
-    inflight.get(metaKey)!.then((r) => {
-      if (!mounted) return;
-      setHeroMeta(r);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [metaKey, needsMeta, currentMovie]);
-
-  // ✅ OTT-only: 상영중/재개봉 후보일 때만
+  // ✅ meta 단일 소스: providers/age/status/year 모두 여기서
   useEffect(() => {
     let mounted = true;
 
     if (!currentMovie) {
-      setHeroOttOnly(false);
+      setMeta(null);
       return;
     }
 
-    const mt = inferMediaType(currentMovie);
-    if (mt !== "movie") {
-      setHeroOttOnly(false);
-      return;
-    }
+    const mt = inferMediaType(currentMovie) as MetaMediaType;
 
-    const kind = getReleaseStatusKind({
-      mediaType: "movie",
-      id: currentMovie.id,
-      releaseDate: currentMovie.release_date ?? null,
-      firstAirDate: null,
-      sets: screening,
-      ottOnly: false,
-    });
+    const cached = peekResolvedMeta(mt, currentMovie.id);
+    if (cached) setMeta(cached);
 
-    if (kind !== "now" && kind !== "rerun") {
-      setHeroOttOnly(false);
-      return;
-    }
-
-    const cached = peekOttOnlyMovie(currentMovie.id, "KR");
-    if (typeof cached === "boolean") {
-      setHeroOttOnly(cached);
-      return;
-    }
-
-    isOttOnlyMovie(currentMovie.id, "KR").then((v) => {
+    requestResolvedMeta(mt, currentMovie.id).then((r) => {
       if (!mounted) return;
-      setHeroOttOnly(v);
+      setMeta(r);
     });
 
-    return () => {
-      mounted = false;
-    };
-  }, [currentMovie, screening]);
+    return () => void (mounted = false);
+  }, [currentMovie?.id]);
 
-  const providers =
+  // ✅ providers/age는 item 우선 → meta
+  const providers: (ProviderBadge | WatchProviderItem)[] =
     (Array.isArray(currentMovie?.providers) && currentMovie!.providers!.length
       ? currentMovie!.providers
-      : heroMeta?.providers) ?? [];
+      : (meta?.providers as any)) ?? [];
 
   const providerLogos = providers
-    .map((p) => {
+    .map((p: any) => {
       const name = p.provider_name ?? p.providerName ?? p.name ?? "";
       const lp = p.logo_path ?? p.logoPath ?? p.logo ?? null;
       return { name, path: lp };
     })
-    .filter((x) => !!x.name && !!x.path);
+    .filter((x: any) => !!x.name && !!x.path);
 
   const MAX_PROVIDER = 4;
   const visibleProviders = providerLogos.slice(0, MAX_PROVIDER);
-  const hiddenCount = Math.max(
-    0,
-    providerLogos.length - visibleProviders.length
-  );
 
   const ageValue = normalizeAge(
-    currentMovie?.ageRating || heroMeta?.ageRating || "—"
+    currentMovie?.ageRating || meta?.ageRating || "—",
   );
   const showAge = ageValue !== "—";
 
   const typeText = currentMovie ? typeLabelOf(currentMovie) : "Movie";
-  const airingChip = currentMovie
-    ? getAiringChip(currentMovie, screening, heroOttOnly)
-    : null;
+
+  // ✅ statusKind/yearText는 meta 우선 (프론트 계산 제거)
+  const statusKind: StatusKind = useMemo(() => {
+    const fromItem = String(currentMovie?.statusKind ?? "").trim();
+    if (fromItem === "now" || fromItem === "upcoming" || fromItem === "rerun") {
+      return fromItem as any;
+    }
+    return (meta?.statusKind ?? null) as any;
+  }, [currentMovie?.statusKind, meta?.statusKind]);
+
+  const airingChip = useMemo(() => {
+    if (!statusKind) return null;
+    if (statusKind === "upcoming")
+      return { label: "상영예정", tone: "blue" as const };
+    if (statusKind === "rerun")
+      return { label: "재개봉", tone: "dark" as const };
+    if (statusKind === "now") return { label: "상영중", tone: "dark" as const };
+    return null;
+  }, [statusKind]);
 
   const hasBackdrop = !!(
     currentMovie?.backdrop_path || currentMovie?.poster_path
   );
 
-  // ✅ 출시년도 통일: TV는 최신 시즌(heroTvLatest) 연도 우선
-  const yearText = currentMovie
-    ? getUnifiedYearFromItem(
-        currentMovie,
-        inferMediaType(currentMovie),
-        heroTvLatest
-      )
-    : null;
+  const yearText = useMemo(() => {
+    const fromItem = String(currentMovie?.unifiedYearLabel ?? "").trim();
+    if (fromItem) return fromItem;
+
+    const fromMeta = String(meta?.unifiedYearLabel ?? "").trim();
+    if (fromMeta) return fromMeta;
+
+    const d =
+      inferMediaType(currentMovie) === "tv"
+        ? currentMovie?.first_air_date
+        : currentMovie?.release_date;
+
+    return yearFromDate(d ?? "") || null;
+  }, [
+    currentMovie?.unifiedYearLabel,
+    meta?.unifiedYearLabel,
+    currentMovie?.release_date,
+    currentMovie?.first_air_date,
+  ]);
 
   return {
     loggedIn,
@@ -727,13 +522,8 @@ export function useFavoritesHeroState(movies: Movie[]) {
     goToNext,
     jumpTo,
 
-    screening,
-    heroMeta,
-    heroOttOnly,
-
     providers,
     visibleProviders,
-    hiddenCount,
 
     ageValue,
     showAge,
@@ -741,6 +531,8 @@ export function useFavoritesHeroState(movies: Movie[]) {
     airingChip,
     hasBackdrop,
     yearText,
+
+    statusKind,
 
     trailerOpen,
   };
