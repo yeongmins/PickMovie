@@ -489,7 +489,7 @@ export function FavoritesCarousel(
                 <Button
                   onClick={() => onMovieClick(currentMovie)}
                   size="lg"
-                  className="bg-white/20 backdrop-blur-md border border-white/30 text-white hover:bg-white/30 hover:border-white/50 transition-all shadow-lg"
+                  className="bg-white/20 backdrop-blur-md text-white hover:bg-white/30 hover:border-white/50 transition-all shadow-lg"
                 >
                   <Info className="w-5 h-5 mr-2" />
                   <span className="font-semibold">상세 정보</span>
@@ -522,7 +522,7 @@ export function FavoritesCarousel(
                 <Button
                   onClick={() => onTrailerClick?.(currentMovie)}
                   size="lg"
-                  className="bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-white/20 hover:border-white/35 transition-all shadow-lg"
+                  className="bg-white/10 backdrop-blur-md text-white hover:bg-white/20 hover:border-white/35 transition-all shadow-lg"
                 >
                   <Play className="w-5 h-5 mr-2 fill-current" />
                   <span className="font-semibold">예고편 보기</span>

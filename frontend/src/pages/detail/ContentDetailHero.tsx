@@ -1,5 +1,5 @@
 // frontend/src/pages/detail/ContentDetailHero.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Play, Share2, Star, Volume2, VolumeX, X } from "lucide-react";
@@ -573,6 +573,8 @@ export function ContentDetailHero({
   const gridRef = useRef<HTMLDivElement>(null);
   const leftColRef = useRef<HTMLDivElement>(null);
   const posterColRef = useRef<HTMLDivElement>(null);
+  const overlayMaskRef = useRef<HTMLDivElement>(null);
+  const buttonsHoleRef = useRef<HTMLDivElement>(null);
 
   const [showPoster, setShowPoster] = useState(true);
 
@@ -693,11 +695,67 @@ export function ContentDetailHero({
     posterSrcSet?.src1x,
   ]);
 
+  useLayoutEffect(() => {
+    const sectionEl = sectionRef.current;
+    const overlayEl = overlayMaskRef.current;
+    const holeEl = buttonsHoleRef.current;
+
+    if (!sectionEl || !overlayEl || !holeEl) return;
+
+    let raf = 0;
+
+    const update = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const sr = sectionEl.getBoundingClientRect();
+        const br = holeEl.getBoundingClientRect();
+
+        // 버튼 주변 여유(구멍을 조금 넉넉하게)
+        const padX = 14;
+        const padY = 12;
+
+        const hx = br.left - sr.left - padX;
+        const hy = br.top - sr.top - padY;
+        const hw = br.width + padX * 2;
+        const hh = br.height + padY * 2;
+
+        overlayEl.style.setProperty("--hx", `${Math.max(0, hx)}px`);
+        overlayEl.style.setProperty("--hy", `${Math.max(0, hy)}px`);
+        overlayEl.style.setProperty("--hw", `${Math.max(0, hw)}px`);
+        overlayEl.style.setProperty("--hh", `${Math.max(0, hh)}px`);
+      });
+    };
+
+    update();
+
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+
+    ro?.observe(sectionEl);
+    ro?.observe(holeEl);
+
+    window.addEventListener("resize", update);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", update);
+      ro?.disconnect();
+    };
+  }, [
+    trailerOpen,
+    trailerKey,
+    isFavorite,
+    typeText,
+    yearTextEffective,
+    posterReady,
+    posterSrcSet?.src1x,
+  ]);
+
   return (
     <section
       ref={sectionRef}
       className="relative w-full overflow-hidden rounded-t-[10px] rounded-b-none"
-      style={{ height: "clamp(420px, 62vh, 680px)" }}
+      style={{ height: "clamp(460px, 68vh, 720px)" }}
     >
       <div className="absolute inset-0">
         {heroBackdropSrc ? (
@@ -713,11 +771,21 @@ export function ContentDetailHero({
           <div className="w-full h-full bg-gradient-to-r from-black via-black/70 to-transparent" />
         )}
 
-        <div className="pointer-events-none absolute inset-0 bg-black/22" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/85 via-black/45 to-transparent" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-        <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_260px_rgba(0,0,0,0.72)]" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#0b0b10] via-[#0b0b10]/70 to-transparent" />
+        <div
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            backgroundImage:
+              "linear-gradient(to right, rgba(11,11,16,1) 0%, rgba(11,11,16,0.55) 55%, rgba(11,11,16,0) 100%)",
+          }}
+        />
+        <div className="pointer-events-none absolute inset-0 z-0 shadow-[inset_0_0_260px_rgba(11,11,16,0.72)]" />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-40"
+          style={{
+            backgroundImage:
+              "linear-gradient(to top, rgba(11,11,16,1) 0%, rgba(11,11,16,0) 100%)",
+          }}
+        />
       </div>
 
       {layerMounted && trailerKey ? (
@@ -739,189 +807,193 @@ export function ContentDetailHero({
       ) : null}
 
       <div className="relative z-30 h-full px-4 sm:px-8 pb-8 sm:pb-10 flex items-end">
-        <div
-          ref={gridRef}
-          className="w-full grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 md:gap-8 items-end"
-        >
-          <div ref={leftColRef} className="min-w-0 max-w-[720px]">
-            <div className="flex items-center flex-wrap gap-2 mb-3">
-              <Chip tone="dark">{typeText}</Chip>
+        <div className="w-full -translate-y-6 sm:-translate-y-8">
+          <div
+            ref={gridRef}
+            className="w-full grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 md:gap-8 items-end"
+          >
+            <div ref={leftColRef} className="min-w-0 max-w-[720px]">
+              <div className="flex items-center flex-wrap gap-2 mb-3">
+                <Chip tone="dark">{typeText}</Chip>
 
-              {theatricalChip ? (
-                <Chip tone={theatricalChip.tone}>{theatricalChip.label}</Chip>
-              ) : null}
+                {theatricalChip ? (
+                  <Chip tone={theatricalChip.tone}>{theatricalChip.label}</Chip>
+                ) : null}
 
-              {providerOriginal ? (
-                <ProviderPill provider={providerOriginal} />
-              ) : null}
+                {providerOriginal ? (
+                  <ProviderPill provider={providerOriginal} />
+                ) : null}
 
-              {ageValue === null ? (
-                <div className="h-6 w-10 rounded-md bg-white/10 animate-pulse" />
-              ) : (
-                <AgeBadge value={ageValue} />
-              )}
-            </div>
-
-            <div className="max-w-[720px]">
-              {/* ✅ 최신 시즌이 1개뿐인 작품은 뱃지 숨김 */}
-              <TitleLogoOrText
-                detail={detail}
-                mediaType={mediaType}
-                seasonNo={badgeSeasonNo}
-              />
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1 shrink-0">
-                <Star className="w-4 h-4 fill-current text-yellow-400" />
-                <span className="text-sm font-bold text-white">
-                  {(detail.vote_average ?? 0).toFixed(1)}
-                </span>
+                {ageValue === null ? (
+                  <div className="h-6 w-10 rounded-md bg-white/10 animate-pulse" />
+                ) : (
+                  <AgeBadge value={ageValue} />
+                )}
               </div>
 
-              {yearTextEffective ? (
-                <span className="text-white text-sm font-bold">
-                  {yearTextEffective}
-                </span>
-              ) : null}
+              <div className="max-w-[720px]">
+                {/* ✅ 최신 시즌이 1개뿐인 작품은 뱃지 숨김 */}
+                <TitleLogoOrText
+                  detail={detail}
+                  mediaType={mediaType}
+                  seasonNo={badgeSeasonNo}
+                />
+              </div>
 
-              {genreText ? (
-                <span className="text-sm text-white font-bold">
-                  {genreText}
-                </span>
-              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1 shrink-0">
+                  <Star className="w-4 h-4 fill-current text-yellow-400" />
+                  <span className="text-sm font-bold text-white">
+                    {(detail.vote_average ?? 0).toFixed(1)}
+                  </span>
+                </div>
 
-              {runtime ? (
-                <span className="text-sm text-white font-bold">{runtime}</span>
-              ) : null}
+                {yearTextEffective ? (
+                  <span className="text-white text-sm font-bold">
+                    {yearTextEffective}
+                  </span>
+                ) : null}
+
+                {genreText ? (
+                  <span className="text-sm text-white font-bold">
+                    {genreText}
+                  </span>
+                ) : null}
+
+                {runtime ? (
+                  <span className="text-sm text-white font-bold">
+                    {runtime}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="relative z-[60] mt-4">
+                {!trailerOpen ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="bg-white/15 hover:bg-white/30 text-white border-0"
+                      onClick={onClickFavorite}
+                    >
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.span
+                          key={isFavorite ? "fav-on" : "fav-off"}
+                          initial={{ scale: 0.85, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          exit={{ scale: 0.85, opacity: 0 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 520,
+                            damping: 28,
+                          }}
+                          className="mr-2 inline-flex"
+                        >
+                          <Heart
+                            className="w-5 h-5"
+                            fill={isFavorite ? "currentColor" : "none"}
+                          />
+                        </motion.span>
+                      </AnimatePresence>
+
+                      <span className="font-bold">
+                        {isFavorite ? "찜 해제" : "찜 하기"}
+                      </span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="bg-white/15 hover:bg-white/30 text-white border-0"
+                      onClick={() => {
+                        const url = window.location.href;
+                        if (navigator.share) {
+                          void navigator.share({ title, url });
+                        } else {
+                          void navigator.clipboard?.writeText(url);
+                        }
+                      }}
+                    >
+                      <Share2 className="w-5 h-5 mr-2" />
+                      <span className="font-bold">공유</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="bg-white/15 hover:bg-white/30 text-white border-0"
+                      onClick={onClickTrailer}
+                      disabled={!trailerKey}
+                      title={!trailerKey ? "예고편 정보가 없습니다" : undefined}
+                    >
+                      <Play className="w-5 h-5 mr-2 fill-current" />
+                      <span className="font-bold">예고편 재생</span>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="bg-black/35 hover:bg-white/20 text-white border-0"
+                      onClick={toggleMute}
+                    >
+                      {trailerMuted ? (
+                        <VolumeX className="w-5 h-5 mr-2" />
+                      ) : (
+                        <Volume2 className="w-5 h-5 mr-2" />
+                      )}
+                      <span className="font-semibold">
+                        {trailerMuted ? "음소거" : "소리"}
+                      </span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="bg-black/35 hover:bg-white/20 text-white border-0"
+                      onClick={onCloseTrailer}
+                    >
+                      <X className="w-5 h-5 mr-2" />
+                      <span className="font-semibold">예고편 닫기</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="mt-4">
-              {!trailerOpen ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="bg-white/15 hover:bg-white/30 text-white border-0"
-                    onClick={onClickFavorite}
-                  >
-                    <AnimatePresence mode="popLayout" initial={false}>
-                      <motion.span
-                        key={isFavorite ? "fav-on" : "fav-off"}
-                        initial={{ scale: 0.85, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.85, opacity: 0 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 520,
-                          damping: 28,
-                        }}
-                        className="mr-2 inline-flex"
-                      >
-                        <Heart
-                          className="w-5 h-5"
-                          fill={isFavorite ? "currentColor" : "none"}
-                        />
-                      </motion.span>
-                    </AnimatePresence>
-
-                    <span className="font-bold">
-                      {isFavorite ? "찜 해제" : "찜 하기"}
-                    </span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="bg-white/15 hover:bg-white/30 text-white border-0"
-                    onClick={() => {
-                      const url = window.location.href;
-                      if (navigator.share) {
-                        void navigator.share({ title, url });
-                      } else {
-                        void navigator.clipboard?.writeText(url);
-                      }
-                    }}
-                  >
-                    <Share2 className="w-5 h-5 mr-2" />
-                    <span className="font-bold">공유</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="bg-white/15 hover:bg-white/30 text-white border-0"
-                    onClick={onClickTrailer}
-                    disabled={!trailerKey}
-                    title={!trailerKey ? "예고편 정보가 없습니다" : undefined}
-                  >
-                    <Play className="w-5 h-5 mr-2 fill-current" />
-                    <span className="font-bold">예고편 재생</span>
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="bg-black/35 hover:bg-white/20 text-white border-0"
-                    onClick={toggleMute}
-                  >
-                    {trailerMuted ? (
-                      <VolumeX className="w-5 h-5 mr-2" />
-                    ) : (
-                      <Volume2 className="w-5 h-5 mr-2" />
-                    )}
-                    <span className="font-semibold">
-                      {trailerMuted ? "음소거" : "소리"}
-                    </span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="bg-black/35 hover:bg-white/20 text-white border-0"
-                    onClick={onCloseTrailer}
-                  >
-                    <X className="w-5 h-5 mr-2" />
-                    <span className="font-semibold">예고편 닫기</span>
-                  </Button>
-                </div>
-              )}
-            </div>
+            {!trailerOpen && showPoster ? (
+              <div
+                ref={posterColRef}
+                className="hidden md:block shrink-0"
+                style={{
+                  height: "clamp(260px, 52vh, 560px)",
+                  width: "calc(clamp(260px, 52vh, 560px) * 2 / 3)",
+                }}
+              >
+                {!posterReady ? (
+                  <div
+                    className="rounded-xl bg-white/10 animate-pulse w-full h-full"
+                    style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
+                  />
+                ) : posterSrcSet ? (
+                  <motion.img
+                    key={`hero-poster:${mediaType}:${detail.id}:${posterSrcSet.src1x}`}
+                    src={posterSrcSet.src1x}
+                    srcSet={`${posterSrcSet.src1x} 1x, ${posterSrcSet.src2x} 2x`}
+                    alt={title}
+                    className="rounded-xl object-cover w-full h-full max-w-none"
+                    style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
+                    loading="lazy"
+                    decoding="async"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
-
-          {!trailerOpen && showPoster ? (
-            <div
-              ref={posterColRef}
-              className="hidden md:block shrink-0"
-              style={{
-                height: "clamp(260px, 52vh, 560px)",
-                width: "calc(clamp(260px, 52vh, 560px) * 2 / 3)",
-              }}
-            >
-              {!posterReady ? (
-                <div
-                  className="rounded-xl bg-white/10 animate-pulse w-full h-full"
-                  style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
-                />
-              ) : posterSrcSet ? (
-                <motion.img
-                  key={`hero-poster:${mediaType}:${detail.id}:${posterSrcSet.src1x}`}
-                  src={posterSrcSet.src1x}
-                  srcSet={`${posterSrcSet.src1x} 1x, ${posterSrcSet.src2x} 2x`}
-                  alt={title}
-                  className="rounded-xl object-cover w-full h-full max-w-none"
-                  style={{ boxShadow: "0 18px 48px rgba(0,0,0,0.42)" }}
-                  loading="lazy"
-                  decoding="async"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                />
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 

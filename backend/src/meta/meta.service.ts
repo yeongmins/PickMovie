@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { KobisService } from '../kobis/kobis.service';
 
 import { Prisma } from '../generated/prisma';
 import type {
@@ -51,14 +50,16 @@ import {
 
 import { pickLatestSeasonPosterPath, pickMoviePosterPath } from './meta.poster';
 
-import { computeMovieStatus } from './meta.movieStatus';
-
 import { buildTvSeasonMeta } from './meta.seasons';
 
 /**
  * ✅ 계산 로직/필드가 바뀌면 올려서 캐시 강제 재계산
+ * - KOBIS 제거 + now_playing 기반 판정으로 변경 => 버전 업
  */
-const TARGET_META_VERSION = 8;
+const TARGET_META_VERSION = 9;
+
+const NOW_PLAYING_TTL_MS = 10 * 60 * 1000; // 10분
+const NOW_PLAYING_PAGES = 3; // 1~3 페이지(필요하면 늘리기)
 
 type NullableJson = Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
 
@@ -77,47 +78,6 @@ function pickComputedContentCardPosterPath(
   if (typeof v === 'string') return v;
   if (v === null) return null;
   return null;
-}
-
-function toBoolEnv(v: unknown, defaultValue: boolean) {
-  if (typeof v === 'boolean') return v;
-  if (typeof v === 'number') return v !== 0;
-
-  if (typeof v === 'string') {
-    const s = v.trim().toLowerCase();
-    if (s === 'true' || s === '1' || s === 'yes' || s === 'y') return true;
-    if (s === 'false' || s === '0' || s === 'no' || s === 'n') return false;
-  }
-
-  return defaultValue;
-}
-
-function toIntEnv(v: unknown, defaultValue: number) {
-  const n =
-    typeof v === 'number' ? v : typeof v === 'string' ? Number(v.trim()) : NaN;
-
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : defaultValue;
-}
-
-function withTimeout<T>(ms: number, p: Promise<T>): Promise<T> {
-  if (!Number.isFinite(ms) || ms <= 0) return p;
-
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => {
-      reject(new Error(`timeout(${ms}ms)`));
-    }, ms);
-
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      },
-    );
-  });
 }
 
 /**
@@ -153,21 +113,101 @@ function pickLatestSeasonYear(detail: Record<string, unknown>): number | null {
   return yFromFirst ?? null;
 }
 
+/**
+ * ✅ TMDB release_dates 기반 "재개봉 힌트" 판정
+ * - KR의 note에 'Re-release'/'Rerelease'가 있으면 true
+ * - 또는 KR theatrical(type=3) 날짜가 2개 이상이면 true
+ */
+function detectRerunFromTmdbReleaseDates(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
+
+  const results = asArray(payload['results']);
+  const kr = results.find(
+    (r) => isRecord(r) && asString(r['iso_3166_1']) === 'KR',
+  );
+  if (!isRecord(kr)) return false;
+
+  const rds = asArray(kr['release_dates']);
+
+  // 1) note
+  const hasRerunNote = rds.some((rd) => {
+    if (!isRecord(rd)) return false;
+    const note = asString(rd['note']).trim().toLowerCase();
+    return note.includes('re-release') || note.includes('rerelease');
+  });
+  if (hasRerunNote) return true;
+
+  // 2) theatrical(type=3) count
+  const theatricalYmd = new Set<string>();
+  for (const rd of rds) {
+    if (!isRecord(rd)) continue;
+    const type = Number(rd['type']);
+    if (type !== 3) continue;
+    const ymd = toIsoYmd(asString(rd['release_date']));
+    if (ymd) theatricalYmd.add(ymd);
+  }
+
+  return theatricalYmd.size >= 2;
+}
+
 @Injectable()
 export class MetaService {
   private readonly logger = new Logger(MetaService.name);
   private readonly tmdbBase = 'https://api.themoviedb.org/3';
 
+  // ✅ now_playing 캐시
+  private nowPlayingCache: { expiresAt: number; ids: Set<number> } | null =
+    null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly kobis: KobisService,
   ) {}
 
   private tmdbKey(): string {
     const key = this.config.get<string>('TMDB_API_KEY');
     if (!key) throw new Error('TMDB_API_KEY is missing');
     return key;
+  }
+
+  private async getNowPlayingIdsKR(apiKey: string): Promise<Set<number>> {
+    const now = Date.now();
+    if (this.nowPlayingCache && this.nowPlayingCache.expiresAt > now) {
+      return this.nowPlayingCache.ids;
+    }
+
+    const ids = new Set<number>();
+
+    try {
+      for (let page = 1; page <= NOW_PLAYING_PAGES; page++) {
+        const url = `${this.tmdbBase}/movie/now_playing`;
+        const resp = await axios.get<unknown>(url, {
+          params: { api_key: apiKey, region: 'KR', language: 'ko-KR', page },
+          timeout: 10_000,
+        });
+
+        const data = resp.data;
+        if (!isRecord(data)) continue;
+
+        const results = asArray(data['results']);
+        for (const r of results) {
+          if (!isRecord(r)) continue;
+          const id = Number(r['id']);
+          if (Number.isFinite(id)) ids.add(id);
+        }
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[meta] fetch now_playing(KR) failed: ${msg}`);
+      // 실패 시에도 TTL 짧게 캐시해서 폭주 방지
+    }
+
+    this.nowPlayingCache = {
+      ids,
+      expiresAt: now + NOW_PLAYING_TTL_MS,
+    };
+
+    return ids;
   }
 
   async resolveBatch(reqs: ResolveRequest[]): Promise<ResolvedMeta[]> {
@@ -292,6 +332,7 @@ export class MetaService {
       const hasMultiple =
         o?.hasMultipleTheatrical ?? base.hasMultipleTheatrical ?? false;
 
+      // ✅ KOBIS 제거 정책이지만, 과거 캐시에 값이 남아있을 수도 있어 null 처리
       const theatrical: TheatricalInfo | null =
         originalTheatricalDate ||
         rerunTheatricalDate ||
@@ -314,17 +355,9 @@ export class MetaService {
         pickComputedContentCardPosterPath(sourcesUsed) ?? null;
 
       const providersFlat = flattenProviders(wpSafe);
-      const hasOttProviders = providersFlat.length > 0;
 
-      // ✅ 상영중이라도 OTT 가능하면 상영중 배지 제거(OTT 섹션을 보여주기 위함)
-      let effectiveStatusKind = statusKind;
-      if (
-        r.mediaType === 'movie' &&
-        effectiveStatusKind === 'now' &&
-        hasOttProviders
-      ) {
-        effectiveStatusKind = null;
-      }
+      // ✅ (변경) "OTT 있으면 now 뱃지 제거" 로직 제거
+      // 요구사항: now_playing에 있는 것만 개봉/재개봉이 보이게 => now_playing이면 그대로 노출
 
       return {
         mediaType: r.mediaType,
@@ -335,7 +368,7 @@ export class MetaService {
         releaseYear: mergedReleaseYear,
         watchProviders: wpSafe,
 
-        statusKind: effectiveStatusKind,
+        statusKind,
         unifiedYearLabel: mergedUnified,
         providers: providersFlat,
         theatrical,
@@ -507,8 +540,6 @@ export class MetaService {
     });
 
     const wpSafe = safeWatchProviders(providersRaw);
-    const providersFlat = flattenProviders(wpSafe);
-    const hasOttProviders = providersFlat.length > 0;
 
     const age = await this.fetchAgeRating(r.mediaType, r.tmdbId, apiKey);
 
@@ -516,11 +547,6 @@ export class MetaService {
       r.mediaType === 'movie'
         ? pickMoviePosterPath(detail)
         : pickLatestSeasonPosterPath(detail);
-
-    const tmdbReleaseYmd =
-      r.mediaType === 'movie'
-        ? toIsoYmd(asString(detail['release_date']))
-        : toIsoYmd(asString(detail['first_air_date']));
 
     const tmdbFirstYear =
       r.mediaType === 'movie'
@@ -532,7 +558,7 @@ export class MetaService {
         ? yearFromIsoDate(asString(detail['last_air_date']))
         : null;
 
-    // ✅ (요구사항) 최신 시즌 뱃지/포스터와 동일 기준으로 "최신 시즌 연도"를 releaseYear로 우선 사용
+    // ✅ TV 최신 시즌 연도 우선
     const latestSeasonYear =
       r.mediaType === 'tv' ? pickLatestSeasonYear(detail) : null;
 
@@ -542,49 +568,45 @@ export class MetaService {
         ? 'MOVIE'
         : 'TV';
 
-    // ✅ KOBIS 영화검색은 “빠르게 실패” + “메타 계산을 막지 않게” 처리
-    const kobisEnabled = toBoolEnv(process.env.KOBIS_THEATRICAL_ENABLED, true);
-    const kobisTimeoutMs = toIntEnv(
-      process.env.KOBIS_THEATRICAL_TIMEOUT_MS,
-      1200,
-    );
+    // ✅ 영화만 now_playing 기반 statusKind 판정
+    // - now_playing(KR)에 있으면 NOW 또는 RERUN
+    // - 없으면 null
+    let statusKindDb: DbStatusKind | null = null;
+    let rerunHint = false;
+    let inNowPlaying = false;
 
-    const theatricalInfo =
-      r.mediaType === 'movie' && kobisEnabled
-        ? await withTimeout(
-            kobisTimeoutMs,
-            this.kobis.findTheatricalInfoByTmdbDetail({
-              title: detail['title'],
-              original_title: detail['original_title'],
-              name: detail['name'],
-              original_name: detail['original_name'],
-              release_date: detail['release_date'],
-            }),
-          ).catch((e: unknown) => {
-            const msg = e instanceof Error ? e.message : String(e);
-            this.logger.warn(
-              `[meta] kobis theatrical skipped (tmdbId=${r.tmdbId}): ${msg}`,
-            );
-            return null;
-          })
-        : null;
+    if (r.mediaType === 'movie') {
+      const nowPlayingIds = await this.getNowPlayingIdsKR(apiKey);
+      inNowPlaying = nowPlayingIds.has(r.tmdbId);
 
-    const krReleaseDatesYmd =
-      r.mediaType === 'movie'
-        ? await this.fetchMovieKrReleaseDatesYmd(r.tmdbId, apiKey)
-        : [];
+      // rerun 힌트는 release_dates에서만(TMDB 기반)
+      const releaseDatesPayload = await this.fetchMovieReleaseDatesPayload(
+        r.tmdbId,
+        apiKey,
+      );
+      rerunHint = detectRerunFromTmdbReleaseDates(releaseDatesPayload);
+
+      if (inNowPlaying) {
+        // DbStatusKind 실제 enum 문자열은 프로젝트에 맞춰야 함.
+        // 보통 'NOW' | 'RERUN' | 'UPCOMING' 형태.
+        statusKindDb = dbStatusKindFromApi(rerunHint ? 'rerun' : 'now');
+      }
+    }
 
     const statusComputed =
       r.mediaType === 'movie'
-        ? await computeMovieStatus({
-            kobis: this.kobis,
-            statusKindFromReleaseStatus,
-            detail,
-            tmdbReleaseYmd,
-            theatricalInfo,
-            krReleaseDatesYmd,
-            hasOttProviders,
-          })
+        ? {
+            releaseStatus: 'NONE' as DbReleaseStatus,
+            statusKind: statusKindDb,
+            computedReleaseYear: tmdbFirstYear ?? null,
+
+            // ✅ KOBIS 제거: 극장/재개봉 상세 정보는 메타에서 전부 비움
+            originalTheatricalDate: null as string | null,
+            rerunTheatricalDate: null as string | null,
+            kobisMovieCd: null as string | null,
+            rerunKobisMovieCd: null as string | null,
+            hasMultipleTheatrical: false,
+          }
         : {
             releaseStatus: 'NONE' as DbReleaseStatus,
             statusKind: null as DbStatusKind | null,
@@ -597,7 +619,6 @@ export class MetaService {
           };
 
     const finalReleaseYear =
-      // ✅ TV는 최신 시즌 연도 우선
       (r.mediaType === 'tv' ? latestSeasonYear : null) ??
       statusComputed.computedReleaseYear ??
       (r.mediaType === 'tv' ? lastAirYear : null) ??
@@ -614,16 +635,9 @@ export class MetaService {
 
     const sourcesUsedJson: Prisma.InputJsonValue = toPrismaJson({
       tmdb: true,
-      kobis: r.mediaType === 'movie' && kobisEnabled,
-      theatrical: theatricalInfo
-        ? {
-            kobisMovieCd: theatricalInfo.kobisMovieCd,
-            kobisOpenDt: theatricalInfo.kobisOpenDt,
-            rerunKobisMovieCd: theatricalInfo.rerunKobisMovieCd,
-            rerunOpenDt: theatricalInfo.rerunOpenDt,
-            hasMultipleTheatrical: theatricalInfo.hasMultipleTheatrical,
-          }
-        : null,
+      nowPlaying:
+        r.mediaType === 'movie' ? { region: 'KR', inNowPlaying } : null,
+      rerunHint: r.mediaType === 'movie' ? rerunHint : null,
       computed: {
         contentCardPosterPath: computedPosterPath,
       },
@@ -641,11 +655,11 @@ export class MetaService {
         ageRating: age,
         releaseYear: finalReleaseYear,
 
-        originalTheatricalDate: statusComputed.originalTheatricalDate,
-        rerunTheatricalDate: statusComputed.rerunTheatricalDate,
-        kobisMovieCd: statusComputed.kobisMovieCd,
-        rerunKobisMovieCd: statusComputed.rerunKobisMovieCd,
-        hasMultipleTheatrical: statusComputed.hasMultipleTheatrical,
+        originalTheatricalDate: null,
+        rerunTheatricalDate: null,
+        kobisMovieCd: null,
+        rerunKobisMovieCd: null,
+        hasMultipleTheatrical: false,
 
         watchProviders: providersJson,
         sourcesUsed: sourcesUsedJson,
@@ -665,11 +679,11 @@ export class MetaService {
         ageRating: age,
         releaseYear: finalReleaseYear,
 
-        originalTheatricalDate: statusComputed.originalTheatricalDate,
-        rerunTheatricalDate: statusComputed.rerunTheatricalDate,
-        kobisMovieCd: statusComputed.kobisMovieCd,
-        rerunKobisMovieCd: statusComputed.rerunKobisMovieCd,
-        hasMultipleTheatrical: statusComputed.hasMultipleTheatrical,
+        originalTheatricalDate: null,
+        rerunTheatricalDate: null,
+        kobisMovieCd: null,
+        rerunKobisMovieCd: null,
+        hasMultipleTheatrical: false,
 
         watchProviders: providersJson,
         sourcesUsed: sourcesUsedJson,
@@ -693,41 +707,21 @@ export class MetaService {
     return isRecord(resp.data) ? resp.data : {};
   }
 
-  private async fetchMovieKrReleaseDatesYmd(
+  private async fetchMovieReleaseDatesPayload(
     tmdbId: number,
     apiKey: string,
-  ): Promise<string[]> {
+  ): Promise<unknown> {
     try {
       const url = `${this.tmdbBase}/movie/${tmdbId}/release_dates`;
       const resp = await axios.get<unknown>(url, {
         params: { api_key: apiKey },
         timeout: 10_000,
       });
-
-      const data = resp.data;
-      if (!isRecord(data)) return [];
-
-      const results = asArray(data['results']);
-      const kr = results.find(
-        (r) => isRecord(r) && asString(r['iso_3166_1']) === 'KR',
-      );
-      if (!isRecord(kr)) return [];
-
-      const rds = asArray(kr['release_dates']);
-      const ymds = new Set<string>();
-
-      for (const rd of rds) {
-        if (!isRecord(rd)) continue;
-        const raw = asString(rd['release_date']);
-        const ymd = toIsoYmd(raw);
-        if (ymd) ymds.add(ymd);
-      }
-
-      return Array.from(ymds).sort();
+      return resp.data;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.logger.warn(`[meta] fetchMovieKrReleaseDatesYmd failed: ${msg}`);
-      return [];
+      this.logger.warn(`[meta] fetchMovieReleaseDatesPayload failed: ${msg}`);
+      return null;
     }
   }
 

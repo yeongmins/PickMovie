@@ -139,13 +139,15 @@ function Section({
   title,
   right,
   children,
+  noTopMargin,
 }: {
   title: string;
   right?: React.ReactNode;
   children: React.ReactNode;
+  noTopMargin?: boolean;
 }) {
   return (
-    <section className="mt-10">
+    <section className={noTopMargin ? "" : "mt-10"}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <h3 className="text-white/90 font-extrabold text-[16px]">{title}</h3>
         {right ? <div className="shrink-0">{right}</div> : null}
@@ -155,6 +157,7 @@ function Section({
     </section>
   );
 }
+
 
 export function DetailSections({
   detail,
@@ -453,7 +456,7 @@ export function DetailSections({
 
   return (
     <div className="px-4 sm:px-8 pb-12">
-      <Section title="줄거리 / 컨텐츠 정보">
+      <Section title="줄거리 / 컨텐츠 정보" noTopMargin>
         <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-8">
           <div>
             <div className="text-white/90 font-extrabold text-[14px] mb-2">

@@ -18,7 +18,6 @@ export type TheatricalInfo = {
   hasMultipleTheatrical: boolean;
   originalTheatricalDate: string | null;
   rerunTheatricalDate: string | null;
-  kobisMovieCd: string | null;
   rerunKobisMovieCd: string | null;
 };
 
