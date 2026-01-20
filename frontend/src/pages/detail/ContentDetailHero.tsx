@@ -873,7 +873,7 @@ export function ContentDetailHero({
                     <Button
                       type="button"
                       size="lg"
-                      className="bg-white/15 hover:bg-white/30 text-white border-0"
+                      className="bg-red-500/30 backdrop-blur-md  text-white hover:bg-red-500/50 transition-all shadow-lg"
                       onClick={onClickFavorite}
                     >
                       <AnimatePresence mode="popLayout" initial={false}>
@@ -890,13 +890,15 @@ export function ContentDetailHero({
                           className="mr-2 inline-flex"
                         >
                           <Heart
-                            className="w-5 h-5"
+                            className={`w-5 h-5 mr-2 ${
+                              isFavorite ? "text-red-400" : "text-white/70"
+                            }`}
                             fill={isFavorite ? "currentColor" : "none"}
                           />
                         </motion.span>
                       </AnimatePresence>
 
-                      <span className="font-bold">
+                      <span className="font-semibold">
                         {isFavorite ? "찜 해제" : "찜 하기"}
                       </span>
                     </Button>
@@ -915,7 +917,7 @@ export function ContentDetailHero({
                       }}
                     >
                       <Share2 className="w-5 h-5 mr-2" />
-                      <span className="font-bold">공유</span>
+                      <span className="font-semibold">공유</span>
                     </Button>
 
                     <Button
@@ -927,7 +929,7 @@ export function ContentDetailHero({
                       title={!trailerKey ? "예고편 정보가 없습니다" : undefined}
                     >
                       <Play className="w-5 h-5 mr-2 fill-current" />
-                      <span className="font-bold">예고편 재생</span>
+                      <span className="font-semibold">예고편 재생</span>
                     </Button>
                   </div>
                 ) : (

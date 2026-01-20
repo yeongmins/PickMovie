@@ -28,12 +28,12 @@ import {
 type CarouselLayout = "fullscreen" | "embedded";
 
 /* =========================
-   ✅ Title Logo (TMDB logos)
+   ✅ Title Logo (TMDB logos) - 상세페이지 로직과 동일 적용
 ========================= */
-// (이 부분은 원본 그대로 유지)
+
 function titleLogoCdnUrl(
   filePath: string,
-  size: "w500" | "w780" | "original" = "w500"
+  size: "w500" | "w780" | "original" = "w500",
 ) {
   return `https://image.tmdb.org/t/p/${size}${filePath}`;
 }
@@ -51,20 +51,22 @@ type TmdbImagesResponse = {
   logos?: TmdbImageAsset[];
 };
 
-const _titleLogoCache = new Map<string, string | null>();
-const _titleLogoInFlight = new Map<string, Promise<string | null>>();
+type LogoChoice = {
+  filePath: string | null;
+  invert: boolean; // ✅ 흰 로고 우선, 검정만 있으면 invert로 흰색화
+};
+
+const _titleLogoCache = new Map<string, LogoChoice>();
+const _titleLogoInFlight = new Map<string, Promise<LogoChoice>>();
 
 function normalizeMediaType(v: unknown): "movie" | "tv" {
   return v === "tv" ? "tv" : "movie";
 }
 
-function pickBestKoreanLogoFilePath(
-  logos: TmdbImageAsset[] | undefined
-): string | null {
-  if (!logos?.length) return null;
-
-  const ko = logos.filter((l) => l.iso_639_1 === "ko");
-  if (!ko.length) return null;
+function pickKoreanCandidates(logos?: TmdbImageAsset[]) {
+  const list = Array.isArray(logos) ? logos : [];
+  const ko = list.filter((l) => l.iso_639_1 === "ko");
+  if (!ko.length) return [];
 
   ko.sort((a, b) => {
     const vc = (b.vote_count ?? 0) - (a.vote_count ?? 0);
@@ -72,32 +74,133 @@ function pickBestKoreanLogoFilePath(
     return b.width * b.height - a.width * a.height;
   });
 
-  return ko[0]?.file_path ?? null;
+  return ko.slice(0, 6);
 }
 
-async function fetchTitleLogoFilePath(
+/**
+ * ✅ 로고 밝기 측정(가능할 때만):
+ * - CORS/네트워크 등에 의해 실패할 수 있음 → 그 경우 fallback
+ */
+async function measureLogoBrightness(filePath: string): Promise<number | null> {
+  try {
+    const src = titleLogoCdnUrl(filePath, "w500");
+    const res = await fetch(src);
+    const blob = await res.blob();
+
+    const bmp =
+      "createImageBitmap" in window ? await createImageBitmap(blob) : null;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    const w = bmp ? bmp.width : 0;
+    const h = bmp ? bmp.height : 0;
+    if (!w || !h) return null;
+
+    canvas.width = Math.min(w, 320);
+    canvas.height = Math.max(1, Math.round((canvas.width * h) / w));
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp!, 0, 0, canvas.width, canvas.height);
+
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    let sum = 0;
+    let cnt = 0;
+
+    // 빠르게 샘플링(격자)
+    const step = 8;
+    for (let y = 0; y < canvas.height; y += step) {
+      for (let x = 0; x < canvas.width; x += step) {
+        const i = (y * canvas.width + x) * 4;
+        const a = img[i + 3];
+        if (a < 20) continue;
+
+        const r = img[i];
+        const g = img[i + 1];
+        const b = img[i + 2];
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+        sum += lum;
+        cnt += 1;
+      }
+    }
+
+    if (!cnt) return null;
+    return sum / cnt; // 0..255
+  } catch {
+    return null;
+  }
+}
+
+async function pickBestKoreanLogoChoice(
   mediaType: "movie" | "tv",
-  id: number
-): Promise<string | null> {
+  id: number,
+): Promise<LogoChoice> {
+  try {
+    const data = await apiGet<TmdbImagesResponse>(
+      `/tmdb/images/${mediaType}/${id}`,
+      {
+        include_image_language: "ko",
+      },
+    );
+
+    const candidates = pickKoreanCandidates(data?.logos);
+
+    if (!candidates.length) return { filePath: null, invert: false };
+
+    // ✅ “흰색 로고 우선”
+    // - 후보 중 가장 밝은 로고 선택
+    // - 측정 실패하면 1등 후보로 fallback
+    const top = candidates.slice(0, 4);
+    const brightnessList = await Promise.all(
+      top.map(async (c) => {
+        const b = await measureLogoBrightness(c.file_path);
+        return { filePath: c.file_path, b };
+      }),
+    );
+
+    const measurable = brightnessList.filter(
+      (x) => typeof x.b === "number",
+    ) as Array<{ filePath: string; b: number }>;
+
+    if (measurable.length) {
+      measurable.sort((a, b) => b.b - a.b);
+      const best = measurable[0];
+
+      // 밝기가 너무 낮으면(검정 로고 가능성) invert로 흰색화
+      const invert = best.b < 80;
+      return { filePath: best.filePath, invert };
+    }
+
+    // fallback: 첫 후보
+    return { filePath: candidates[0].file_path, invert: true };
+  } catch {
+    return { filePath: null, invert: false };
+  }
+}
+
+async function fetchTitleLogoChoice(
+  mediaType: "movie" | "tv",
+  id: number,
+): Promise<LogoChoice> {
   const key = `${mediaType}:${id}`;
 
-  if (_titleLogoCache.has(key)) return _titleLogoCache.get(key) ?? null;
+  if (_titleLogoCache.has(key)) return _titleLogoCache.get(key)!;
 
   const inflight = _titleLogoInFlight.get(key);
   if (inflight) return inflight;
 
   const p = (async () => {
     try {
-      const data = await apiGet<TmdbImagesResponse>(
-        `/tmdb/images/${mediaType}/${id}`,
-        { include_image_language: "ko" }
-      );
-      const filePath = pickBestKoreanLogoFilePath(data?.logos);
-      _titleLogoCache.set(key, filePath);
-      return filePath;
+      const choice = await pickBestKoreanLogoChoice(mediaType, id);
+      _titleLogoCache.set(key, choice);
+      return choice;
     } catch {
-      _titleLogoCache.set(key, null);
-      return null;
+      const choice: LogoChoice = { filePath: null, invert: false };
+      _titleLogoCache.set(key, choice);
+      return choice;
     } finally {
       _titleLogoInFlight.delete(key);
     }
@@ -108,33 +211,33 @@ async function fetchTitleLogoFilePath(
 }
 
 type TitleLogoState =
-  | { status: "checking"; filePath: null }
-  | { status: "ready"; filePath: string | null };
+  | { status: "checking"; choice: LogoChoice }
+  | { status: "ready"; choice: LogoChoice };
 
 function useTitleLogo(mediaType: "movie" | "tv", id: number): TitleLogoState {
   const key = `${mediaType}:${id}`;
 
   const [state, setState] = useState<TitleLogoState>(() => {
     if (_titleLogoCache.has(key)) {
-      return { status: "ready", filePath: _titleLogoCache.get(key) ?? null };
+      return { status: "ready", choice: _titleLogoCache.get(key)! };
     }
-    return { status: "checking", filePath: null };
+    return { status: "checking", choice: { filePath: null, invert: false } };
   });
 
   useEffect(() => {
     let alive = true;
 
     if (_titleLogoCache.has(key)) {
-      setState({ status: "ready", filePath: _titleLogoCache.get(key) ?? null });
+      setState({ status: "ready", choice: _titleLogoCache.get(key)! });
       return;
     }
 
-    setState({ status: "checking", filePath: null });
+    setState({ status: "checking", choice: { filePath: null, invert: false } });
 
     void (async () => {
-      const next = await fetchTitleLogoFilePath(mediaType, id);
+      const next = await fetchTitleLogoChoice(mediaType, id);
       if (!alive) return;
-      setState({ status: "ready", filePath: next });
+      setState({ status: "ready", choice: next });
     })();
 
     return () => {
@@ -151,18 +254,30 @@ function TitleLogoOrText({ movie }: { movie: any }) {
 
   const logo = useTitleLogo(mediaType, (movie as any).id);
 
-  const hasLogo = logo.status === "ready" && !!logo.filePath;
-  const noLogo = logo.status === "ready" && !logo.filePath;
+  const hasLogo = logo.status === "ready" && !!logo.choice.filePath;
+  const noLogo = logo.status === "ready" && !logo.choice.filePath;
   const checking = logo.status === "checking";
 
-  const src1x = hasLogo ? titleLogoCdnUrl(logo.filePath!, "w500") : null;
-  const src2x = hasLogo ? titleLogoCdnUrl(logo.filePath!, "w780") : null;
+  const filePath = hasLogo ? logo.choice.filePath! : null;
+  const src1x = filePath ? titleLogoCdnUrl(filePath, "w500") : null;
+  const src2x = filePath ? titleLogoCdnUrl(filePath, "w780") : null;
 
+  // ✅ 로고 로딩 실패 시 텍스트로 안전하게 fallback
   const [logoReady, setLogoReady] = useState(false);
+  const [forceText, setForceText] = useState(false);
 
   useEffect(() => {
     setLogoReady(false);
-  }, [(movie as any).id, hasLogo ? logo.filePath : null]);
+    setForceText(false);
+  }, [(movie as any).id, filePath, logo.choice.invert]);
+
+  const visibleFilter = `${
+    logo.choice.invert ? "invert(1) " : ""
+  }drop-shadow(0 10px 18px rgba(0,0,0,0.35))`;
+
+  const hiddenFilter = `${
+    logo.choice.invert ? "invert(1) " : ""
+  }blur(10px) drop-shadow(0 10px 18px rgba(0,0,0,0.22))`;
 
   return (
     <h1
@@ -171,12 +286,12 @@ function TitleLogoOrText({ movie }: { movie: any }) {
     >
       {checking ? <span aria-hidden="true" style={{ opacity: 0 }} /> : null}
 
-      {hasLogo && src1x ? (
+      {hasLogo && src1x && !forceText ? (
         <>
           <span className="sr-only">{title}</span>
           <motion.img
-            key={`title-logo:${mediaType}:${(movie as any).id}:${
-              logo.filePath
+            key={`title-logo:${mediaType}:${(movie as any).id}:${filePath}:${
+              logo.choice.invert ? "inv" : "nor"
             }`}
             src={src1x}
             srcSet={src2x ? `${src1x} 1x, ${src2x} 2x` : undefined}
@@ -184,11 +299,14 @@ function TitleLogoOrText({ movie }: { movie: any }) {
             loading="lazy"
             decoding="async"
             onLoad={() => setLogoReady(true)}
-            onError={() => setLogoReady(false)}
+            onError={() => {
+              setLogoReady(false);
+              setForceText(true); // ✅ 로고가 안 뜨면 빈칸 방지
+            }}
             initial={false}
             animate={{
               opacity: logoReady ? 1 : 0,
-              filter: logoReady ? "blur(0px)" : "blur(10px)",
+              filter: logoReady ? visibleFilter : hiddenFilter,
             }}
             transition={{ duration: 0.22, ease: "easeOut" }}
             style={{
@@ -198,9 +316,6 @@ function TitleLogoOrText({ movie }: { movie: any }) {
               height: "auto",
               maxHeight: 96,
               objectFit: "contain",
-              filter: logoReady
-                ? "drop-shadow(0 10px 22px rgba(0,0,0,0.55))"
-                : "drop-shadow(0 10px 22px rgba(0,0,0,0.35))",
               transform: "translateZ(0)",
               willChange: "opacity, filter",
             }}
@@ -208,7 +323,7 @@ function TitleLogoOrText({ movie }: { movie: any }) {
         </>
       ) : null}
 
-      {noLogo ? (
+      {noLogo || forceText ? (
         <motion.span
           key={`fallback-title:${mediaType}:${(movie as any).id}`}
           initial={{ opacity: 0 }}
@@ -263,7 +378,7 @@ export function FavoritesCarousel(
   props: FavoritesCarouselProps & {
     layout?: CarouselLayout;
     onTrailerClick?: (movie: any) => void;
-  }
+  },
 ) {
   const {
     movies,
@@ -389,7 +504,7 @@ export function FavoritesCarousel(
                   currentMovie.backdrop_path ||
                     currentMovie.poster_path ||
                     null,
-                  "original"
+                  "original",
                 )}
                 alt={getDisplayTitle(currentMovie)}
                 className="w-full h-full object-cover object-center"
@@ -438,7 +553,7 @@ export function FavoritesCarousel(
                 </div>
 
                 {displayYearText && (
-                  <span className="text-gray-300 font-semibold shrink-0">
+                  <span className="text-white text-sm font-bold">
                     {displayYearText}
                   </span>
                 )}
@@ -464,7 +579,7 @@ export function FavoritesCarousel(
                               src={logoUrl(p.path!, "w92")}
                               srcSet={`${logoUrl(p.path!, "w92")} 1x, ${logoUrl(
                                 p.path!,
-                                "w185"
+                                "w185",
                               )} 2x`}
                               alt={p.name}
                               className="w-full h-full object-contain"
@@ -484,7 +599,6 @@ export function FavoritesCarousel(
                   {currentMovie.overview}
                 </p>
               )}
-
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => onMovieClick(currentMovie)}
@@ -501,7 +615,7 @@ export function FavoritesCarousel(
                       onToggleFavorite(currentMovie.id, currentMovie.media_type)
                     }
                     size="lg"
-                    className="bg-red-500/20 backdrop-blur-md border border-red-400/30 text-white hover:bg-red-500/30 hover:border-red-400/50 transition-all shadow-lg"
+                    className="bg-red-500/20 backdrop-blur-md  text-white hover:bg-red-500/30 hover:border-red-400/50 transition-all shadow-lg"
                   >
                     <Heart className="w-5 h-5 mr-2 fill-current text-red-400" />
                     <span className="font-semibold">찜 해제</span>
