@@ -84,9 +84,11 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const isMainScreen = location.pathname === "/";
+
   const activeSection = useMemo(
     () => getActiveSection(location.pathname),
-    [location.pathname]
+    [location.pathname],
   );
 
   const isMdUp = useMediaQuery("(min-width: 768px)");
@@ -211,9 +213,21 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
             "bg-[radial-gradient(120%_85%_at_50%_0%,rgba(0,0,0,0.38)_0%,rgba(0,0,0,0.14)_55%,rgba(0,0,0,0)_78%),linear-gradient(to_bottom,rgba(0,0,0,0.42)_0%,rgba(0,0,0,0.18)_60%,rgba(0,0,0,0)_100%)]",
             "will-change-[opacity]",
           ].join(" ")}
-          style={{ opacity: 1 - scrollProgress }}
+          style={{ opacity: isMainScreen ? 1 - scrollProgress : 0 }}
           aria-hidden="true"
         />
+
+        {/* ✅ 비메인 페이지: 은은한 베이스 배경을 항상 깔고, 스크롤 오버레이는 그대로(서서히) 올라오게 */}
+        {!isMainScreen ? (
+          <div
+            className={[
+              "pointer-events-none absolute inset-0",
+              "bg-[#0b0b10]/55",
+              "will-change-[opacity]",
+            ].join(" ")}
+            aria-hidden="true"
+          />
+        ) : null}
 
         <div
           className={[

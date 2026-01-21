@@ -7,14 +7,14 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="bg-[#0b0b10] border-t border-white/5">
-      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10 py-12">
+    <footer className="bg-[#0b0b10]">
+      <div className="mx-auto w-full max-w-[1600px] px-6 py-12">
         {/* 상단: 로고/문구(좌) + GitHub(우) */}
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             {/* ✅ Header 로고와 동일한 컴포넌트 사용 + 살짝 축소 */}
             <div className="origin-left scale-[0.92]">
-              <Logo showIcon={false} size="md" />
+              <Logo size="md" />
             </div>
 
             <div className="mt-5 text-sm text-white/70">

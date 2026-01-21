@@ -10,7 +10,7 @@ import {
 
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
-import FavoritesPage from "./pages/FavoritesPage";
+import FavoritesPage from "./pages/favorites/FavoritesPage";
 import Picky from "./pages/Picky";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";

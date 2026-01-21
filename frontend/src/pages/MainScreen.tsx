@@ -267,6 +267,8 @@ export function MainScreen({
   const [popularTV, setPopularTV] = useState<TMDBMovie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
+  const [boxOfficeMovies, setBoxOfficeMovies] = useState<TMDBMovie[]>([]);
+  const [boxOfficeLoading, setBoxOfficeLoading] = useState(false);
 
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
