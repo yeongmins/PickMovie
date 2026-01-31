@@ -1,7 +1,8 @@
 // frontend/src/pages/detail/SeriesSeasonCards.tsx
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { apiGet } from "../../lib/apiClient";
 import {
   ContentCard,
   type ContentCardItem,
@@ -80,6 +81,35 @@ function writeSeasonMetaMap(map: Record<string, SeasonFavMeta>) {
   }
 }
 
+function ymdToYear(ymd?: string | null): number | null {
+  const raw = String(ymd || "").trim();
+  if (!raw) return null;
+  const t = Date.parse(raw);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).getFullYear();
+}
+
+async function pMapLimit<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, idx: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let idx = 0;
+
+  const workers = new Array(Math.max(1, Math.min(limit, items.length)))
+    .fill(0)
+    .map(async () => {
+      while (idx < items.length) {
+        const cur = idx++;
+        out[cur] = await mapper(items[cur], cur);
+      }
+    });
+
+  await Promise.all(workers);
+  return out;
+}
+
 export function SeriesSeasonCards({
   tvId,
   tvTitle,
@@ -100,7 +130,75 @@ export function SeriesSeasonCards({
   const [autoShowFav, setAutoShowFav] = useState<Set<string>>(() =>
     readSet(AUTO_SHOW_FAV_STORAGE_KEY),
   );
-  void autoShowFav; // eslint 방지용(직접 접근은 안 해도 set에서 씀)
+  void autoShowFav;
+
+  // ✅ 시즌 디테일(별점/연도 보강)
+  const [seasonDetailMap, setSeasonDetailMap] = useState<
+    Record<
+      number,
+      {
+        vote_average?: number | null;
+        air_date?: string | null;
+        poster_path?: string | null;
+      }
+    >
+  >({});
+
+  useEffect(() => {
+    let alive = true;
+
+    const targets = (seasons || [])
+      .map((s) => Number(s?.season_number ?? 0))
+      .filter((n) => n > 0);
+
+    if (!targets.length) {
+      setSeasonDetailMap({});
+      return () => void (alive = false);
+    }
+
+    void (async () => {
+      try {
+        const settled = await pMapLimit(
+          targets,
+          4,
+          async (seasonNo): Promise<[number, any] | null> => {
+            try {
+              const r = await apiGet<any>(
+                `/tmdb/proxy/tv/${tvId}/season/${seasonNo}`,
+                { language: "ko-KR" },
+              );
+              return [
+                seasonNo,
+                {
+                  vote_average:
+                    typeof r?.vote_average === "number" ? r.vote_average : null,
+                  air_date: r?.air_date ?? null,
+                  poster_path: r?.poster_path ?? null,
+                },
+              ];
+            } catch {
+              return [seasonNo, {}];
+            }
+          },
+        );
+
+        if (!alive) return;
+
+        const next: Record<number, any> = {};
+        for (const row of settled) {
+          if (!row) continue;
+          const [k, v] = row;
+          next[k] = v ?? {};
+        }
+        setSeasonDetailMap(next);
+      } catch {
+        if (!alive) return;
+        setSeasonDetailMap({});
+      }
+    })();
+
+    return () => void (alive = false);
+  }, [tvId, seasons]);
 
   const isSeasonFavorite = useCallback(
     (seasonNo: number) => seasonFavs.has(`${tvId}:${seasonNo}`),
@@ -180,33 +278,60 @@ export function SeriesSeasonCards({
       .filter((s) => Number(s?.season_number ?? 0) > 0)
       .map((s) => {
         const seasonNo = Number(s?.season_number ?? 0);
+        const extra = seasonDetailMap[seasonNo] ?? {};
+
+        const airDate = (extra.air_date ?? s.air_date ?? null) as string | null;
+        const year = ymdToYear(airDate);
+
+        const posterPath = (extra.poster_path ?? s.poster_path ?? null) as
+          | string
+          | null;
 
         const item: ContentCardItem & {
           __seasonNo: number;
           __seasonNavContext: SeasonNavContext;
+          __forceItemPoster: boolean;
+          __yearLabel: string;
         } = {
+          // ✅ ContentCard의 Movie/TV/Ani 표시는 meta 조회가 필요 → id는 tvId 유지
           id: tvId,
           media_type: "tv",
+
+          // ✅ 카드 타이틀은 기존 유지
           name: `${tvTitle} ${seasonNo}`,
-          poster_path: (s.poster_path ?? null) as any,
-          first_air_date: s.air_date ?? undefined,
-          vote_average: undefined,
+          poster_path: (posterPath ?? null) as any,
+          first_air_date: airDate ?? undefined,
+
+          // ✅ 별점(시즌 디테일에서 보강)
+          vote_average:
+            typeof extra.vote_average === "number"
+              ? extra.vote_average
+              : undefined,
 
           __seasonNo: seasonNo,
           __seasonNavContext: {
             seasonNo,
             name: (s?.name ?? "").trim() || undefined,
-            poster_path: s.poster_path ?? null,
-            air_date: s.air_date ?? null,
+            poster_path: posterPath ?? null,
+            air_date: airDate ?? null,
             overview: null,
-            vote_average: null,
-            year: null,
+            vote_average:
+              typeof extra.vote_average === "number"
+                ? extra.vote_average
+                : null,
+            year: year ?? null,
           },
+
+          // ✅ 시즌카드는 meta 포스터로 덮어쓰지 않도록
+          __forceItemPoster: true,
+
+          // ✅ 시즌카드 연도(우하단)는 시즌 연도 표시
+          __yearLabel: year ? String(year) : "—",
         };
 
         return item;
       });
-  }, [seasons, tvId, tvTitle]);
+  }, [seasons, tvId, tvTitle, seasonDetailMap]);
 
   if (!items.length) return null;
 

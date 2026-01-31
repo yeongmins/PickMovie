@@ -60,7 +60,6 @@ export function hasAnimationGenre(genres: unknown): boolean {
 
 /**
  * ✅ Module에서 provider로 쓰고 있으니 export 보장
- * - GraphQL을 실제로 쓰는 구조가 아니어도 Nest provider로는 문제 없음
  */
 @Injectable()
 export class MetaResolver {}

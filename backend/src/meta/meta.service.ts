@@ -58,12 +58,14 @@ import { computeMovieStatus } from './meta.movieStatus';
 /**
  * ✅ 계산 로직/필드가 바뀌면 올려서 캐시 강제 재계산
  */
-const TARGET_META_VERSION = 13;
+const TARGET_META_VERSION = 100;
+
+/**
+ * ✅ computed 구조 변경 시 강제 재계산
+ */
+const COMPUTED_SCHEMA_VERSION = 10;
 
 const NOW_PLAYING_TTL_MS = 10 * 60 * 1000; // 10분
-// ✅ now_playing(KR) 페이지를 적게 가져오면 "상영중인데 상영중으로 안 잡힘" 발생 가능
-//    (TMDB now_playing에 있지만 4페이지 이후면 누락)
-//    TTL 캐시가 있으니 넉넉히 가져와도 부담 적음
 const NOW_PLAYING_PAGES = 20; // 1~N 페이지
 
 type NullableJson = Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
@@ -72,36 +74,53 @@ function toPrismaJson(v: unknown): Prisma.InputJsonValue {
   return v as Prisma.InputJsonValue;
 }
 
-function pickComputedContentCardPosterPath(
-  sourcesUsed: Record<string, unknown> | null,
-): string | null {
+function pickComputedObj(sourcesUsed: Record<string, unknown> | null) {
   if (!sourcesUsed) return null;
   const computed = sourcesUsed['computed'];
-  if (!isRecord(computed)) return null;
-
-  const v = computed['contentCardPosterPath'];
-  if (typeof v === 'string') return v;
-  if (v === null) return null;
-  return null;
+  return isRecord(computed) ? computed : null;
 }
 
-function pickComputedHidden(
+function pickComputedSchemaVersion(
   sourcesUsed: Record<string, unknown> | null,
+): number {
+  const c = pickComputedObj(sourcesUsed);
+  const v = c ? c['schemaVersion'] : null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pickComputedString(
+  sourcesUsed: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const c = pickComputedObj(sourcesUsed);
+  const v = c ? c[key] : null;
+  return typeof v === 'string' ? v : null;
+}
+
+function pickComputedNumber(
+  sourcesUsed: Record<string, unknown> | null,
+  key: string,
+): number | null {
+  const c = pickComputedObj(sourcesUsed);
+  const v = c ? c[key] : null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickComputedBoolean(
+  sourcesUsed: Record<string, unknown> | null,
+  key: string,
 ): boolean {
-  if (!sourcesUsed) return false;
-  const computed = sourcesUsed['computed'];
-  if (!isRecord(computed)) return false;
-  return Boolean(computed['hidden']);
+  const c = pickComputedObj(sourcesUsed);
+  return Boolean(c ? c[key] : false);
 }
 
 function pickComputedSeasons(
   sourcesUsed: Record<string, unknown> | null,
 ): SeasonMeta[] | null {
-  if (!sourcesUsed) return null;
-  const computed = sourcesUsed['computed'];
-  if (!isRecord(computed)) return null;
-
-  const seasons = computed['seasons'];
+  const c = pickComputedObj(sourcesUsed);
+  const seasons = c ? c['seasons'] : null;
   if (!Array.isArray(seasons)) return null;
 
   const out: SeasonMeta[] = [];
@@ -118,18 +137,14 @@ function pickComputedSeasons(
       posterPath: typeof s['posterPath'] === 'string' ? s['posterPath'] : null,
     });
   }
-
   return out.length ? out : null;
 }
 
 function pickComputedTheatrical(
   sourcesUsed: Record<string, unknown> | null,
 ): TheatricalInfo | null {
-  if (!sourcesUsed) return null;
-  const computed = sourcesUsed['computed'];
-  if (!isRecord(computed)) return null;
-
-  const t = computed['theatrical'];
+  const c = pickComputedObj(sourcesUsed);
+  const t = c ? c['theatrical'] : null;
   if (!isRecord(t)) return null;
 
   const hasMultipleTheatrical = Boolean(t['hasMultipleTheatrical']);
@@ -142,9 +157,6 @@ function pickComputedTheatrical(
       ? t['rerunTheatricalDate']
       : null;
 
-  // ✅ 메타데이터에서 KOBIS 값 절대 적용 금지: 항상 null
-  const rerunKobisMovieCd: string | null = null;
-
   if (!hasMultipleTheatrical && !originalTheatricalDate && !rerunTheatricalDate)
     return null;
 
@@ -152,33 +164,12 @@ function pickComputedTheatrical(
     hasMultipleTheatrical,
     originalTheatricalDate,
     rerunTheatricalDate,
-    rerunKobisMovieCd,
+    rerunKobisMovieCd: null,
   };
 }
 
 /**
- * ✅ (요구사항) TV/Ani: "KR 기준 가장 최근 방영년도"
- * - buildTvSeasonMeta가 airDate desc 정렬이므로 첫 항목의 airDate 연도 우선
- * - 없으면 last_air_date, 그것도 없으면 first_air_date
- */
-function pickLatestSeasonYear(detail: Record<string, unknown>): number | null {
-  const seasons = buildTvSeasonMeta(detail);
-  const latest = seasons[0];
-
-  const yFromSeason = latest?.airDate ? yearFromIsoDate(latest.airDate) : null;
-  if (yFromSeason) return yFromSeason;
-
-  const yFromLast = yearFromIsoDate(asString(detail['last_air_date']));
-  if (yFromLast) return yFromLast;
-
-  const yFromFirst = yearFromIsoDate(asString(detail['first_air_date']));
-  return yFromFirst ?? null;
-}
-
-/**
  * ✅ TMDB release_dates 기반 "재개봉 힌트" 판정
- * - KR의 note에 'Re-release'/'Rerelease'가 있으면 true
- * - 또는 KR theatrical(type=3) + limited theatrical(type=2) 날짜가 2개 이상이면 true
  */
 function detectRerunFromTmdbReleaseDates(payload: unknown): boolean {
   if (!isRecord(payload)) return false;
@@ -191,7 +182,6 @@ function detectRerunFromTmdbReleaseDates(payload: unknown): boolean {
 
   const rds = asArray(kr['release_dates']);
 
-  // 1) note
   const hasRerunNote = rds.some((rd) => {
     if (!isRecord(rd)) return false;
     const note = asString(rd['note']).trim().toLowerCase();
@@ -199,7 +189,6 @@ function detectRerunFromTmdbReleaseDates(payload: unknown): boolean {
   });
   if (hasRerunNote) return true;
 
-  // 2) theatrical count (2/3)
   const theatricalYmd = new Set<string>();
   for (const rd of rds) {
     if (!isRecord(rd)) continue;
@@ -208,15 +197,9 @@ function detectRerunFromTmdbReleaseDates(payload: unknown): boolean {
     const ymd = toIsoYmd(asString(rd['release_date']));
     if (ymd) theatricalYmd.add(ymd);
   }
-
   return theatricalYmd.size >= 2;
 }
 
-/**
- * ✅ TMDB release_dates payload에서 KR 극장 개봉일 목록 추출
- * - theatrical(3) + limited(2)
- * - 중복 제거/정렬(asc)
- */
 function extractKrTheatricalDatesYmd(payload: unknown): string[] {
   if (!isRecord(payload)) return [];
 
@@ -245,7 +228,6 @@ export class MetaService {
   private readonly logger = new Logger(MetaService.name);
   private readonly tmdbBase = 'https://api.themoviedb.org/3';
 
-  // ✅ now_playing 캐시
   private nowPlayingCache: { expiresAt: number; ids: Set<number> } | null =
     null;
 
@@ -281,7 +263,6 @@ export class MetaService {
         const data = resp.data;
         if (!isRecord(data)) continue;
 
-        // ✅ total_pages 읽어서 불필요한 호출 조기 종료
         if (page === 1) {
           const tp = Number(data['total_pages']);
           if (Number.isFinite(tp) && tp > 0) totalPages = tp;
@@ -295,13 +276,11 @@ export class MetaService {
           if (Number.isFinite(id)) ids.add(id);
         }
 
-        // ✅ 결과가 비면 더 볼 필요 없음
         if (results.length === 0) break;
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.warn(`[meta] fetch now_playing(KR) failed: ${msg}`);
-      // 실패 시에도 TTL 짧게 캐시해서 폭주 방지
     }
 
     this.nowPlayingCache = {
@@ -337,6 +316,7 @@ export class MetaService {
       },
     });
 
+    // ✅ “반영 안됨” 방지: 필수 computed 필드가 하나라도 없으면 무조건 재계산
     const cachedMap = new Map<string, (typeof cached)[number]>();
     for (const c of cached) {
       const expiredByTime = c.expiresAt
@@ -348,12 +328,29 @@ export class MetaService {
         ? (c.sourcesUsed as Record<string, unknown>)
         : null;
 
-      // ✅ 포스터 계산값이 없으면 “구캐시”로 보고 재계산
-      const computedPoster = pickComputedContentCardPosterPath(sourcesUsed);
-      const missingComputedPoster = computedPoster === null;
+      const schemaVer = pickComputedSchemaVersion(sourcesUsed);
+      const expiredBySchema = schemaVer < COMPUTED_SCHEMA_VERSION;
+
+      const requiredKeys: Array<{ k: string; type: 'string' | 'number' }> = [
+        { k: 'contentCardPosterPath', type: 'string' },
+        { k: 'heroPosterPath', type: 'string' },
+        { k: 'heroSeasonYear', type: 'number' },
+        { k: 'contentInfoReleaseYear', type: 'number' },
+        { k: 'contentInfoReleaseYmd', type: 'string' },
+        { k: 'contentInfoLatestReleaseYmd', type: 'string' },
+      ];
+
+      const missingRequired = requiredKeys.some(({ k, type }) => {
+        const v =
+          type === 'string'
+            ? pickComputedString(sourcesUsed, k)
+            : pickComputedNumber(sourcesUsed, k);
+        return v === null;
+      });
 
       const expired =
-        expiredByTime || expiredByVersion || missingComputedPoster;
+        expiredByTime || expiredByVersion || expiredBySchema || missingRequired;
+
       if (!expired) cachedMap.set(`${c.mediaType}:${c.tmdbId}`, c);
     }
 
@@ -376,6 +373,7 @@ export class MetaService {
         return {
           mediaType: r.mediaType,
           tmdbId: r.tmdbId,
+
           contentKind: 'MOVIE',
           releaseStatus: 'NONE',
           ageRating: 'UNKNOWN',
@@ -392,6 +390,13 @@ export class MetaService {
 
           hidden: false,
           seasons: null,
+
+          heroSeasonYear: null,
+          heroPosterPath: null,
+          contentInfoReleaseYear: null,
+          contentInfoReleaseYmd: null,
+          contentInfoLatestReleaseYmd: null,
+          contentInfoRerunYmd: null,
 
           metaVersion: TARGET_META_VERSION,
           resolvedAt: isoNow(),
@@ -410,6 +415,7 @@ export class MetaService {
       const mergedWatchProviders = o?.watchProviders ?? base.watchProviders;
 
       const wpSafe = safeWatchProviders(mergedWatchProviders);
+      const providersFlat = flattenProviders(wpSafe);
 
       const mergedStatusKindDb = (o?.statusKind ?? base.statusKind) as
         | DbStatusKind
@@ -429,12 +435,34 @@ export class MetaService {
         ? (base.sourcesUsed as Record<string, unknown>)
         : null;
 
-      const contentCardPosterPath =
-        pickComputedContentCardPosterPath(sourcesUsed) ?? null;
+      const contentCardPosterPath = pickComputedString(
+        sourcesUsed,
+        'contentCardPosterPath',
+      );
 
-      const providersFlat = flattenProviders(wpSafe);
+      const hidden = pickComputedBoolean(sourcesUsed, 'hidden');
+      const seasons = pickComputedSeasons(sourcesUsed);
 
-      // ✅ theatrical: override가 있으면 우선, 없으면 computed 사용
+      const heroSeasonYear = pickComputedNumber(sourcesUsed, 'heroSeasonYear');
+      const heroPosterPath = pickComputedString(sourcesUsed, 'heroPosterPath');
+
+      const contentInfoReleaseYear = pickComputedNumber(
+        sourcesUsed,
+        'contentInfoReleaseYear',
+      );
+      const contentInfoReleaseYmd = pickComputedString(
+        sourcesUsed,
+        'contentInfoReleaseYmd',
+      );
+      const contentInfoLatestReleaseYmd = pickComputedString(
+        sourcesUsed,
+        'contentInfoLatestReleaseYmd',
+      );
+      const contentInfoRerunYmd = pickComputedString(
+        sourcesUsed,
+        'contentInfoRerunYmd',
+      );
+
       const computedTheatrical = pickComputedTheatrical(sourcesUsed);
 
       const oAny = o as unknown as {
@@ -469,17 +497,14 @@ export class MetaService {
           hasMultipleTheatrical,
           originalTheatricalDate,
           rerunTheatricalDate,
-          rerunKobisMovieCd: null, // ✅ KOBIS 메타 적용 금지(항상 null)
+          rerunKobisMovieCd: null,
         };
       })();
-
-      const seasons = pickComputedSeasons(sourcesUsed);
-
-      const hidden = pickComputedHidden(sourcesUsed);
 
       return {
         mediaType: r.mediaType,
         tmdbId: r.tmdbId,
+
         contentKind: mergedContentKind,
         releaseStatus: mergedReleaseStatus,
         ageRating: apiAgeFromDb(mergedAge),
@@ -492,10 +517,18 @@ export class MetaService {
         providers: providersFlat,
         theatrical,
 
-        contentCardPosterPath,
+        contentCardPosterPath: contentCardPosterPath ?? null,
 
         hidden,
         seasons,
+
+        heroSeasonYear,
+        heroPosterPath,
+
+        contentInfoReleaseYear,
+        contentInfoReleaseYmd,
+        contentInfoLatestReleaseYmd,
+        contentInfoRerunYmd,
 
         metaVersion: base.metaVersion ?? TARGET_META_VERSION,
         resolvedAt: base.resolvedAt.toISOString(),
@@ -521,7 +554,6 @@ export class MetaService {
       rerunTheatricalDate?: string | null;
       hasMultipleTheatrical?: boolean | null;
 
-      // extra keys are ignored
       [key: string]: unknown;
     };
     updatedBy?: string;
@@ -650,62 +682,64 @@ export class MetaService {
 
     const age = await this.fetchAgeRating(r.mediaType, r.tmdbId, apiKey);
 
-    const computedPosterPath =
-      r.mediaType === 'movie'
-        ? pickMoviePosterPath(detail)
-        : pickLatestSeasonPosterPath(detail);
-
-    const tmdbMovieReleaseYmd =
-      r.mediaType === 'movie'
-        ? toIsoYmd(asString(detail['release_date']))
-        : null;
-
-    const tmdbFirstYear =
-      r.mediaType === 'movie'
-        ? yearFromIsoDate(asString(detail['release_date']))
-        : yearFromIsoDate(asString(detail['first_air_date']));
-
-    const lastAirYear =
-      r.mediaType === 'tv'
-        ? yearFromIsoDate(asString(detail['last_air_date']))
-        : null;
-
-    // ✅ TV/Ani 최신 방영 연도 우선(요구사항)
-    const latestSeasonYear =
-      r.mediaType === 'tv' ? pickLatestSeasonYear(detail) : null;
-
     const contentKind: DbContentKind = hasAnimationGenre(detail['genres'])
       ? 'ANI'
       : r.mediaType === 'movie'
         ? 'MOVIE'
         : 'TV';
 
-    // ✅ 영화만 now_playing 기반 statusKind 판정
-    let statusKindDb: DbStatusKind | null = null;
-    let rerunHint = false;
-    let inNowPlaying = false;
+    // ✅ 컨텐츠카드 이미지: 영화=pickMoviePosterPath, TV/ANI=최신 시즌 포스터
+    const contentCardPosterPath =
+      r.mediaType === 'movie'
+        ? pickMoviePosterPath(detail)
+        : pickLatestSeasonPosterPath(detail);
 
-    // ✅ KR 극장 개봉일 목록(asc)
-    let krReleaseDatesYmd: string[] = [];
-
-    // ✅ computeMovieStatus 결과(영화만 사용)
-    let statusComputed: {
-      releaseStatus: DbReleaseStatus;
-      statusKind: DbStatusKind | null;
-      computedReleaseYear: number | null;
-      originalTheatricalDate: string | null;
-      rerunTheatricalDate: string | null;
-      hasMultipleTheatrical: boolean;
-      hidden: boolean;
-    };
-
-    // ✅ seasons(프론트 계산 금지)
+    // ✅ 시즌 메타(시리즈/시즌 카드에서 그대로 사용)
     const seasons: SeasonMeta[] | null =
       r.mediaType === 'tv' || contentKind === 'ANI'
         ? buildTvSeasonMeta(detail)
         : null;
 
+    // ✅ TV/Ani 히어로 첫 진입: 최신 시즌 기준
+    const heroPosterPath =
+      r.mediaType === 'movie'
+        ? null
+        : (seasons?.[0]?.posterPath ?? contentCardPosterPath ?? null);
+
+    const heroSeasonYear =
+      r.mediaType === 'movie'
+        ? null
+        : ((seasons?.[0]?.airDate
+            ? yearFromIsoDate(seasons[0].airDate)
+            : null) ??
+          yearFromIsoDate(asString(detail['last_air_date'])) ??
+          yearFromIsoDate(asString(detail['first_air_date'])) ??
+          null);
+
+    // ✅ 상세 컨텐츠정보(처음 개봉/방영)
+    let contentInfoReleaseYmd: string | null = null;
+    let contentInfoReleaseYear: number | null = null;
+    let contentInfoLatestReleaseYmd: string | null = null;
+    let contentInfoRerunYmd: string | null = null;
+
+    // ✅ 영화 상태 계산
+    let rerunHint = false;
+    let inNowPlaying = false;
+    let statusKindDb: DbStatusKind | null = null;
+    let krReleaseDatesYmd: string[] = [];
+
+    let statusComputed: {
+      releaseStatus: DbReleaseStatus;
+      statusKind: DbStatusKind | null;
+      releaseYearForCardHero: number | null; // ✅ 컨텐츠카드/상세히어로 출시년도
+      theatricalOriginal: string | null;
+      theatricalRerun: string | null;
+      hasMultipleTheatrical: boolean;
+      hidden: boolean;
+    };
+
     if (r.mediaType === 'movie') {
+      const tmdbReleaseYmd = toIsoYmd(asString(detail['release_date']));
       const nowPlayingIds = await this.getNowPlayingIdsKR(apiKey);
       inNowPlaying = nowPlayingIds.has(r.tmdbId);
 
@@ -721,33 +755,26 @@ export class MetaService {
         statusKindDb = dbStatusKindFromApi(rerunHint ? 'rerun' : 'now');
       }
 
-      const computed = await computeMovieStatus({
+      const computed = computeMovieStatus({
         statusKindFromReleaseStatus,
         detail,
-        tmdbReleaseYmd: tmdbMovieReleaseYmd,
+        tmdbReleaseYmd,
         krReleaseDatesYmd,
         hasOttProviders,
         isNowPlaying: inNowPlaying,
       });
 
-      /**
-       * ✅ 라우팅 규칙 강제 (절대 흔들리면 안됨)
-       * - /movie/now_playing(KR)에 있으면 => 무조건 NOW_SHOWING 또는 RE_RELEASE + statusKind now/rerun
-       * - 그 외 => computeMovieStatus 결과(UPCOMING이면 upcoming)
-       */
+      // ✅ 라우팅 규칙 강제(불변)
       let enforcedReleaseStatus = computed.releaseStatus;
       let enforcedStatusKind = computed.statusKind;
 
-      // 1) UPCOMING은 무조건 upcoming으로 고정
       if (computed.releaseStatus === 'UPCOMING') {
         enforcedReleaseStatus = 'UPCOMING';
         enforcedStatusKind = statusKindFromReleaseStatus('UPCOMING');
       } else if (inNowPlaying) {
-        // 2) now_playing이면 무조건 now/rerun으로 고정
         enforcedReleaseStatus = rerunHint ? 'RE_RELEASE' : 'NOW_SHOWING';
-        enforcedStatusKind = statusKindDb; // now | rerun
+        enforcedStatusKind = statusKindDb; // now|rerun
       } else {
-        // 3) now_playing이 아니면 재개봉/상영중은 절대 허용하지 않음
         if (
           enforcedReleaseStatus === 'RE_RELEASE' ||
           enforcedReleaseStatus === 'NOW_SHOWING'
@@ -757,75 +784,132 @@ export class MetaService {
         enforcedStatusKind = null;
       }
 
-      // ✅ (요구사항) 출시년도 규칙(컨텐츠카드/상세 동일):
-      // - 영화-상영예정: KR 최초 개봉년도
-      // - 영화-상영중:   KR 최초 개봉년도
-      // - 영화-재개봉:   KR 최신 재개봉년도
+      const nowMs = Date.now();
       const earliestKr = krReleaseDatesYmd.length ? krReleaseDatesYmd[0] : null;
       const latestKr = krReleaseDatesYmd.length
         ? krReleaseDatesYmd[krReleaseDatesYmd.length - 1]
         : null;
 
-      const computedReleaseYear =
-        enforcedReleaseStatus === 'RE_RELEASE'
+      const earliestFutureKr = (() => {
+        for (const d of krReleaseDatesYmd) {
+          const t = new Date(d).getTime();
+          if (Number.isFinite(t) && t > nowMs) return d;
+        }
+        return null;
+      })();
+
+      const latestPastOrTodayKr = (() => {
+        let out: string | null = null;
+        for (const d of krReleaseDatesYmd) {
+          const t = new Date(d).getTime();
+          if (!Number.isFinite(t)) continue;
+          if (t <= nowMs) out = d;
+        }
+        return out;
+      })();
+
+      // ✅ 컨텐츠카드/히어로 출시년도(=releaseYear):
+      // - UPCOMING: KR 기준 가장 빨리 개봉할 년도
+      // - NOW_SHOWING: KR 기준 현재 상영중인 년도(=최근 past/today)
+      // - RE_RELEASE: KR 기준 가장 최근 재개봉 년도(=latest)
+      // - NONE: KR 기준 최초 개봉년도(없으면 TMDB)
+      const releaseYearForCardHero =
+        enforcedReleaseStatus === 'UPCOMING'
           ? (yearFromIsoDate(
-              latestKr ??
-                tmdbMovieReleaseYmd ??
-                computed.rerunTheatricalDate ??
-                computed.originalTheatricalDate ??
-                '',
+              earliestFutureKr ?? earliestKr ?? tmdbReleaseYmd ?? '',
             ) ?? null)
-          : (yearFromIsoDate(earliestKr ?? tmdbMovieReleaseYmd ?? '') ?? null);
+          : enforcedReleaseStatus === 'NOW_SHOWING'
+            ? (yearFromIsoDate(
+                latestPastOrTodayKr ?? latestKr ?? tmdbReleaseYmd ?? '',
+              ) ?? null)
+            : enforcedReleaseStatus === 'RE_RELEASE'
+              ? (yearFromIsoDate(latestKr ?? tmdbReleaseYmd ?? '') ?? null)
+              : (yearFromIsoDate(earliestKr ?? tmdbReleaseYmd ?? '') ?? null);
 
-      // ✅ (추가 규칙) 재개봉 영화인 경우
-      // - 개봉일: 한국 최초 개봉일
-      // - 재개봉일: 한국 가장 최신 개봉일
-      // 그 외(상영중/상영예정 등): 개봉일은 KR 최신(없으면 TMDB), 재개봉일은 null
-      const enforcedOriginalTheatricalDate =
-        enforcedReleaseStatus === 'RE_RELEASE'
-          ? (earliestKr ?? tmdbMovieReleaseYmd ?? null)
-          : (latestKr ?? tmdbMovieReleaseYmd ?? null);
+      // ✅ 상세 컨텐츠정보 “출시년도(처음 개봉)”은 상태와 무관하게 “처음”
+      contentInfoReleaseYmd = earliestKr ?? tmdbReleaseYmd ?? null;
+      contentInfoReleaseYear =
+        yearFromIsoDate(contentInfoReleaseYmd ?? '') ?? null;
 
-      const enforcedRerunTheatricalDate =
+      // ✅ 상세 컨텐츠정보 “개봉일(상영예정/상영중)” = KR 기준 가장 최근 개봉일
+      // - UPCOMING은 “가장 빨리 다가오는 개봉일”을 최신 개봉일로 취급(현실적으로 이게 화면 의도)
+      contentInfoLatestReleaseYmd =
+        enforcedReleaseStatus === 'UPCOMING'
+          ? (earliestFutureKr ?? earliestKr ?? tmdbReleaseYmd ?? null)
+          : (latestPastOrTodayKr ?? latestKr ?? tmdbReleaseYmd ?? null);
+
+      // ✅ 상세 컨텐츠정보 “재개봉일” = 재개봉 상태일 때만 KR 최신
+      contentInfoRerunYmd =
         enforcedReleaseStatus === 'RE_RELEASE'
-          ? (latestKr ?? tmdbMovieReleaseYmd ?? null)
+          ? (latestKr ?? tmdbReleaseYmd ?? null)
+          : null;
+
+      // ✅ theatrical(상세 표시용)
+      const theatricalOriginal =
+        enforcedReleaseStatus === 'RE_RELEASE'
+          ? (earliestKr ?? tmdbReleaseYmd ?? null)
+          : contentInfoLatestReleaseYmd;
+
+      const theatricalRerun =
+        enforcedReleaseStatus === 'RE_RELEASE'
+          ? (latestKr ?? tmdbReleaseYmd ?? null)
           : null;
 
       statusComputed = {
         releaseStatus: enforcedReleaseStatus,
         statusKind: enforcedStatusKind,
-        computedReleaseYear,
-        originalTheatricalDate: enforcedOriginalTheatricalDate,
-        rerunTheatricalDate: enforcedRerunTheatricalDate,
+        releaseYearForCardHero,
+        theatricalOriginal,
+        theatricalRerun,
         hasMultipleTheatrical: computed.hasMultipleTheatrical,
         hidden: computed.hidden,
       };
     } else {
+      // ✅ TV/Ani:
+      // - 컨텐츠카드/히어로 출시년도: KR 기준 가장 최근 방영년도(최신 시즌 airDate 연도)
+      const latestSeasonYear =
+        (seasons?.[0]?.airDate ? yearFromIsoDate(seasons[0].airDate) : null) ??
+        yearFromIsoDate(asString(detail['last_air_date'])) ??
+        yearFromIsoDate(asString(detail['first_air_date'])) ??
+        null;
+
+      // ✅ 컨텐츠정보 “처음 방영”
+      const firstAirYmd = toIsoYmd(asString(detail['first_air_date']));
+      const oldestSeasonAir = seasons?.length
+        ? (seasons[seasons.length - 1]?.airDate ?? null)
+        : null;
+
+      contentInfoReleaseYmd = firstAirYmd ?? oldestSeasonAir ?? null;
+      contentInfoReleaseYear =
+        yearFromIsoDate(contentInfoReleaseYmd ?? '') ?? null;
+
+      // TV는 “가장 최근 방영일”을 최신으로
+      const latestAirYmd =
+        seasons?.[0]?.airDate ??
+        toIsoYmd(asString(detail['last_air_date'])) ??
+        contentInfoReleaseYmd ??
+        null;
+
+      contentInfoLatestReleaseYmd = latestAirYmd;
+      contentInfoRerunYmd = null;
+
       statusComputed = {
         releaseStatus: 'NONE' as DbReleaseStatus,
         statusKind: null as DbStatusKind | null,
-        computedReleaseYear:
-          latestSeasonYear ?? lastAirYear ?? tmdbFirstYear ?? null,
-        originalTheatricalDate: null,
-        rerunTheatricalDate: null,
+        releaseYearForCardHero: latestSeasonYear,
+        theatricalOriginal: null,
+        theatricalRerun: null,
         hasMultipleTheatrical: false,
         hidden: false,
       };
     }
 
-    const finalReleaseYear =
-      (r.mediaType === 'tv' ? latestSeasonYear : null) ??
-      statusComputed.computedReleaseYear ??
-      (r.mediaType === 'tv' ? lastAirYear : null) ??
-      tmdbFirstYear ??
-      null;
-
+    const finalReleaseYear = statusComputed.releaseYearForCardHero ?? null;
     const finalUnifiedLabel = finalReleaseYear
       ? String(finalReleaseYear)
       : null;
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
-
     const providersJson: NullableJson = toNullableJson(wpSafe);
 
     const sourcesUsedJson: Prisma.InputJsonValue = toPrismaJson({
@@ -834,18 +918,31 @@ export class MetaService {
         r.mediaType === 'movie' ? { region: 'KR', inNowPlaying } : null,
       rerunHint: r.mediaType === 'movie' ? rerunHint : null,
       computed: {
-        contentCardPosterPath: computedPosterPath,
-        hidden: r.mediaType === 'movie' ? statusComputed.hidden : false,
-        seasons: seasons,
-        // ✅ 디버깅/검증용(다른 기능 영향 없음)
-        krReleaseDatesYmd: r.mediaType === 'movie' ? krReleaseDatesYmd : null,
-        // ✅ 상세 표시용 theatrical (KOBIS 미사용)
+        schemaVersion: COMPUTED_SCHEMA_VERSION,
+
+        // 카드/내찜/상세 공통 표시
+        contentCardPosterPath,
+        hidden: statusComputed.hidden,
+
+        seasons,
+
+        // ✅ 히어로 첫 진입(TV/Ani)
+        heroSeasonYear,
+        heroPosterPath,
+
+        // ✅ 컨텐츠정보(처음/최근/재개봉)
+        contentInfoReleaseYear,
+        contentInfoReleaseYmd,
+        contentInfoLatestReleaseYmd,
+        contentInfoRerunYmd,
+
+        // ✅ theatrical (KOBIS 미사용)
         theatrical:
           r.mediaType === 'movie'
             ? {
                 hasMultipleTheatrical: statusComputed.hasMultipleTheatrical,
-                originalTheatricalDate: statusComputed.originalTheatricalDate,
-                rerunTheatricalDate: statusComputed.rerunTheatricalDate,
+                originalTheatricalDate: statusComputed.theatricalOriginal,
+                rerunTheatricalDate: statusComputed.theatricalRerun,
                 rerunKobisMovieCd: null,
               }
             : null,

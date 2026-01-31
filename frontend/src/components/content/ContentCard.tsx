@@ -107,7 +107,6 @@ export function ContentCard({
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
 
-  // ✅ 추론 금지: item.media_type이 없으면 meta 요청 자체를 하지 않음
   const mediaType = useMemo(() => mediaTypeFromItemStrict(item), [item]);
 
   const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
@@ -115,7 +114,6 @@ export function ContentCard({
     return peekResolvedMeta(mediaType as any, item.id) ?? null;
   });
 
-  // ✅ meta는 보이면 요청(캐시 없을 때만)
   useEffect(() => {
     let mounted = true;
     if (!inView) return;
@@ -140,10 +138,6 @@ export function ContentCard({
     return () => void (mounted = false);
   }, [inView, mediaType, item.id]);
 
-  // =========================
-  // ✅ “표시값” (원칙: meta only)
-  // =========================
-
   const typeText = useMemo(() => typeTextFromMeta(meta), [meta]);
 
   const providers = meta?.providers ?? [];
@@ -164,16 +158,28 @@ export function ContentCard({
           ? "재개봉"
           : null;
 
-  // ✅ 연도 표시도 meta only
+  // ✅ 시즌카드: __yearLabel이 있으면 그걸 우선 표시
   const yearLabel = useMemo(() => {
+    const override = String((item as any).__yearLabel ?? "").trim();
+    if (override) return override;
+
     const y = String(meta?.unifiedYearLabel ?? "").trim();
     return y ? y : "—";
-  }, [meta?.unifiedYearLabel]);
+  }, [item, meta?.unifiedYearLabel]);
 
-  // ✅ 카드 포스터: meta.contentCardPosterPath만 사용
-  const effectivePosterPath = (meta?.contentCardPosterPath ?? null) as
-    | string
-    | null;
+  // ✅ 카드 포스터:
+  // - 일반: meta.contentCardPosterPath 우선
+  // - 시즌카드: __forceItemPoster=true면 item.poster_path 고정
+  const effectivePosterPath = useMemo(() => {
+    const forceItemPoster = !!(item as any).__forceItemPoster;
+
+    const itemPoster = (item as any)?.poster_path ?? null;
+    const metaPoster = (meta as any)?.contentCardPosterPath ?? null;
+
+    if (forceItemPoster) return itemPoster ?? null;
+    return (metaPoster ?? itemPoster ?? null) as string | null;
+  }, [item, meta]);
+
   const posterUrl = effectivePosterPath
     ? getPosterUrl(effectivePosterPath, "w500")
     : "";
@@ -197,10 +203,6 @@ export function ContentCard({
 
   const canFav =
     typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
-
-  const showTrend =
-    typeof (item as any).trendRank === "number" &&
-    Number.isFinite((item as any).trendRank);
 
   return (
     <div
@@ -251,24 +253,6 @@ export function ContentCard({
           <div className="self-start">
             <Chip tone="dark">{typeText}</Chip>
           </div>
-
-          {showTrend && (
-            <div
-              className="self-start"
-              title={`트렌드 점수 ${(item as any).trendScore ?? "-"}`}
-            >
-              <Chip tone="purple">
-                {(item as any).trendRank === 1
-                  ? "🥇"
-                  : (item as any).trendRank === 2
-                    ? "🥈"
-                    : (item as any).trendRank === 3
-                      ? "🥉"
-                      : "🔥"}{" "}
-                #{(item as any).trendRank}
-              </Chip>
-            </div>
-          )}
 
           {statusLabel ? (
             <div className="self-start">

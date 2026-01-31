@@ -24,8 +24,8 @@ export type WatchProviders = {
 
 export type TheatricalInfo = {
   hasMultipleTheatrical: boolean;
-  originalTheatricalDate: string | null;
-  rerunTheatricalDate: string | null;
+  originalTheatricalDate: string | null; // YYYY-MM-DD
+  rerunTheatricalDate: string | null; // YYYY-MM-DD
 
   /**
    * ✅ KOBIS는 메타데이터에 절대 적용하지 않음.
@@ -49,10 +49,11 @@ export type ResolvedMeta = {
   mediaType: MediaType;
   tmdbId: number;
 
-  contentKind: string;
-  releaseStatus: string;
+  // ✅ 모든 화면에서 동일하게 쓰는 “통일 필드”
+  contentKind: string; // MOVIE | TV | ANI
+  releaseStatus: string; // UPCOMING | NOW_SHOWING | RE_RELEASE | NONE
   ageRating: AgeRating;
-  releaseYear: number | null;
+  releaseYear: number | null; // ✅ 컨텐츠카드/내찜/상세 히어로 출시년도 = 이 값으로 통일
   watchProviders: WatchProviders | null;
 
   statusKind: StatusKind;
@@ -61,13 +62,33 @@ export type ResolvedMeta = {
   providers: WatchProviderItem[];
   theatrical: TheatricalInfo | null;
 
+  // ✅ 컨텐츠카드 이미지(영화/TV/ANI 통일)
   contentCardPosterPath: string | null;
 
-  // ✅ 추가: 백엔드가 "아예 숨김" 판정 내려줌
+  // ✅ 백엔드가 “아예 숨김” 판정 내려줌
   hidden?: boolean;
 
-  // ✅ 추가: TV 상세 시즌 메타(프론트 계산 X)
+  // ✅ TV/Ani 상세 시즌 메타(프론트 계산 X)
   seasons?: SeasonMeta[] | null;
+
+  /**
+   * ✅ 상세 히어로 “첫 진입” (TV/Ani)
+   * - 시즌뱃지 = heroSeasonYear
+   * - 포스터   = heroPosterPath
+   */
+  heroSeasonYear?: number | null;
+  heroPosterPath?: string | null;
+
+  /**
+   * ✅ 상세 컨텐츠정보(처음 개봉/처음 방영)
+   * - 출시년도 = contentInfoReleaseYear (KR 기준 “처음”)
+   * - 개봉일   = contentInfoLatestReleaseYmd (KR 기준 “가장 최근”)
+   * - 재개봉일 = contentInfoRerunYmd (재개봉 상태일 때만)
+   */
+  contentInfoReleaseYear?: number | null; // “처음”의 연도
+  contentInfoReleaseYmd?: string | null; // “처음”의 날짜(YYYY-MM-DD)
+  contentInfoLatestReleaseYmd?: string | null; // “가장 최근” 개봉일(YYYY-MM-DD)
+  contentInfoRerunYmd?: string | null; // 재개봉일(YYYY-MM-DD)
 
   metaVersion: number;
   resolvedAt: string;

@@ -72,7 +72,8 @@ type HomeCollectionKey =
   | "POPULAR_MOVIE"
   | "POPULAR_TV"
   | "TRENDING_MOVIE"
-  | "TRENDING_TV";
+  | "TRENDING_TV"
+  | "BOXOFFICE_TOP10";
 
 type HomeChartItem = { mediaType: MediaType; tmdbId: number; rank: number };
 
@@ -267,8 +268,18 @@ export function MainScreen({
   const [popularTV, setPopularTV] = useState<TMDBMovie[]>([]);
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
+
+  // ✅ 비로그인 상단(히어로) = PickMovie 인기차트 Top10
+  const [anonHeroMovies, setAnonHeroMovies] = useState<TMDBMovie[]>([]);
+  const [anonHeroLoading, setAnonHeroLoading] = useState(false);
+
+  // ✅ 하단 박스오피스 Top10(실제 박스오피스)
   const [boxOfficeMovies, setBoxOfficeMovies] = useState<TMDBMovie[]>([]);
   const [boxOfficeLoading, setBoxOfficeLoading] = useState(false);
+
+  // ✅ (추가) 박스오피스 섹션 desc (백엔드 displayDateLabel 그대로 사용)
+  const [boxOfficeDesc, setBoxOfficeDesc] =
+    useState<string>("Top10 차트입니다.");
 
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
@@ -318,7 +329,11 @@ export function MainScreen({
           try {
             const d = await fetchDetailCached(it.mediaType, it.tmdbId);
             if (!d) return null;
-            return { ...(d as any), media_type: it.mediaType } as any;
+            return {
+              ...(d as any),
+              media_type: it.mediaType,
+              trendRank: it.rank,
+            } as any;
           } catch {
             return null;
           }
@@ -328,6 +343,157 @@ export function MainScreen({
     },
     [fetchDetailCached],
   );
+
+  const loadHomeChartsSnapshot = useCallback(async () => {
+    if (homeChartsRef.current) return homeChartsRef.current;
+
+    const tryUrls = ["/charts/home", "/home/charts", "/charts"];
+    for (const url of tryUrls) {
+      try {
+        const r = await apiGet<HomeChartsResponse>(url, { limit: 50 });
+        if (r?.collections && Array.isArray(r.collections)) {
+          homeChartsRef.current = r;
+          return r;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    homeChartsRef.current = null;
+    return null;
+  }, []);
+
+  const loadAnonHeroTop10 = useCallback(async () => {
+    if (loggedIn || currentSection !== "home") return;
+
+    setAnonHeroLoading(true);
+    try {
+      const charts = await loadHomeChartsSnapshot();
+
+      const items =
+        charts?.collections?.find((c) => c.key === "TRENDING_MOVIE")?.items ??
+        charts?.collections?.find((c) => c.key === "POPULAR_MOVIE")?.items ??
+        [];
+
+      const hydrated =
+        items.length > 0 ? await hydrateSnapshotItems(items.slice(0, 10)) : [];
+
+      // ✅ 완전 실패 시: 화면은 깨지지 않게 TMDB 인기 영화로 대체(Top10)
+      if (!hydrated.length) {
+        const fallback = popularMovies.slice(0, 10).map((m) => ({
+          ...(m as any),
+          media_type: "movie",
+          trendRank: undefined,
+        }));
+        setAnonHeroMovies(fallback as any);
+      } else {
+        setAnonHeroMovies(hydrated as any);
+      }
+    } catch {
+      const fallback = popularMovies.slice(0, 10).map((m) => ({
+        ...(m as any),
+        media_type: "movie",
+      }));
+      setAnonHeroMovies(fallback as any);
+    } finally {
+      setAnonHeroLoading(false);
+    }
+  }, [
+    loggedIn,
+    currentSection,
+    loadHomeChartsSnapshot,
+    hydrateSnapshotItems,
+    popularMovies,
+  ]);
+
+  const loadRealBoxOfficeTop10 = useCallback(async () => {
+    if (currentSection !== "home") return;
+
+    setBoxOfficeLoading(true);
+    try {
+      // ✅ “실제 박스오피스 Top10” (백엔드에서 KOBIS 기반으로 내려주는 Top10 전용)
+      // (서버 라우트명이 프로젝트마다 다를 수 있어 후보를 순차 시도)
+      const tryUrls = [
+        "/charts/boxoffice/top10",
+        "/charts/boxoffice/kr/top10",
+        "/boxoffice/top10",
+      ];
+
+      let items: HomeChartItem[] = [];
+      let displayDateLabel = "";
+
+      for (const url of tryUrls) {
+        try {
+          const r = await apiGet<any>(url, { limit: 10 });
+
+          // ✅ (추가) 백엔드에서 내려주는 표시용 날짜 라벨
+          const label = String(r?.displayDateLabel ?? "").trim();
+          if (label) displayDateLabel = label;
+
+          const list =
+            (Array.isArray(r?.items) ? r.items : null) ??
+            (Array.isArray(r?.data) ? r.data : null) ??
+            (Array.isArray(r) ? r : null);
+
+          if (Array.isArray(list) && list.length) {
+            // { mediaType, tmdbId, rank } 형태를 기대
+            items = list as HomeChartItem[];
+            break;
+          }
+        } catch {
+          // continue
+        }
+      }
+
+      // ✅ (추가) RowHeader desc 업데이트
+      if (displayDateLabel) {
+        setBoxOfficeDesc(`${displayDateLabel} 기준 Top10 차트입니다.`);
+      } else {
+        setBoxOfficeDesc("Top10 차트입니다.");
+      }
+
+      if (!items.length) {
+        setBoxOfficeMovies([]);
+        return;
+      }
+
+      // ✅ 박스오피스는 영화만
+      const normalized = items
+        .filter((x) => typeof x?.tmdbId === "number" && x.tmdbId)
+        .slice(0, 10)
+        .map((x, i) => ({
+          mediaType: "movie" as const,
+          tmdbId: x.tmdbId,
+          rank: typeof x.rank === "number" ? x.rank : i + 1,
+        }));
+
+      const details = await pMapLimit(
+        normalized,
+        6,
+        async (it): Promise<any | null> => {
+          try {
+            const d = await fetchDetailCached("movie", it.tmdbId);
+            if (!d) return null;
+            return {
+              ...(d as any),
+              media_type: "movie",
+              trendRank: it.rank, // ✅ 카드에 #순위 표시용
+            } as any;
+          } catch {
+            return null;
+          }
+        },
+      );
+
+      setBoxOfficeMovies(details.filter(Boolean) as any);
+    } catch {
+      setBoxOfficeMovies([]);
+      setBoxOfficeDesc("Top10 차트입니다.");
+    } finally {
+      setBoxOfficeLoading(false);
+    }
+  }, [currentSection, fetchDetailCached]);
 
   useEffect(() => {
     const sync = () => setLoggedIn(isLoggedInFallback());
@@ -453,6 +619,16 @@ export function MainScreen({
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
 
+  // ✅ 비로그인 히어로 Top10 로드
+  useEffect(() => {
+    void loadAnonHeroTop10();
+  }, [loadAnonHeroTop10]);
+
+  // ✅ 박스오피스 Top10 로드 (home에서 항상)
+  useEffect(() => {
+    void loadRealBoxOfficeTop10();
+  }, [loadRealBoxOfficeTop10]);
+
   // ✅ 로그인 시 트렌드 로드
   useEffect(() => {
     if (currentSection !== "home") return;
@@ -490,7 +666,12 @@ export function MainScreen({
             try {
               const d = await fetchDetailCached("movie", it.tmdbId as number);
               if (!d) return null;
-              return { ...(d as any), media_type: "movie" } as any;
+              return {
+                ...(d as any),
+                media_type: "movie",
+                trendRank: it.rank,
+                trendScore: it.score,
+              } as any;
             } catch {
               return null;
             }
@@ -710,14 +891,24 @@ export function MainScreen({
       {currentSection === "home" && (
         <section className="relative z-20 h-[80svh] min-h-[80svh] flex flex-col">
           <div className="flex-1 min-h-0 relative">
-            <Suspense fallback={<div className="h-[80svh]" />}>
+            {!loggedIn && anonHeroLoading ? (
+              <div className="h-[80svh] flex items-center justify-center">
+                <Loader2 className="w-12 h-12 animate-spin text-purple-400" />
+              </div>
+            ) : (
               <FavoritesCarousel
-                movies={favoriteMovies as any}
+                movies={(loggedIn ? favoriteMovies : anonHeroMovies) as any}
                 onMovieClick={openContentDetail as any}
-                onToggleFavorite={(id, type) => toggleFav(id, type)}
+                onToggleFavorite={(id, type) => {
+                  if (!loggedIn) {
+                    navigate("/login");
+                    return;
+                  }
+                  toggleFav(id, type);
+                }}
                 onTrailerClick={openTrailerFromCarousel}
               />
-            </Suspense>
+            )}
           </div>
         </section>
       )}
@@ -879,6 +1070,46 @@ export function MainScreen({
                     onMovieClick={openContentDetail as any}
                   />
                 </Suspense>
+
+                {/* ✅ 하단: 실제 박스오피스 TOP 10 */}
+                <RowHeader
+                  className="mt-8"
+                  title="박스오피스 TOP 10"
+                  desc={boxOfficeDesc}
+                />
+
+                {boxOfficeLoading ? (
+                  <div className="mx-auto w-full px-4 mt-4">
+                    <div className="h-24 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-sm text-white/60">
+                      박스오피스를 불러오는 중…{" "}
+                      <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                    </div>
+                  </div>
+                ) : boxOfficeMovies.length === 0 ? (
+                  <div className="mx-auto w-full px-4 mt-4">
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                      오늘의 박스오피스 차트가 없습니다. 잠시 후 다시
+                      시도해보세요.
+                    </div>
+                  </div>
+                ) : (
+                  <Suspense fallback={<div className="h-40" />}>
+                    <ContentRow
+                      title=""
+                      movies={boxOfficeMovies as any}
+                      favorites={favoriteIdList}
+                      favoriteKeySet={favoriteKeySet}
+                      onToggleFavorite={(id: number, type?: MediaType) => {
+                        if (!loggedIn) {
+                          navigate("/login");
+                          return;
+                        }
+                        toggleFav(id, type);
+                      }}
+                      onMovieClick={openContentDetail as any}
+                    />
+                  </Suspense>
+                )}
               </>
             )}
 

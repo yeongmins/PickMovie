@@ -1,6 +1,4 @@
 // frontend/src/lib/metaClient.ts
-import { apiGet } from "./apiClient";
-
 export type MediaType = "movie" | "tv";
 
 /** 백엔드 meta.types.ts 기준 */

@@ -11,6 +11,24 @@ const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/";
 const DEFAULT_REGION = "KR";
 const DEFAULT_LANGUAGE = "ko-KR";
 
+/* =========================
+   TMDB Direct (공통 - 중복 선언 금지)
+========================= */
+
+const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
+  | string
+  | undefined;
+
+const TMDB_DIRECT_BASE_RAW = (import.meta as any)?.env?.VITE_TMDB_BASE_URL as
+  | string
+  | undefined;
+
+const TMDB_DIRECT_BASE = (
+  TMDB_DIRECT_BASE_RAW || "https://api.themoviedb.org/3"
+)
+  .trim()
+  .replace(/\/+$/, "");
+
 // =========================
 // 타입 정의
 // =========================
@@ -165,7 +183,7 @@ function normalizeBackendParam(key: string, value: unknown): string | null {
 
 async function fetchFromBackend<T>(
   path: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
 ): Promise<T> {
   const url = new URL(`${API_BASE_URL}${path}`);
 
@@ -184,7 +202,7 @@ async function fetchFromBackend<T>(
     throw new Error(
       `Backend Request Failed: ${res.status} ${res.statusText}${
         text ? ` - ${text}` : ""
-      }`
+      }`,
     );
   }
 
@@ -231,7 +249,7 @@ export type TMDBImageSize =
 
 export function getPosterUrl(
   path: string | null | undefined,
-  size: TMDBImageSize = "w342"
+  size: TMDBImageSize = "w342",
 ): string | null {
   if (!path) return null;
   return `${TMDB_IMAGE_BASE_URL}${size}${path}`;
@@ -239,7 +257,7 @@ export function getPosterUrl(
 
 export function getBackdropUrl(
   path: string | null | undefined,
-  size: "w300" | "w780" | "w1280" | "original" = "w780"
+  size: "w300" | "w780" | "w1280" | "original" = "w780",
 ): string {
   if (!path) return "";
   return `${TMDB_IMAGE_BASE_URL}${size}${path}`;
@@ -270,7 +288,7 @@ function normLang(v: string | null | undefined) {
 
 function pickBestPosterFromGroup(
   posters: TmdbImageAsset[],
-  lang: "ko" | "en" | "null"
+  lang: "ko" | "en" | "null",
 ) {
   const group =
     lang === "null"
@@ -293,18 +311,27 @@ function pickBestPosterFromGroup(
   return group[0]?.file_path ?? null;
 }
 
+async function tmdbDirectFetch(path: string) {
+  if (!TMDB_API_KEY) return null;
+  const url = new URL(`${TMDB_DIRECT_BASE}${path}`);
+  url.searchParams.set("api_key", TMDB_API_KEY);
+  const res = await fetch(url.toString());
+  if (!res.ok) return null;
+  return await res.json();
+}
+
 async function fetchImagesSafeForPoster(
   mediaType: "movie" | "tv",
-  id: number
+  id: number,
 ): Promise<TmdbImagesResponse | null> {
   try {
     return await fetchFromBackend<TmdbImagesResponse>(
       `/tmdb/images/${mediaType}/${id}`,
-      { include_image_language: "ko,en,null" }
+      { include_image_language: "ko,en,null" },
     );
   } catch {
     const json = await tmdbDirectFetch(
-      `/${mediaType}/${id}/images?include_image_language=ko,en,null`
+      `/${mediaType}/${id}/images?include_image_language=ko,en,null`,
     );
     return (json as TmdbImagesResponse) ?? null;
   }
@@ -315,7 +342,7 @@ const _preferredPosterInFlight = new Map<string, Promise<string | null>>();
 
 export async function fetchPreferredPosterPath(
   mediaType: "movie" | "tv",
-  id: number
+  id: number,
 ): Promise<string | null> {
   const key = `${mediaType}:${id}:preferredPoster`;
   if (_preferredPosterCache.has(key))
@@ -364,7 +391,7 @@ export async function fetchPreferredPosterPath(
 export async function fetchPreferredPosterUrl(
   mediaType: "movie" | "tv",
   id: number,
-  size: TMDBImageSize = "w500"
+  size: TMDBImageSize = "w500",
 ): Promise<string | null> {
   const path = await fetchPreferredPosterPath(mediaType, id);
   return path ? getPosterUrl(path, size) : null;
@@ -376,7 +403,7 @@ export async function fetchPreferredPosterUrl(
 
 export function calculateMatchScore(
   movie: TMDBMovie,
-  prefs: UserPreferencesLike
+  prefs: UserPreferencesLike,
 ): number {
   let score = 50;
 
@@ -386,7 +413,7 @@ export function calculateMatchScore(
       .filter(Boolean);
 
     const matched = movie.genre_ids.filter((id) =>
-      preferredGenreIds.includes(id)
+      preferredGenreIds.includes(id),
     );
     score += Math.min(30, matched.length * 10);
   }
@@ -444,7 +471,7 @@ function normalizeListArg(arg?: number | ListOptions): Required<ListOptions> {
 async function promisePool<T, R>(
   items: T[],
   limit: number,
-  worker: (item: T) => Promise<R>
+  worker: (item: T) => Promise<R>,
 ): Promise<R[]> {
   if (!items.length) return [];
   const results: R[] = new Array(items.length);
@@ -458,7 +485,7 @@ async function promisePool<T, R>(
         if (i >= items.length) break;
         results[i] = await worker(items[i]);
       }
-    }
+    },
   );
 
   await Promise.all(workers);
@@ -467,8 +494,6 @@ async function promisePool<T, R>(
 
 // =========================
 // ✅ 핵심: TV 결과를 항상 “UI 공통 포맷”으로 정규화
-// - TV에서도 release_date가 항상 존재하도록(first_air_date로 채움)
-// - media_type도 항상 tv로 고정
 // =========================
 
 function normalizeTvResult<T extends Record<string, any>>(tv: T): T {
@@ -519,7 +544,7 @@ export async function discoverMovies(options: {
 
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/discover",
-    params
+    params,
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
@@ -527,12 +552,12 @@ export async function discoverMovies(options: {
 }
 
 export async function getPopularMovies(
-  arg: number | ListOptions = 1
+  arg: number | ListOptions = 1,
 ): Promise<TMDBMovie[]> {
   const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/popular",
-    { page: opt.page, region: opt.region, language: opt.language }
+    { page: opt.page, region: opt.region, language: opt.language },
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
@@ -540,12 +565,12 @@ export async function getPopularMovies(
 }
 
 export async function getTopRatedMovies(
-  arg: number | ListOptions = 1
+  arg: number | ListOptions = 1,
 ): Promise<TMDBMovie[]> {
   const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/top_rated",
-    { page: opt.page, region: opt.region, language: opt.language }
+    { page: opt.page, region: opt.region, language: opt.language },
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
@@ -553,12 +578,12 @@ export async function getTopRatedMovies(
 }
 
 export async function getNowPlayingMovies(
-  arg: number | ListOptions = 1
+  arg: number | ListOptions = 1,
 ): Promise<TMDBMovie[]> {
   const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/now_playing",
-    { page: opt.page, region: opt.region, language: opt.language }
+    { page: opt.page, region: opt.region, language: opt.language },
   );
 
   const base = (data.results || []).map((m) => ({
@@ -571,22 +596,21 @@ export async function getNowPlayingMovies(
 }
 
 export async function getPopularTVShows(
-  arg: number | ListOptions = 1
+  arg: number | ListOptions = 1,
 ): Promise<TMDBMovie[]> {
   const opt = normalizeListArg(arg);
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/tv/popular",
-    { page: opt.page, region: opt.region, language: opt.language }
+    { page: opt.page, region: opt.region, language: opt.language },
   );
 
-  // ✅ 여기서 TV 정규화가 핵심: release_date/first_air_date/media_type 통일
   const base = (data.results || []).map((tv) => normalizeTvResult(tv));
   return filterKoreanTitles(base);
 }
 
 export async function getMovieDetails(
   id: number,
-  opts?: { region?: string; language?: string }
+  opts?: { region?: string; language?: string },
 ): Promise<MovieDetails> {
   const detail = await fetchFromBackend<MovieDetails>(`/movies/${id}`, {
     type: "movie",
@@ -594,13 +618,12 @@ export async function getMovieDetails(
     language: opts?.language ?? DEFAULT_LANGUAGE,
   });
 
-  // ✅ movie도 media_type 기본값 고정
   return normalizeMovieResult(detail) as MovieDetails;
 }
 
 export async function getTVDetails(
   id: number,
-  opts?: { region?: string; language?: string }
+  opts?: { region?: string; language?: string },
 ): Promise<TVDetails> {
   const detail = await fetchFromBackend<TVDetails>(`/movies/${id}`, {
     type: "tv",
@@ -608,15 +631,13 @@ export async function getTVDetails(
     language: opts?.language ?? DEFAULT_LANGUAGE,
   });
 
-  // ✅ TV 상세도 release_date가 항상 존재하도록 통일 (UI가 release_date만 봐도 깨지지 않음)
   return normalizeTvResult(detail) as TVDetails;
 }
 
-// MovieDetailModal 등에서 사용하는 통합 함수
 export async function getContentDetails(
   id: number,
   mediaType: "movie" | "tv" = "movie",
-  opts?: { region?: string; language?: string }
+  opts?: { region?: string; language?: string },
 ): Promise<MovieDetails | TVDetails> {
   const detail = await fetchFromBackend<any>(`/movies/${id}`, {
     type: mediaType,
@@ -659,25 +680,8 @@ export type ProviderBadge = {
   logo_path?: string | null;
 };
 
-const TMDB_API_KEY = (import.meta as any)?.env?.VITE_TMDB_API_KEY as
-  | string
-  | undefined;
-
-const TMDB_DIRECT_BASE =
-  (import.meta as any)?.env?.VITE_TMDB_BASE_URL ||
-  "https://api.themoviedb.org/3";
-
 const _providersCache = new Map<string, ProviderBadge[]>();
 const _ageCache = new Map<string, string>();
-
-async function tmdbDirectFetch(path: string) {
-  if (!TMDB_API_KEY) return null;
-  const url = new URL(`${TMDB_DIRECT_BASE}${path}`);
-  url.searchParams.set("api_key", TMDB_API_KEY);
-  const res = await fetch(url.toString());
-  if (!res.ok) return null;
-  return await res.json();
-}
 
 /** OTT 전용이면 "상영중" 제거 (KR 기준 theatrical 타입이 없고 digital만 있는 경우) */
 const _ottOnlyCache = new Map<string, boolean>();
@@ -685,7 +689,7 @@ const _ottOnlyInFlight = new Map<string, Promise<boolean>>();
 
 async function isOttOnlyMovie(
   id: number,
-  region: string = DEFAULT_REGION
+  region: string = DEFAULT_REGION,
 ): Promise<boolean> {
   const key = `${id}:${region}`;
   if (_ottOnlyCache.has(key)) return _ottOnlyCache.get(key)!;
@@ -725,11 +729,11 @@ async function isOttOnlyMovie(
 
 async function removeNowPlayingForOttOnly(
   items: TMDBMovie[],
-  region: string = DEFAULT_REGION
+  region: string = DEFAULT_REGION,
 ): Promise<TMDBMovie[]> {
   if (!TMDB_API_KEY) return items;
   const targets = items.filter(
-    (m) => m?.media_type !== "tv" && m?.isNowPlaying === true
+    (m) => m?.media_type !== "tv" && m?.isNowPlaying === true,
   );
   if (!targets.length) return items;
 
@@ -737,7 +741,7 @@ async function removeNowPlayingForOttOnly(
   const results = await promisePool(
     ids,
     6,
-    async (id) => [id, await isOttOnlyMovie(id, region)] as const
+    async (id) => [id, await isOttOnlyMovie(id, region)] as const,
   );
 
   const ottMap = new Map<number, boolean>(results);
@@ -754,7 +758,7 @@ async function removeNowPlayingForOttOnly(
 export async function getWatchProviders(
   mediaType: "movie" | "tv",
   id: number,
-  region: string = DEFAULT_REGION
+  region: string = DEFAULT_REGION,
 ): Promise<ProviderBadge[]> {
   const key = `${mediaType}:${id}:${region}`;
   if (_providersCache.has(key)) return _providersCache.get(key)!;
@@ -789,7 +793,7 @@ export async function getWatchProviders(
 export async function getAgeRating(
   mediaType: "movie" | "tv",
   id: number,
-  region: string = DEFAULT_REGION
+  region: string = DEFAULT_REGION,
 ): Promise<string> {
   const key = `${mediaType}:${id}:${region}`;
   if (_ageCache.has(key)) return _ageCache.get(key)!;
@@ -840,7 +844,7 @@ const _tvSeasonCache = new Map<string, TmdbTvSeasonDetail | null>();
 const _tvSeasonInFlight = new Map<string, Promise<TmdbTvSeasonDetail | null>>();
 
 function calcSeasonVoteAverage(
-  episodes?: TmdbTvSeasonEpisode[]
+  episodes?: TmdbTvSeasonEpisode[],
 ): number | null {
   const list = Array.isArray(episodes) ? episodes : [];
   const nums = list
@@ -852,7 +856,6 @@ function calcSeasonVoteAverage(
   const sum = nums.reduce((a, b) => a + b, 0);
   const avg = sum / nums.length;
 
-  // ContentCard는 toFixed(1)이라 여기서도 적당히 정리
   const rounded = Math.round(avg * 10) / 10;
   return Number.isFinite(rounded) ? rounded : null;
 }
@@ -860,7 +863,7 @@ function calcSeasonVoteAverage(
 export async function fetchTVSeasonDetail(
   tvId: number,
   seasonNo: number,
-  opts?: { language?: string }
+  opts?: { language?: string },
 ): Promise<TmdbTvSeasonDetail | null> {
   const lang = opts?.language ?? DEFAULT_LANGUAGE;
   const key = `tv:${tvId}:season:${seasonNo}:${lang}`;
@@ -873,7 +876,7 @@ export async function fetchTVSeasonDetail(
     try {
       const data = await fetchFromBackend<TmdbTvSeasonDetail>(
         `/tmdb/proxy/tv/${tvId}/season/${seasonNo}`,
-        { language: lang }
+        { language: lang },
       );
 
       const computed = calcSeasonVoteAverage(data?.episodes);
@@ -883,7 +886,7 @@ export async function fetchTVSeasonDetail(
             vote_average:
               typeof data.vote_average === "number"
                 ? data.vote_average
-                : computed ?? undefined,
+                : (computed ?? undefined),
           }
         : null;
 
@@ -891,7 +894,7 @@ export async function fetchTVSeasonDetail(
       return patched;
     } catch {
       const json = await tmdbDirectFetch(
-        `/tv/${tvId}/season/${seasonNo}?language=${encodeURIComponent(lang)}`
+        `/tv/${tvId}/season/${seasonNo}?language=${encodeURIComponent(lang)}`,
       );
       const data = (json as TmdbTvSeasonDetail) ?? null;
 
@@ -902,7 +905,7 @@ export async function fetchTVSeasonDetail(
             vote_average:
               typeof data.vote_average === "number"
                 ? data.vote_average
-                : computed ?? undefined,
+                : (computed ?? undefined),
           }
         : null;
 
@@ -923,7 +926,7 @@ const _tvSeasonVoteInFlight = new Map<string, Promise<number | null>>();
 export async function fetchTVSeasonVoteAverage(
   tvId: number,
   seasonNo: number,
-  opts?: { language?: string }
+  opts?: { language?: string },
 ): Promise<number | null> {
   const lang = opts?.language ?? DEFAULT_LANGUAGE;
   const key = `tv:${tvId}:season:${seasonNo}:vote:${lang}`;

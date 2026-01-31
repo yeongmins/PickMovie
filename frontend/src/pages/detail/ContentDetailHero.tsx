@@ -28,6 +28,8 @@ import {
    - 프론트에서 TV 시즌/언어별 포스터 선택 로직 금지
      → Hero 포스터는 백엔드 meta.contentCardPosterPath 우선(없으면 detail.poster_path)
    - "옛 포스터 잔상" 제거: preload 후에만 렌더
+   - ✅ 시즌 뱃지: "가장 최근 방영 년도"(meta / seasonContext.year)
+   - ✅ (요구사항) 시즌 선택 시: 뱃지/히어로 년도/포스터는 선택 시즌 기준으로 반영
 ========================= */
 
 type SeasonNavContext = {
@@ -209,25 +211,16 @@ export function ContentDetailHero({
   const title = getDisplayTitle(detail as any);
   const location = useLocation();
 
-  // ✅ TV 시즌 선택 상태(쿼리 기반) - (표시용/네비용으로만 사용)
+  // ✅ TV 시즌 선택 상태(쿼리 기반)
   const seasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
     return getSeasonNoFromSearch(location.search);
   }, [mediaType, location.search]);
 
-  // ✅ 시즌 뱃지: 프론트에서 "최신 시즌" 계산 금지
-  // - season=이 있을 때만 표시(>1)
-  const badgeSeasonNo = useMemo(() => {
-    if (mediaType !== "tv") return 0;
-    return seasonNo > 1 ? seasonNo : 0;
-  }, [mediaType, seasonNo]);
-
-  // (참고) state로 넘어온 seasonContext는 프론트에서 포스터/년도 결정에 사용하지 않음
   const seasonContext = useMemo(() => {
     const st = location.state as any;
     return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
   }, [location.state]);
-  void seasonContext; // eslint 방지용(사용 안 함)
 
   // ✅ meta 단일 소스(백엔드 값 우선)
   const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
@@ -255,11 +248,45 @@ export function ContentDetailHero({
     };
   }, [mediaType, detail.id]);
 
-  // ✅ 포스터: meta.contentCardPosterPath 우선(없으면 detail.poster_path)
+  // ✅ (요구사항) 히어로 년도: 시즌 선택 시 선택 시즌 년도 표시
+  // - TV 시즌 선택: seasonContext.year 우선
+  // - 그 외: 기존 yearText 그대로
+  const heroYearText = useMemo(() => {
+    if (mediaType !== "tv") return yearText;
+    if (seasonNo > 0) {
+      const y = Number(seasonContext?.year);
+      if (Number.isFinite(y) && y > 0) return String(y);
+    }
+    return yearText;
+  }, [mediaType, seasonNo, seasonContext?.year, yearText]);
+
+  // ✅ (요구사항) 히어로 평점: 시즌 선택 시 시즌 평점이 있으면 그걸 표시
+  const heroVoteAverage = useMemo(() => {
+    if (mediaType !== "tv") return detail.vote_average ?? 0;
+    if (seasonNo > 0 && typeof seasonContext?.vote_average === "number") {
+      return seasonContext.vote_average;
+    }
+    return detail.vote_average ?? 0;
+  }, [mediaType, seasonNo, seasonContext?.vote_average, detail.vote_average]);
+
+  // ✅ (요구사항) 포스터: 시즌 선택이면 선택 시즌 포스터 우선
+  // - 시즌 선택: seasonContext.poster_path (SeriesSeasonCards에서 전달)
+  // - 첫 진입: meta.contentCardPosterPath (최신 시즌 포스터)
+  // - fallback: detail.poster_path
   const posterPathWanted = useMemo(() => {
+    if (mediaType === "tv" && seasonNo > 0) {
+      const sp = (seasonContext?.poster_path ?? null) as string | null;
+      if (sp) return sp;
+    }
     const p = (meta?.contentCardPosterPath ?? null) as string | null;
     return p ?? detail.poster_path ?? null;
-  }, [meta?.contentCardPosterPath, detail.poster_path]);
+  }, [
+    mediaType,
+    seasonNo,
+    seasonContext?.poster_path,
+    meta?.contentCardPosterPath,
+    detail.poster_path,
+  ]);
 
   const [posterPathResolved, setPosterPathResolved] = useState<string | null>(
     null,
@@ -504,7 +531,7 @@ export function ContentDetailHero({
     trailerOpen,
     title,
     typeText,
-    yearText, // ✅ 덮어쓰기 없음
+    heroYearText,
     genreText,
     runtime,
     posterReady,
@@ -561,7 +588,7 @@ export function ContentDetailHero({
     trailerKey,
     isFavorite,
     typeText,
-    yearText, // ✅ 덮어쓰기 없음
+    heroYearText,
     posterReady,
     posterSrcSet?.src1x,
   ]);
@@ -650,7 +677,7 @@ export function ContentDetailHero({
                 <TitleLogoOrText
                   detail={detail}
                   mediaType={mediaType}
-                  seasonNo={badgeSeasonNo}
+                  seasonNo={seasonNo}
                 />
               </div>
 
@@ -658,13 +685,13 @@ export function ContentDetailHero({
                 <div className="flex items-center gap-1 shrink-0">
                   <Star className="w-4 h-4 fill-current text-yellow-400" />
                   <span className="text-sm font-bold text-white">
-                    {(detail.vote_average ?? 0).toFixed(1)}
+                    {(heroVoteAverage ?? 0).toFixed(1)}
                   </span>
                 </div>
 
-                {yearText ? (
+                {heroYearText ? (
                   <span className="text-white text-sm font-bold">
-                    {yearText}
+                    {heroYearText}
                   </span>
                 ) : null}
 

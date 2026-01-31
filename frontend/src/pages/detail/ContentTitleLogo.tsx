@@ -47,7 +47,7 @@ function pickKoreanCandidates(logos?: TmdbImageAsset[]) {
 
 async function fetchImagesSafe(
   mediaType: MediaType,
-  id: number
+  id: number,
 ): Promise<TmdbImagesResponse | null> {
   // 1) backend
   try {
@@ -72,7 +72,6 @@ async function measureLogoBrightness(filePath: string): Promise<number | null> {
     const res = await fetch(src);
     const blob = await res.blob();
 
-    // Canvas 샘플링(투명 제외)
     const bmp =
       "createImageBitmap" in window ? await createImageBitmap(blob) : null;
 
@@ -95,7 +94,6 @@ async function measureLogoBrightness(filePath: string): Promise<number | null> {
     let sum = 0;
     let cnt = 0;
 
-    // 빠르게 샘플링(격자)
     const step = 8;
     for (let y = 0; y < canvas.height; y += step) {
       for (let x = 0; x < canvas.width; x += step) {
@@ -122,7 +120,7 @@ async function measureLogoBrightness(filePath: string): Promise<number | null> {
 
 async function pickBestKoreanLogoChoice(
   mediaType: MediaType,
-  id: number
+  id: number,
 ): Promise<LogoChoice> {
   const data = await fetchImagesSafe(mediaType, id);
   const candidates = pickKoreanCandidates(data?.logos);
@@ -131,40 +129,31 @@ async function pickBestKoreanLogoChoice(
     return { filePath: null, invert: false };
   }
 
-  // ✅ “흰색 로고 우선”
-  // - 후보 중 가장 밝은 로고 선택
-  // - 측정 실패하면 1등 후보로 fallback
   const top = candidates.slice(0, 4);
   const brightnessList = await Promise.all(
     top.map(async (c) => {
       const b = await measureLogoBrightness(c.file_path);
       return { filePath: c.file_path, b };
-    })
+    }),
   );
 
   const measurable = brightnessList.filter(
-    (x) => typeof x.b === "number"
-  ) as Array<{
-    filePath: string;
-    b: number;
-  }>;
+    (x) => typeof x.b === "number",
+  ) as Array<{ filePath: string; b: number }>;
 
   if (measurable.length) {
     measurable.sort((a, b) => b.b - a.b);
     const best = measurable[0];
-
-    // 밝기가 너무 낮으면(검정 로고 가능성) invert로 흰색화
-    const invert = best.b < 80;
+    const invert = best.b < 80; // 어두우면 invert
     return { filePath: best.filePath, invert };
   }
 
-  // fallback: 첫 후보
   return { filePath: candidates[0].file_path, invert: true };
 }
 
 async function fetchTitleLogoChoice(
   mediaType: MediaType,
-  id: number
+  id: number,
 ): Promise<LogoChoice> {
   const key = `${mediaType}:${id}`;
   if (_titleLogoCache.has(key)) return _titleLogoCache.get(key)!;
@@ -207,7 +196,7 @@ function useKoreanTitleLogoChoice(mediaType: MediaType, id: number) {
     return () => {
       alive = false;
     };
-  }, [key]);
+  }, [key, mediaType, id]);
 
   return choice;
 }
@@ -287,18 +276,23 @@ function useFitSingleLineNoEllipsis(opts: {
   return { wrapRef, textRef, fontPx, scaleX };
 }
 
-function SeasonBadge({ seasonNo }: { seasonNo: number }) {
-  if (!seasonNo || seasonNo <= 0) return null;
+/* =========================
+   ✅ 시즌 번호 뱃지 (연도 절대 없음)
+========================= */
+
+function SeasonBadge({ seasonNo }: { seasonNo?: number }) {
+  const no = Number(seasonNo ?? 0);
+  const hasNo = Number.isFinite(no) && no > 0;
+
+  if (!hasNo) return null;
+
   return (
     <span
       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[5px] shadow-sm bg-black backdrop-blur-md shrink-0"
-      title={`시즌 ${seasonNo}`}
+      title={`Season ${no}`}
     >
-      <span className="text-[11px] font-bold tracking-wide text-white">
-        SEASON
-      </span>
       <span className="text-[11px] font-extrabold tracking-wide text-white">
-        {seasonNo}
+        Season{no}
       </span>
     </span>
   );
@@ -314,7 +308,7 @@ function FittedTitleText({
   const { wrapRef, textRef, fontPx, scaleX } = useFitSingleLineNoEllipsis({
     maxFontPx: 35,
     minFontPx: 14,
-    depsKey: title, // ✅ 시즌 이동으로 title이 바뀌어도 재측정
+    depsKey: `${title}:${seasonNo}`,
   });
 
   return (
@@ -353,17 +347,37 @@ export function TitleLogoOrText({
   detail,
   mediaType,
   seasonNo = 0,
+  seasonBadgeText,
 }: {
   detail: DetailBase;
   mediaType: MediaType;
-  seasonNo?: number;
+  seasonNo?: number; // ✅ 이 값으로만 시즌 뱃지 표시
+  seasonBadgeText?: string; // ✅ 기존 prop 호환 유지 (사용 안 함)
 }) {
+  void seasonBadgeText;
+
   const title = useMemo(() => getDisplayTitle(detail as any), [detail]);
   const choice = useKoreanTitleLogoChoice(mediaType, detail.id);
 
   const hasLogo = !!choice.filePath;
 
-  // ✅ 로고 로딩 실패 시(404/네트워크 등) 텍스트로 안전하게 fallback
+  // ✅ 첫 진입에서도 시즌 뱃지 필요: seasonNo가 0이면 최신 시즌 번호로 보강
+  const resolvedSeasonNo = useMemo(() => {
+    const base = Number(seasonNo ?? 0);
+    if (mediaType !== "tv") return 0;
+    if (Number.isFinite(base) && base > 0) return base;
+
+    const d: any = detail;
+    const list = Array.isArray(d?.seasons) ? d.seasons : [];
+    const nums = list
+      .map((s: any) => Number(s?.season_number ?? 0))
+      .filter((n: number) => Number.isFinite(n) && n > 0);
+
+    if (!nums.length) return 0;
+    return Math.max(...nums);
+  }, [detail, mediaType, seasonNo]);
+
+  // ✅ 로고 로딩 실패 시 텍스트 fallback
   const [logoReady, setLogoReady] = useState(false);
   const [forceText, setForceText] = useState(false);
 
@@ -404,7 +418,7 @@ export function TitleLogoOrText({
             onLoad={() => setLogoReady(true)}
             onError={() => {
               setLogoReady(false);
-              setForceText(true); // ✅ 로고가 안 뜨면 빈칸 방지
+              setForceText(true);
             }}
             initial={false}
             animate={{
@@ -425,10 +439,10 @@ export function TitleLogoOrText({
           />
         </div>
 
-        <SeasonBadge seasonNo={seasonNo} />
+        <SeasonBadge seasonNo={resolvedSeasonNo} />
       </h1>
     );
   }
 
-  return <FittedTitleText title={title} seasonNo={seasonNo} />;
+  return <FittedTitleText title={title} seasonNo={resolvedSeasonNo} />;
 }

@@ -56,6 +56,31 @@ type BoxOfficeSnapshotItem = {
   movieNm: string;
 };
 
+type FrontBoxOfficeItem = {
+  mediaType: 'movie';
+  tmdbId: number;
+  rank: number;
+};
+
+type FrontBoxOfficeResponse = {
+  targetDt: string; // YYYYMMDD
+  generatedAt: string; // ISO
+  displayDateLabel: string; // "YYYY년 M월 D일(요일)"
+  items: FrontBoxOfficeItem[];
+};
+
+// ✅ TMDB search/movie 응답 타입
+type TmdbSearchMovieResult = {
+  id?: number;
+  title?: string;
+  original_title?: string;
+  release_date?: string;
+};
+
+type TmdbSearchMovieResponse = {
+  results?: TmdbSearchMovieResult[];
+};
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
@@ -85,11 +110,18 @@ function normTitle(s: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
-function toYmdKR(d: Date): string {
-  const y = String(d.getFullYear()).padStart(4, '0');
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const da = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${da}`;
+/**
+ * ✅ KST 기준 "YYYYMMDD" 생성
+ */
+function toYmdKST(date: Date): string {
+  const KST_OFFSET_MIN = 9 * 60;
+  const utc = date.getTime() + date.getTimezoneOffset() * 60_000;
+  const kst = new Date(utc + KST_OFFSET_MIN * 60_000);
+
+  const y = String(kst.getFullYear()).padStart(4, '0');
+  const m = String(kst.getMonth() + 1).padStart(2, '0');
+  const d = String(kst.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
 }
 
 function parseBoxOfficeItems(v: unknown): BoxOfficeSnapshotItem[] {
@@ -111,7 +143,6 @@ function parseBoxOfficeItems(v: unknown): BoxOfficeSnapshotItem[] {
 }
 
 function pickPrimaryTitle(titlePool: string[]): string {
-  // 짧은 제목이 검색에 잘 걸리는 경우가 많아서 기존 로직 유지
   return [...titlePool].sort((a, b) => a.length - b.length)[0] ?? '';
 }
 
@@ -124,6 +155,35 @@ function buildYmdRangeByYearSpan(
   return { openStartDt: `${a}0101`, openEndDt: `${b}1231` };
 }
 
+/* ===========================
+   ✅ (추가) 박스오피스 표시용 날짜 라벨
+   - 프론트 계산 금지 규칙 대응
+   =========================== */
+
+function weekdayKoreanFromYmd(targetDt: string): string {
+  const s = String(targetDt || '').trim();
+  if (!/^\d{8}$/.test(s)) return '';
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(4, 6));
+  const d = Number(s.slice(6, 8));
+
+  // ✅ KST 기준으로 날짜 고정
+  const dt = new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + 9 * 60 * 60 * 1000);
+  const w = dt.getUTCDay(); // 0=일
+  const map = ['일', '월', '화', '수', '목', '금', '토'];
+  return map[w] ?? '';
+}
+
+function formatKoreanYmdLabel(targetDt: string): string {
+  const s = String(targetDt || '').trim();
+  if (!/^\d{8}$/.test(s)) return s;
+  const y = s.slice(0, 4);
+  const m = String(Number(s.slice(4, 6)));
+  const d = String(Number(s.slice(6, 8)));
+  const w = weekdayKoreanFromYmd(s);
+  return `${y}년 ${m}월 ${d}일(${w})`;
+}
+
 @Injectable()
 export class KobisService {
   private readonly logger = new Logger(KobisService.name);
@@ -131,10 +191,21 @@ export class KobisService {
     'https://www.kobis.or.kr/kobisopenapi/webservice/rest';
   private readonly key: string;
 
+  // ✅ TMDB 검색용
+  private readonly tmdbKey: string;
+  private readonly tmdbBase = 'https://api.themoviedb.org/3';
+
   private nowPlayingCache: {
     fetchedAt: number;
     days: number;
     set: Set<string>;
+  } | null = null;
+
+  // ✅ 박스오피스(TMDB 매핑) 캐시
+  private boxOfficeTop10Cache: {
+    fetchedAt: number;
+    targetDt: string;
+    items: FrontBoxOfficeItem[];
   } | null = null;
 
   constructor(
@@ -143,6 +214,7 @@ export class KobisService {
     private readonly prisma: PrismaService,
   ) {
     this.key = String(this.config.get('KOBIS_API_KEY') ?? '').trim();
+    this.tmdbKey = String(this.config.get('TMDB_API_KEY') ?? '').trim();
   }
 
   private async getJson<T>(
@@ -153,6 +225,24 @@ export class KobisService {
 
     const url = new URL(`${this.base}${path}`);
     url.searchParams.set('key', this.key);
+
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined) continue;
+      url.searchParams.set(k, String(v));
+    }
+
+    const res = await firstValueFrom(this.http.get<T>(url.toString()));
+    return res.data;
+  }
+
+  private async getTmdbJson<T>(
+    path: string,
+    params: Record<string, string | number | undefined>,
+  ): Promise<T> {
+    if (!this.tmdbKey) throw new Error('Missing TMDB_API_KEY');
+
+    const url = new URL(`${this.tmdbBase}${path}`);
+    url.searchParams.set('api_key', this.tmdbKey);
 
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined) continue;
@@ -194,12 +284,6 @@ export class KobisService {
     }
   }
 
-  /**
-   * ✅ nowPlaying 판정용 movieCd set
-   * - 기존: KOBIS API를 days만큼 직접 호출(최대 7회)
-   * - 변경: DB 스냅샷(KobisBoxOfficeSnapshot)을 우선 사용하고,
-   *         없을 때만 1회 fetch 후 저장(getDailyBoxOffice가 처리)
-   */
   async getNowPlayingMovieCds(days = 7): Promise<Set<string>> {
     const now = Date.now();
     const OK_TTL = 6 * 60 * 60 * 1000;
@@ -218,17 +302,16 @@ export class KobisService {
     for (let i = 0; i < days; i += 1) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      const targetDt = toYmdKR(d);
+      const targetDt = toYmdKST(d);
 
       try {
-        // ✅ DB 스냅샷 기반(없으면 내부에서 fetch 후 upsert)
         const snap = await this.getDailyBoxOffice(targetDt);
         for (const it of snap.items) {
           const cd = toCleanStr(it.movieCd);
           if (cd) set.add(cd);
         }
       } catch {
-        // 하루 실패는 무시
+        // ignore: 일시적인 KOBIS fetch/DB 스냅샷 실패는 nowPlaying 판정에서 무시
       }
     }
 
@@ -237,10 +320,160 @@ export class KobisService {
   }
 
   /**
-   * ✅ (신규) 원개봉/재개봉 openDt를 둘 다 뽑아줌
-   * - 원개봉: TMDB release_year 주변(yr-1 ~ yr+1)
-   * - 재개봉: 현재 연도 주변(thisYear-1 ~ thisYear+1)
+   * ✅ 프론트 메인 "박스오피스 TOP 10" 용
+   * - KOBIS: 오늘(KST) → 없으면 어제(KST)
+   * - TMDB: movieNm로 검색해서 tmdbId 매핑
+   * - ✅ displayDateLabel 추가(프론트 계산 금지)
    */
+  async getBoxOfficeTop10ForFrontend(): Promise<FrontBoxOfficeResponse> {
+    const now = Date.now();
+    const OK_TTL = 10 * 60 * 1000; // 10분 캐시
+
+    if (
+      this.boxOfficeTop10Cache &&
+      now - this.boxOfficeTop10Cache.fetchedAt < OK_TTL
+    ) {
+      const targetDt = this.boxOfficeTop10Cache.targetDt;
+      return {
+        targetDt,
+        generatedAt: new Date(this.boxOfficeTop10Cache.fetchedAt).toISOString(),
+        displayDateLabel: formatKoreanYmdLabel(targetDt),
+        items: this.boxOfficeTop10Cache.items,
+      };
+    }
+
+    const todayKst = toYmdKST(new Date());
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yesterdayKst = toYmdKST(y);
+
+    let targetDt = todayKst;
+    let snap = await this.getDailyBoxOffice(todayKst);
+
+    if (!snap.items.length) {
+      targetDt = yesterdayKst;
+      snap = await this.getDailyBoxOffice(yesterdayKst);
+    }
+
+    const top10 = [...snap.items]
+      .filter((x) => x && x.movieNm && x.movieCd)
+      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+      .slice(0, 10);
+
+    if (!top10.length) {
+      this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: [] };
+      return {
+        targetDt,
+        generatedAt: new Date(now).toISOString(),
+        displayDateLabel: formatKoreanYmdLabel(targetDt),
+        items: [],
+      };
+    }
+
+    const resolved: FrontBoxOfficeItem[] = [];
+    for (let i = 0; i < top10.length; i += 1) {
+      const it = top10[i];
+      const rank = typeof it.rank === 'number' && it.rank > 0 ? it.rank : i + 1;
+
+      const tmdbId = await this.resolveTmdbIdByMovieName(it.movieNm);
+      if (!tmdbId) continue;
+
+      resolved.push({ mediaType: 'movie', tmdbId, rank });
+    }
+
+    resolved.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+
+    this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: resolved };
+
+    return {
+      targetDt,
+      generatedAt: new Date(now).toISOString(),
+      displayDateLabel: formatKoreanYmdLabel(targetDt),
+      items: resolved,
+    };
+  }
+
+  private async resolveTmdbIdByMovieName(
+    movieNm: string,
+  ): Promise<number | null> {
+    const q = toCleanStr(movieNm);
+    if (!q) return null;
+
+    if (!this.tmdbKey) {
+      this.logger.warn('[TMDB] Missing TMDB_API_KEY (cannot map boxoffice)');
+      return null;
+    }
+
+    try {
+      const json = await this.getTmdbJson<TmdbSearchMovieResponse>(
+        '/search/movie',
+        {
+          query: q,
+          language: 'ko-KR',
+          region: 'KR',
+          include_adult: 'false',
+          page: 1,
+        },
+      );
+
+      const results: TmdbSearchMovieResult[] = Array.isArray(json?.results)
+        ? json.results
+        : [];
+
+      if (!results.length) return null;
+
+      const targetNorm = normTitle(q);
+
+      const score = (r: TmdbSearchMovieResult) => {
+        const id = typeof r.id === 'number' ? r.id : NaN;
+        if (!Number.isFinite(id) || id <= 0) return -1;
+
+        const t1 = normTitle(toCleanStr(r.title));
+        const t2 = normTitle(toCleanStr(r.original_title));
+
+        let s = 0;
+        if (t1 && t1 === targetNorm) s += 1000;
+        if (t2 && t2 === targetNorm) s += 900;
+
+        if (
+          t1 &&
+          targetNorm &&
+          (t1.includes(targetNorm) || targetNorm.includes(t1))
+        )
+          s += 350;
+        if (
+          t2 &&
+          targetNorm &&
+          (t2.includes(targetNorm) || targetNorm.includes(t2))
+        )
+          s += 250;
+
+        const rd = toCleanStr(r.release_date);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(rd)) s += 5;
+
+        return s;
+      };
+
+      let best: TmdbSearchMovieResult | null = null;
+      let bestScore = -1;
+
+      for (const r of results.slice(0, 20)) {
+        const sc = score(r);
+        if (sc > bestScore) {
+          bestScore = sc;
+          best = r;
+        }
+      }
+
+      const id = typeof best?.id === 'number' ? best.id : null;
+      return id && id > 0 ? id : null;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[TMDB] search/movie failed(${q}): ${msg}`);
+      return null;
+    }
+  }
+
   async findTheatricalInfoByTmdbDetail(
     detail: TmdbDetailLike,
   ): Promise<KobisTheatricalInfo> {
@@ -285,8 +518,9 @@ export class KobisService {
           en.includes(t) ||
           t.includes(nm) ||
           t.includes(en)
-        )
+        ) {
           s += 350;
+        }
       }
 
       if (targetYear && /^\d{4}$/.test(openYear)) {
@@ -318,7 +552,6 @@ export class KobisService {
 
     const thisYear = new Date().getFullYear();
 
-    // 1) 원개봉 후보(주로 TMDB release_year 근처)
     let originalCandidates: KobisMovieListItem[] = [];
     if (tmdbYear) {
       const { openStartDt, openEndDt } = buildYmdRangeByYearSpan(
@@ -338,7 +571,6 @@ export class KobisService {
       });
     }
 
-    // fallback (원개봉 후보가 너무 빈약할 때)
     if (!originalCandidates.length) {
       const fallback = await this.searchMovieList({
         movieNm: primaryTitle,
@@ -353,7 +585,6 @@ export class KobisService {
       ? ymdToIso(toCleanStr(bestOriginal.openDt))
       : null;
 
-    // 2) 재개봉 후보(현재 연도 근처)
     const { openStartDt: rerunStart, openEndDt: rerunEnd } =
       buildYmdRangeByYearSpan(thisYear - 1, thisYear + 1);
 
@@ -370,12 +601,10 @@ export class KobisService {
       ? ymdToIso(toCleanStr(bestRerun.openDt))
       : null;
 
-    // 재개봉 후보가 원개봉이랑 완전히 같으면 “재개봉 없음” 취급
     const hasMultiple =
       !!originalOpenIso &&
       !!rerunOpenIso &&
       originalOpenIso !== rerunOpenIso &&
-      // 재개봉은 "최근"이어야 의미가 있음(현재연도-1 이상)
       Number(isoToYear(rerunOpenIso) || 0) >= thisYear - 1;
 
     return {
@@ -387,10 +616,6 @@ export class KobisService {
     };
   }
 
-  /**
-   * ✅ 기존 호환 유지: "원개봉" 기준으로만 반환
-   * (기존 코드가 이 메서드에 의존)
-   */
   async findOpenDtByTmdbDetail(detail: TmdbDetailLike): Promise<KobisMatch> {
     const info = await this.findTheatricalInfoByTmdbDetail(detail);
     return {
@@ -427,7 +652,7 @@ export class KobisService {
   async refreshYesterdayBoxOfficeSnapshot(): Promise<void> {
     const d = new Date();
     d.setDate(d.getDate() - 1);
-    const targetDt = toYmdKR(d);
+    const targetDt = toYmdKST(d);
     await this.getDailyBoxOffice(targetDt);
   }
 

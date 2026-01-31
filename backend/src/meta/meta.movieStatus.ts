@@ -10,6 +10,10 @@ import {
   yearFromIsoDate,
 } from './meta.resolver';
 
+/**
+ * computeMovieStatus는 “숨김/개봉 유효성” 같은 베이스 판정용.
+ * ✅ 실제 화면 표시 규칙(카드 출시년도/컨텐츠정보 날짜/히어로)은 meta.service에서 최종 강제한다.
+ */
 export function computeMovieStatus(args: {
   statusKindFromReleaseStatus: (rs: DbReleaseStatus) => DbStatusKind | null;
 
@@ -21,9 +25,9 @@ export function computeMovieStatus(args: {
   // ✅ OTT 보유 여부(전 화면 동일 표시용)
   hasOttProviders: boolean;
 
-  // ✅ 추가: TMDB now_playing 포함 여부(메타 서비스에서 계산해서 전달)
+  // ✅ TMDB now_playing 포함 여부
   isNowPlaying: boolean;
-}): Promise<{
+}): {
   releaseStatus: DbReleaseStatus;
   statusKind: DbStatusKind | null;
 
@@ -36,7 +40,7 @@ export function computeMovieStatus(args: {
 
   krEligible: boolean;
   hidden: boolean;
-}> {
+} {
   const now = new Date();
   const thisYear = now.getFullYear();
 
@@ -112,7 +116,6 @@ export function computeMovieStatus(args: {
   } else if (shouldBeUpcoming) {
     releaseStatus = 'UPCOMING';
   } else if (args.isNowPlaying) {
-    // ✅ 이제 TMDB now_playing 반영됨
     releaseStatus = isRerun ? 'RE_RELEASE' : 'NOW_SHOWING';
   } else {
     releaseStatus = isRerun ? 'RE_RELEASE' : 'NONE';
@@ -121,7 +124,6 @@ export function computeMovieStatus(args: {
   const statusKind = args.statusKindFromReleaseStatus(releaseStatus);
 
   let computedReleaseYear: number | null = null;
-
   if (releaseStatus === 'UPCOMING') {
     computedReleaseYear =
       yearFromIsoDate(earliestFutureKr ?? earliestKr ?? tmdbRelease ?? '') ??
@@ -134,16 +136,13 @@ export function computeMovieStatus(args: {
       yearFromIsoDate(earliestKr ?? tmdbRelease ?? '') ?? null;
   }
 
-  // ✅ 상세 날짜 표시 규칙 수정(재개봉 분리)
   const originalDisplayDate = isRerun
-    ? (earliestKr ?? tmdbRelease ?? null) // ✅ 재개봉이면 "개봉일" = KR 최초
-    : (latestKr ?? tmdbRelease ?? null); // ✅ 그 외는 기존대로 최신(없으면 TMDB)
+    ? (earliestKr ?? tmdbRelease ?? null)
+    : (latestKr ?? tmdbRelease ?? null);
 
-  const rerunDisplayDate = isRerun
-    ? (latestKr ?? tmdbRelease ?? null) // ✅ 재개봉일 = KR 최신
-    : null;
+  const rerunDisplayDate = isRerun ? (latestKr ?? tmdbRelease ?? null) : null;
 
-  return Promise.resolve({
+  return {
     releaseStatus,
     statusKind,
     computedReleaseYear,
@@ -154,5 +153,5 @@ export function computeMovieStatus(args: {
     hasMultipleTheatrical,
     krEligible,
     hidden,
-  });
+  };
 }

@@ -1,5 +1,6 @@
 // frontend/src/components/detail/DetailSections.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronRight, ExternalLink } from "lucide-react";
 
@@ -77,6 +78,12 @@ function formatKoreanDate(ymd?: string) {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
+function yearFromYmd(ymd?: string) {
+  const s = String(ymd || "").trim();
+  const y = s.slice(0, 4);
+  return /^\d{4}$/.test(y) ? y : "";
+}
+
 function providerOutboundUrl(provider: any, title: string) {
   const nameRaw = safeText(provider?.provider_name);
   const name = nameRaw.toLowerCase();
@@ -123,8 +130,8 @@ function Section({
   noTopMargin,
 }: {
   title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
+  right?: ReactNode;
+  children: ReactNode;
   noTopMargin?: boolean;
 }) {
   return (
@@ -163,13 +170,15 @@ export function DetailSections({
     if (mediaType !== "tv") return 0;
     return getSeasonNoFromSearch(location.search);
   }, [mediaType, location.search]);
+  void seasonNo;
 
   const seasonContext = useMemo(() => {
     const st = location.state as any;
     return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
   }, [location.state]);
+  void seasonContext;
 
-  // ✅ TV/Ani: 시즌 선택으로 detail이 바뀌어도 "첫 방영일(최초)"은 고정(기존 UI 안정화)
+  // ✅ TV/Ani: "첫 방영일(최초)"은 고정 (출시년도 고정용)
   const originalDateRef = useRef<{
     id: number;
     tvFirstAir: string;
@@ -304,18 +313,16 @@ export function DetailSections({
 
     navigate(`/person/${personId}`, {
       state: {
-        // ✅ background는 항상 메인(루트)로 유지
         backgroundLocation: root,
         rootLocation: root,
 
-        // ✅ 배우 모달 아래에 깔아둘 상세 모달 location(스택)
         titleStack: {
           pathname: location.pathname,
           search: location.search,
           hash: location.hash,
           state: {
             ...(st ?? {}),
-            __underlay: "person", // ✅ ContentDetailModal이 underlay로 backdrop 투명 처리
+            __underlay: "person",
           },
         },
       },
@@ -330,23 +337,53 @@ export function DetailSections({
       mediaType === "tv" ? d?.original_name : d?.original_title,
     );
 
-    // ✅ TV/Ani: 시즌 선택으로 first_air_date가 바뀌어도 최초값 유지(기존 UI 안정화)
-    const tvBaseDateFixed =
+    // ✅ "출시년도"는 최초(고정) 기준
+    const tvFirstAirFixed =
       originalDateRef.current.id === detailId
         ? originalDateRef.current.tvFirstAir
         : "";
-    const movieBaseDateFixed =
-      originalDateRef.current.id === detailId
-        ? originalDateRef.current.movieRelease
-        : "";
-    void movieBaseDateFixed;
 
     // ✅ (중요) 영화 개봉/재개봉일 표시는 meta.theatrical 값을 그대로 사용
     const movieOpenDate = safeText(theatrical?.originalTheatricalDate);
     const movieRerunDate = safeText(theatrical?.rerunTheatricalDate);
 
-    // ✅ TV는 TMDB 원본(기존 유지)
-    const tvOpenDate = tvBaseDateFixed || safeText(d?.first_air_date);
+    // ✅ TV: "개봉일"은 첫 진입=최신 시즌 / 시즌 선택=선택 시즌
+    const tvLatestSeasonAirDate = (() => {
+      const list = Array.isArray(d?.seasons) ? d.seasons : [];
+      const candidates = list
+        .map((s: any) => safeText(s?.air_date))
+        .filter(Boolean);
+
+      if (!candidates.length) return "";
+
+      const best = candidates
+        .map((x) => {
+          const t = Date.parse(x);
+          return { x, t: Number.isFinite(t) ? t : -1 };
+        })
+        .sort((a, b) => b.t - a.t)[0]?.x;
+
+      return safeText(best);
+    })();
+
+    const tvSelectedSeasonAirDate = (() => {
+      if (seasonNo <= 0) return "";
+      const fromState = safeText(seasonContext?.air_date);
+      if (fromState) return fromState;
+
+      const list = Array.isArray(d?.seasons) ? d.seasons : [];
+      const hit = list.find(
+        (s: any) => Number(s?.season_number ?? 0) === seasonNo,
+      );
+      return safeText(hit?.air_date);
+    })();
+
+    const tvDisplayOpenDate =
+      seasonNo > 0
+        ? tvSelectedSeasonAirDate || tvLatestSeasonAirDate || tvFirstAirFixed
+        : tvLatestSeasonAirDate ||
+          tvFirstAirFixed ||
+          safeText(d?.first_air_date);
 
     const runtime =
       mediaType === "tv"
@@ -360,9 +397,14 @@ export function DetailSections({
           ? `${d.runtime}분`
           : "";
 
-    // ✅ 출시년도: meta.unifiedYearLabel 그대로 (프론트 계산/시즌 오버라이드 금지)
-    const yearLabel = safeText(meta?.unifiedYearLabel);
-    const yearTextRow = yearLabel ? `${yearLabel}년` : "";
+    // ✅ 컨텐츠정보 "출시년도" = KR 기준 처음 개봉(영화/TV/Ani 공통) (고정)
+    // - 영화: originalTheatricalDate(최초 개봉)
+    // - TV/Ani: tvFirstAirFixed(최초 방영)
+    const contentInfoYear =
+      mediaType === "movie"
+        ? yearFromYmd(movieOpenDate)
+        : yearFromYmd(tvFirstAirFixed || safeText(d?.first_air_date));
+    const contentInfoYearRow = contentInfoYear ? `${contentInfoYear}년` : "";
 
     const genres = Array.isArray(d?.genres)
       ? d.genres
@@ -401,8 +443,8 @@ export function DetailSections({
         ? movieOpenDate
           ? { k: "개봉일", v: formatKoreanDate(movieOpenDate) }
           : null
-        : tvOpenDate
-          ? { k: "개봉일", v: formatKoreanDate(tvOpenDate) }
+        : tvDisplayOpenDate
+          ? { k: "개봉일", v: formatKoreanDate(tvDisplayOpenDate) }
           : null,
 
       mediaType === "movie" && movieRerunDate
@@ -410,7 +452,7 @@ export function DetailSections({
         : null,
 
       runtime ? { k: "러닝타임", v: runtime } : null,
-      yearTextRow ? { k: "출시년도", v: yearTextRow } : null,
+      contentInfoYearRow ? { k: "출시년도", v: contentInfoYearRow } : null,
       genres ? { k: "장르", v: genres } : null,
       countries ? { k: "제작국가", v: countries } : null,
       status ? { k: "상태", v: status } : null,
@@ -419,7 +461,7 @@ export function DetailSections({
     ];
 
     return rows.filter(Boolean) as Array<{ k: string; v: string }>;
-  }, [detail, detailId, mediaType, meta?.unifiedYearLabel, theatrical]);
+  }, [detail, detailId, mediaType, theatrical, seasonNo, seasonContext]);
 
   if (loading && !detail) {
     return (

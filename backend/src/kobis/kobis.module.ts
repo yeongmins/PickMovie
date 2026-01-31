@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { KobisService } from './kobis.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { KobisController } from './kobis.controller';
+import { KobisBoxOfficeCron } from './kobis.boxoffice.cron';
 
 @Module({
   imports: [
@@ -16,7 +18,8 @@ import { PrismaModule } from '../prisma/prisma.module';
       },
     }),
   ],
-  providers: [KobisService],
+  controllers: [KobisController],
+  providers: [KobisService, KobisBoxOfficeCron],
   exports: [KobisService],
 })
 export class KobisModule {}
