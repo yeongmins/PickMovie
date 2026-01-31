@@ -6,6 +6,7 @@ import laftelIcon from "./laftel_icon.png";
 import lotteLogo from "./lotte_logo.svg";
 import megaboxLogo from "./megabox_logo.svg";
 import netflexIcon from "./netflex_icon.png";
+import primevideoLogo from "./primevideo_logo.png";
 import tvingIcon from "./tving_icon.png";
 import watchaIcon from "./watcha_icon.svg";
 import wavveIcon from "./wavve_icon.png";
@@ -20,6 +21,7 @@ export type LogoKey =
   | "WATCHA"
   | "LAFTEL"
   | "YOUTUBE"
+  | "PRIME_VIDEO"
   | "CGV"
   | "LOTTE"
   | "MEGABOX";
@@ -33,6 +35,7 @@ export const LOGO_SRC: Record<LogoKey, string> = {
   WATCHA: watchaIcon,
   LAFTEL: laftelIcon,
   YOUTUBE: youtubeIcon,
+  PRIME_VIDEO: primevideoLogo,
   CGV: cgvLogo,
   LOTTE: lotteLogo,
   MEGABOX: megaboxLogo,
@@ -69,6 +72,14 @@ export function pickLogoKeyByProviderName(name: string): LogoKey | null {
   if (compact.includes("watcha") || raw.includes("왓챠")) return "WATCHA";
   if (compact.includes("laftel") || raw.includes("라프텔")) return "LAFTEL";
   if (compact.includes("youtube") || raw.includes("유튜브")) return "YOUTUBE";
+  if (
+    compact.includes("primevideo") ||
+    compact.includes("amazonprime") ||
+    compact.includes("prime") ||
+    raw.includes("프라임") ||
+    raw.includes("아마존")
+  )
+    return "PRIME_VIDEO";
 
   // Theaters (혹시 providerOriginal로 넘어오는 경우 대비)
   if (compact.includes("cgv") || raw.includes("CGV")) return "CGV";
