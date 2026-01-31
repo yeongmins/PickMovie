@@ -1,5 +1,5 @@
 // frontend/src/components/detail/DetailSections.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ChevronRight, ExternalLink } from "lucide-react";
@@ -32,6 +32,9 @@ type SeasonNavContext = {
   overview?: string | null;
   vote_average?: number | null;
   year?: number | null;
+
+  // ✅ 시리즈 원본(first_air_date) - 시즌 이동에도 고정
+  original_first_air_date?: string;
 };
 
 type TmdbCreditPerson = {
@@ -165,40 +168,44 @@ export function DetailSections({
 
   const detailId = Number((detail as any)?.id ?? 0);
 
-  // ✅ 시즌 선택 정보(기존 UI 유지용: season cards 노출/내비게이션)
   const seasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
     return getSeasonNoFromSearch(location.search);
   }, [mediaType, location.search]);
-  void seasonNo;
 
   const seasonContext = useMemo(() => {
     const st = location.state as any;
     return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
   }, [location.state]);
-  void seasonContext;
 
-  // ✅ TV/Ani: "첫 방영일(최초)"은 고정 (출시년도 고정용)
-  const originalDateRef = useRef<{
-    id: number;
-    tvFirstAir: string;
-    movieRelease: string;
-  }>({ id: 0, tvFirstAir: "", movieRelease: "" });
+  // ✅ [핵심 수정] "원본 first_air_date"는 아래 우선순위로 항상 유지
+  // 1) 현재 location.state(=이전 시즌 이동에서 들고 온 값)
+  // 2) 시리즈 디테일(=seasons가 있는 detail) first_air_date
+  // 3) 최후 fallback: detail.first_air_date
+  const stableOriginalFirstAirDate = useMemo(() => {
+    if (mediaType !== "tv") return undefined;
 
-  useEffect(() => {
-    if (!detailId || !detail) return;
+    const fromState = safeText(seasonContext?.original_first_air_date);
+    if (fromState) return fromState;
+
     const d: any = detail;
+    const isSeriesDetail = Array.isArray(d?.seasons) && d.seasons.length > 0;
 
-    if (originalDateRef.current.id !== detailId) {
-      originalDateRef.current = {
-        id: detailId,
-        tvFirstAir: safeText(d?.first_air_date),
-        movieRelease: safeText(d?.release_date),
-      };
+    if (isSeriesDetail) {
+      const v = safeText(d?.first_air_date);
+      if (v) return v;
     }
-  }, [detailId, detail]);
 
-  // ✅ meta 단일 소스(여기서만 fetch)
+    const fallback = safeText(d?.first_air_date);
+    return fallback || undefined;
+  }, [detail, mediaType, seasonContext]);
+
+  // ✅ 출시년도 계산에 사용할 "고정 first_air_date"
+  const fixedFirstAirDate = useMemo(() => {
+    if (mediaType === "tv") return safeText(stableOriginalFirstAirDate);
+    return safeText((detail as any)?.release_date);
+  }, [detail, mediaType, stableOriginalFirstAirDate]);
+
   const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
     if (!detailId) return null;
     return peekResolvedMeta(mediaType as any, detailId) ?? null;
@@ -248,7 +255,6 @@ export function DetailSections({
 
   const theatrical = meta?.theatrical ?? null;
 
-  // ✅ providers는 meta.providers만 사용
   const providerItems = useMemo(() => {
     const list = meta?.providers;
     return Array.isArray(list) ? list.slice(0, 12) : [];
@@ -262,7 +268,7 @@ export function DetailSections({
     setCast([]);
     setReviews([]);
 
-    if (!detailId) return;
+    if (!detailId) return () => void (alive = false);
 
     void apiGet<TmdbCreditsResponse>(
       `/tmdb/proxy/${mediaType}/${detailId}/credits`,
@@ -299,14 +305,11 @@ export function DetailSections({
     return () => void (alive = false);
   }, [detailId, mediaType]);
 
-  // ✅ 재개봉이어도 providers가 있으면 OTT 섹션은 무조건 표시(요구사항)
   const showOttSection = hasProviders;
 
-  // ✅ 영화관 섹션은 기존 유지(상영중/재개봉이면 표시)
   const showTheaterSection =
     mediaType === "movie" && (statusKind === "now" || statusKind === "rerun");
 
-  // ✅ (핵심) 배우 모달을 "상세 위"로 올리기 위한 라우팅 state 구성
   const openPersonModal = (personId: number) => {
     const st = location.state as any;
     const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
@@ -337,17 +340,9 @@ export function DetailSections({
       mediaType === "tv" ? d?.original_name : d?.original_title,
     );
 
-    // ✅ "출시년도"는 최초(고정) 기준
-    const tvFirstAirFixed =
-      originalDateRef.current.id === detailId
-        ? originalDateRef.current.tvFirstAir
-        : "";
-
-    // ✅ (중요) 영화 개봉/재개봉일 표시는 meta.theatrical 값을 그대로 사용
     const movieOpenDate = safeText(theatrical?.originalTheatricalDate);
     const movieRerunDate = safeText(theatrical?.rerunTheatricalDate);
 
-    // ✅ TV: "개봉일"은 첫 진입=최신 시즌 / 시즌 선택=선택 시즌
     const tvLatestSeasonAirDate = (() => {
       const list = Array.isArray(d?.seasons) ? d.seasons : [];
       const candidates = list
@@ -380,10 +375,8 @@ export function DetailSections({
 
     const tvDisplayOpenDate =
       seasonNo > 0
-        ? tvSelectedSeasonAirDate || tvLatestSeasonAirDate || tvFirstAirFixed
-        : tvLatestSeasonAirDate ||
-          tvFirstAirFixed ||
-          safeText(d?.first_air_date);
+        ? tvSelectedSeasonAirDate || tvLatestSeasonAirDate
+        : tvLatestSeasonAirDate || safeText(d?.first_air_date);
 
     const runtime =
       mediaType === "tv"
@@ -397,13 +390,12 @@ export function DetailSections({
           ? `${d.runtime}분`
           : "";
 
-    // ✅ 컨텐츠정보 "출시년도" = KR 기준 처음 개봉(영화/TV/Ani 공통) (고정)
-    // - 영화: originalTheatricalDate(최초 개봉)
-    // - TV/Ani: tvFirstAirFixed(최초 방영)
-    const contentInfoYear =
+    // ✅ 컨텐츠정보 "출시년도"는 무조건 fixedFirstAirDate(고정값)
+    const contentInfoYear = yearFromYmd(
       mediaType === "movie"
-        ? yearFromYmd(movieOpenDate)
-        : yearFromYmd(tvFirstAirFixed || safeText(d?.first_air_date));
+        ? movieOpenDate || fixedFirstAirDate
+        : fixedFirstAirDate,
+    );
     const contentInfoYearRow = contentInfoYear ? `${contentInfoYear}년` : "";
 
     const genres = Array.isArray(d?.genres)
@@ -461,7 +453,14 @@ export function DetailSections({
     ];
 
     return rows.filter(Boolean) as Array<{ k: string; v: string }>;
-  }, [detail, detailId, mediaType, theatrical, seasonNo, seasonContext]);
+  }, [
+    detail,
+    mediaType,
+    theatrical,
+    seasonNo,
+    seasonContext,
+    fixedFirstAirDate,
+  ]);
 
   if (loading && !detail) {
     return (
@@ -576,6 +575,8 @@ export function DetailSections({
           tvId={(detail as any).id}
           tvTitle={(detail as any).name || ""}
           seasons={(detail as any).seasons}
+          // ✅ [핵심] 시즌 페이지에서도 state에 있던 원본 first_air_date를 계속 전달
+          originalFirstAirDate={stableOriginalFirstAirDate}
         />
       ) : null}
 

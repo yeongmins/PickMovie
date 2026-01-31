@@ -39,6 +39,9 @@ type SeasonNavContext = {
   overview?: string | null;
   vote_average?: number | null;
   year?: number | null;
+
+  // ✅ DetailSections로 전달할 "시리즈 원본 first_air_date"
+  original_first_air_date?: string;
 };
 
 function readSet(key: string): Set<string> {
@@ -114,10 +117,12 @@ export function SeriesSeasonCards({
   tvId,
   tvTitle,
   seasons,
+  originalFirstAirDate,
 }: {
   tvId: number;
   tvTitle: string;
   seasons: SeasonLike[];
+  originalFirstAirDate?: string;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -132,7 +137,6 @@ export function SeriesSeasonCards({
   );
   void autoShowFav;
 
-  // ✅ 시즌 디테일(별점/연도 보강)
   const [seasonDetailMap, setSeasonDetailMap] = useState<
     Record<
       number,
@@ -293,16 +297,13 @@ export function SeriesSeasonCards({
           __forceItemPoster: boolean;
           __yearLabel: string;
         } = {
-          // ✅ ContentCard의 Movie/TV/Ani 표시는 meta 조회가 필요 → id는 tvId 유지
           id: tvId,
           media_type: "tv",
 
-          // ✅ 카드 타이틀은 기존 유지
           name: `${tvTitle} ${seasonNo}`,
           poster_path: (posterPath ?? null) as any,
           first_air_date: airDate ?? undefined,
 
-          // ✅ 별점(시즌 디테일에서 보강)
           vote_average:
             typeof extra.vote_average === "number"
               ? extra.vote_average
@@ -320,18 +321,18 @@ export function SeriesSeasonCards({
                 ? extra.vote_average
                 : null,
             year: year ?? null,
+
+            // ✅ [핵심] 항상 유지되는 원본 first_air_date를 다음 페이지 state로 전달
+            original_first_air_date: originalFirstAirDate,
           },
 
-          // ✅ 시즌카드는 meta 포스터로 덮어쓰지 않도록
           __forceItemPoster: true,
-
-          // ✅ 시즌카드 연도(우하단)는 시즌 연도 표시
           __yearLabel: year ? String(year) : "—",
         };
 
         return item;
       });
-  }, [seasons, tvId, tvTitle, seasonDetailMap]);
+  }, [seasons, tvId, tvTitle, seasonDetailMap, originalFirstAirDate]);
 
   if (!items.length) return null;
 
