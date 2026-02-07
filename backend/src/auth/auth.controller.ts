@@ -21,17 +21,21 @@ import { UsernameLookupDto } from './dto/username-lookup.dto';
 import { JwtAccessGuard } from './guards/jwt-access.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { JwtAccessPayload } from './strategies/jwt-access.strategy';
+import { UserLibraryService } from './user-library.service';
 
 type ApiOk = { ok: true };
 
 type FavoriteItem = { id: number; mediaType: 'movie' | 'tv' };
 type CreatePlaylistBody = { name: string; items: FavoriteItem[] };
 type DeletePlaylistBody = { playlistId: number };
+type RenamePlaylistBody = { playlistId: number; name: string };
+type SetPlaylistItemsBody = { playlistId: number; items: FavoriteItem[] };
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly library: UserLibraryService,
     private readonly config: ConfigService,
   ) {}
 
@@ -268,12 +272,12 @@ export class AuthController {
   }
 
   // =========================
-  // ✅ Favorites (DB only)
+  // ✅ Favorites (DB)
   // =========================
   @UseGuards(JwtAccessGuard)
   @Get('favorites')
   async favorites(@CurrentUser() user: JwtAccessPayload) {
-    const items = await this.auth.getFavorites(user.sub);
+    const items = await this.library.getFavorites(user.sub);
     return { items };
   }
 
@@ -292,7 +296,7 @@ export class AuthController {
       throw new BadRequestException('id is required');
     }
 
-    await this.auth.setFavorite(user.sub, id, mediaType, isFavorite);
+    await this.library.setFavorite(user.sub, id, mediaType, isFavorite);
     return { ok: true };
   }
 
@@ -303,17 +307,17 @@ export class AuthController {
     @Body() body: { items?: FavoriteItem[] },
   ) {
     const items = Array.isArray(body?.items) ? body.items : [];
-    const saved = await this.auth.syncFavorites(user.sub, items);
+    const saved = await this.library.syncFavorites(user.sub, items);
     return { items: saved };
   }
 
   // =========================
-  // ✅ Playlists (DB only)
+  // ✅ Playlists (DB)
   // =========================
   @UseGuards(JwtAccessGuard)
   @Get('playlists')
   async playlists(@CurrentUser() user: JwtAccessPayload) {
-    const playlists = await this.auth.getPlaylists(user.sub);
+    const playlists = await this.library.getPlaylists(user.sub);
     return { playlists };
   }
 
@@ -329,7 +333,7 @@ export class AuthController {
     if (!name) throw new BadRequestException('name is required');
     if (items.length === 0) throw new BadRequestException('items is required');
 
-    const playlist = await this.auth.createPlaylist(user.sub, name, items);
+    const playlist = await this.library.createPlaylist(user.sub, name, items);
     return { playlist };
   }
 
@@ -344,7 +348,50 @@ export class AuthController {
       throw new BadRequestException('playlistId is required');
     }
 
-    await this.auth.deletePlaylist(user.sub, playlistId);
+    await this.library.deletePlaylist(user.sub, playlistId);
     return { ok: true };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('playlists/rename')
+  async renamePlaylist(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: RenamePlaylistBody,
+  ) {
+    const playlistId = Number(body?.playlistId);
+    const name = (body?.name ?? '').trim();
+
+    if (!Number.isFinite(playlistId) || playlistId <= 0) {
+      throw new BadRequestException('playlistId is required');
+    }
+    if (!name) throw new BadRequestException('name is required');
+
+    const playlist = await this.library.renamePlaylist(
+      user.sub,
+      playlistId,
+      name,
+    );
+    return { playlist };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('playlists/items/set')
+  async setPlaylistItems(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: SetPlaylistItemsBody,
+  ) {
+    const playlistId = Number(body?.playlistId);
+    const items = Array.isArray(body?.items) ? body.items : [];
+
+    if (!Number.isFinite(playlistId) || playlistId <= 0) {
+      throw new BadRequestException('playlistId is required');
+    }
+
+    const playlist = await this.library.setPlaylistItems(
+      user.sub,
+      playlistId,
+      items,
+    );
+    return { playlist };
   }
 }

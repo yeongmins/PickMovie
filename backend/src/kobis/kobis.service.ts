@@ -29,6 +29,17 @@ type KobisDailyBoxOfficeResponse = {
   boxOfficeResult?: { dailyBoxOfficeList?: KobisDailyBoxOfficeItem[] };
 };
 
+type KobisMovieInfo = {
+  movieNm?: string;
+  movieNmEn?: string;
+  openDt?: string;
+  prdtYear?: string;
+};
+
+type KobisMovieInfoResponse = {
+  movieInfoResult?: { movieInfo?: KobisMovieInfo };
+};
+
 export type KobisMatch = {
   kobisMovieCd: string | null;
   kobisOpenDt: string | null; // "YYYY-MM-DD"
@@ -62,11 +73,18 @@ type FrontBoxOfficeItem = {
   rank: number;
 };
 
+type FrontBoxOfficeRawItem = {
+  rank: number;
+  movieCd: string;
+  movieNm: string;
+};
+
 type FrontBoxOfficeResponse = {
   targetDt: string; // YYYYMMDD
   generatedAt: string; // ISO
   displayDateLabel: string; // "YYYY년 M월 D일(요일)"
   items: FrontBoxOfficeItem[];
+  rawItems: FrontBoxOfficeRawItem[];
 };
 
 // ✅ TMDB search/movie 응답 타입
@@ -79,6 +97,11 @@ type TmdbSearchMovieResult = {
 
 type TmdbSearchMovieResponse = {
   results?: TmdbSearchMovieResult[];
+};
+
+type ResolveContext = {
+  movieCd?: string;
+  movieNm?: string;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -122,6 +145,20 @@ function toYmdKST(date: Date): string {
   const m = String(kst.getMonth() + 1).padStart(2, '0');
   const d = String(kst.getDate()).padStart(2, '0');
   return `${y}${m}${d}`;
+}
+
+function shiftYmd(yyyymmdd: string, days: number): string {
+  const s = String(yyyymmdd || '').trim();
+  if (!/^\d{8}$/.test(s)) return s;
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(4, 6));
+  const d = Number(s.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = String(dt.getUTCFullYear()).padStart(4, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
 }
 
 function parseBoxOfficeItems(v: unknown): BoxOfficeSnapshotItem[] {
@@ -206,7 +243,12 @@ export class KobisService {
     fetchedAt: number;
     targetDt: string;
     items: FrontBoxOfficeItem[];
+    rawItems: FrontBoxOfficeRawItem[];
   } | null = null;
+  private readonly kobisMovieInfoCache = new Map<
+    string,
+    { fetchedAt: number; info: KobisMovieInfo | null }
+  >();
 
   constructor(
     private readonly http: HttpService,
@@ -339,20 +381,23 @@ export class KobisService {
         generatedAt: new Date(this.boxOfficeTop10Cache.fetchedAt).toISOString(),
         displayDateLabel: formatKoreanYmdLabel(targetDt),
         items: this.boxOfficeTop10Cache.items,
+        rawItems: this.boxOfficeTop10Cache.rawItems,
       };
     }
 
     const todayKst = toYmdKST(new Date());
-    const y = new Date();
-    y.setDate(y.getDate() - 1);
-    const yesterdayKst = toYmdKST(y);
+    const candidates = Array.from({ length: 8 }, (_, i) => shiftYmd(todayKst, -i));
 
     let targetDt = todayKst;
-    let snap = await this.getDailyBoxOffice(todayKst);
+    let snap = { targetDt, items: [] as BoxOfficeSnapshotItem[] };
 
-    if (!snap.items.length) {
-      targetDt = yesterdayKst;
-      snap = await this.getDailyBoxOffice(yesterdayKst);
+    for (const dt of candidates) {
+      const r = await this.getDailyBoxOffice(dt);
+      if (Array.isArray(r.items) && r.items.length > 0) {
+        targetDt = dt;
+        snap = r;
+        break;
+      }
     }
 
     const top10 = [...snap.items]
@@ -360,13 +405,20 @@ export class KobisService {
       .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
       .slice(0, 10);
 
+    const rawItems: FrontBoxOfficeRawItem[] = top10.map((it, idx) => ({
+      rank: typeof it.rank === 'number' && it.rank > 0 ? it.rank : idx + 1,
+      movieCd: it.movieCd,
+      movieNm: it.movieNm,
+    }));
+
     if (!top10.length) {
-      this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: [] };
+      this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: [], rawItems };
       return {
         targetDt,
         generatedAt: new Date(now).toISOString(),
         displayDateLabel: formatKoreanYmdLabel(targetDt),
         items: [],
+        rawItems,
       };
     }
 
@@ -375,7 +427,10 @@ export class KobisService {
       const it = top10[i];
       const rank = typeof it.rank === 'number' && it.rank > 0 ? it.rank : i + 1;
 
-      const tmdbId = await this.resolveTmdbIdByMovieName(it.movieNm);
+      const tmdbId = await this.resolveTmdbIdByMovieName({
+        movieCd: it.movieCd,
+        movieNm: it.movieNm,
+      });
       if (!tmdbId) continue;
 
       resolved.push({ mediaType: 'movie', tmdbId, rank });
@@ -383,20 +438,102 @@ export class KobisService {
 
     resolved.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
 
-    this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: resolved };
+    this.boxOfficeTop10Cache = {
+      fetchedAt: now,
+      targetDt,
+      items: resolved,
+      rawItems,
+    };
 
     return {
       targetDt,
       generatedAt: new Date(now).toISOString(),
       displayDateLabel: formatKoreanYmdLabel(targetDt),
       items: resolved,
+      rawItems,
     };
   }
 
+  private async fetchKobisMovieInfo(movieCd: string): Promise<KobisMovieInfo | null> {
+    const cd = toCleanStr(movieCd);
+    if (!cd) return null;
+
+    const now = Date.now();
+    const ttl = 12 * 60 * 60 * 1000;
+    const cached = this.kobisMovieInfoCache.get(cd);
+    if (cached && now - cached.fetchedAt < ttl) return cached.info;
+
+    try {
+      const json = await this.getJson<KobisMovieInfoResponse>(
+        '/movie/searchMovieInfo.json',
+        { movieCd: cd },
+      );
+      const info = json?.movieInfoResult?.movieInfo ?? null;
+      this.kobisMovieInfoCache.set(cd, { fetchedAt: now, info });
+      return info;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`[KOBIS] searchMovieInfo failed(${cd}): ${msg}`);
+      this.kobisMovieInfoCache.set(cd, { fetchedAt: now, info: null });
+      return null;
+    }
+  }
+
+  private pickBestTmdbId(
+    query: string,
+    results: TmdbSearchMovieResult[],
+    yearHint?: number | null,
+  ): number | null {
+    if (!results.length) return null;
+    const targetNorm = normTitle(query);
+
+    const score = (r: TmdbSearchMovieResult) => {
+      const id = typeof r.id === 'number' ? r.id : NaN;
+      if (!Number.isFinite(id) || id <= 0) return -1;
+
+      const t1 = normTitle(toCleanStr(r.title));
+      const t2 = normTitle(toCleanStr(r.original_title));
+      const rd = toCleanStr(r.release_date);
+      const y = /^\d{4}/.test(rd) ? Number(rd.slice(0, 4)) : null;
+
+      let s = 0;
+      if (t1 && t1 === targetNorm) s += 1000;
+      if (t2 && t2 === targetNorm) s += 900;
+      if (t1 && targetNorm && (t1.includes(targetNorm) || targetNorm.includes(t1))) {
+        s += 350;
+      }
+      if (t2 && targetNorm && (t2.includes(targetNorm) || targetNorm.includes(t2))) {
+        s += 250;
+      }
+      if (yearHint && y) {
+        const dy = Math.abs(y - yearHint);
+        if (dy === 0) s += 180;
+        else if (dy === 1) s += 90;
+        else if (dy === 2) s += 30;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rd)) s += 5;
+
+      return s;
+    };
+
+    let best: TmdbSearchMovieResult | null = null;
+    let bestScore = -1;
+    for (const r of results.slice(0, 20)) {
+      const sc = score(r);
+      if (sc > bestScore) {
+        bestScore = sc;
+        best = r;
+      }
+    }
+
+    const id = typeof best?.id === 'number' ? best.id : null;
+    return id && id > 0 ? id : null;
+  }
+
   private async resolveTmdbIdByMovieName(
-    movieNm: string,
+    ctx: ResolveContext,
   ): Promise<number | null> {
-    const q = toCleanStr(movieNm);
+    const q = toCleanStr(ctx.movieNm);
     if (!q) return null;
 
     if (!this.tmdbKey) {
@@ -404,72 +541,75 @@ export class KobisService {
       return null;
     }
 
+    const info = ctx.movieCd ? await this.fetchKobisMovieInfo(ctx.movieCd) : null;
+    const infoKo = toCleanStr(info?.movieNm);
+    const infoEn = toCleanStr(info?.movieNmEn);
+    const openIso = ymdToIso(toCleanStr(info?.openDt)) ?? null;
+    const yearHint = openIso
+      ? Number(openIso.slice(0, 4))
+      : /^\d{4}$/.test(toCleanStr(info?.prdtYear))
+        ? Number(toCleanStr(info?.prdtYear))
+        : null;
+
+    const queries = Array.from(
+      new Set(
+        [q, infoKo, infoEn]
+          .map((x) => toCleanStr(x))
+          .filter((x) => x.length > 0),
+      ),
+    );
+
+    const candidates: Array<Record<string, string | number | undefined>> = [];
+    for (const query of queries) {
+      candidates.push({
+        query,
+        language: 'ko-KR',
+        region: 'KR',
+        include_adult: 'false',
+        page: 1,
+        ...(yearHint ? { year: yearHint } : {}),
+      });
+      candidates.push({
+        query,
+        language: 'ko-KR',
+        include_adult: 'false',
+        page: 1,
+        ...(yearHint ? { year: yearHint } : {}),
+      });
+      candidates.push({
+        query,
+        language: 'en-US',
+        include_adult: 'false',
+        page: 1,
+        ...(yearHint ? { year: yearHint } : {}),
+      });
+    }
+
     try {
-      const json = await this.getTmdbJson<TmdbSearchMovieResponse>(
-        '/search/movie',
-        {
-          query: q,
-          language: 'ko-KR',
-          region: 'KR',
-          include_adult: 'false',
-          page: 1,
-        },
-      );
+      for (const params of candidates) {
+        const query = toCleanStr(params.query);
+        if (!query) continue;
 
-      const results: TmdbSearchMovieResult[] = Array.isArray(json?.results)
-        ? json.results
-        : [];
+        const json = await this.getTmdbJson<TmdbSearchMovieResponse>(
+          '/search/movie',
+          params,
+        );
 
-      if (!results.length) return null;
+        const results: TmdbSearchMovieResult[] = Array.isArray(json?.results)
+          ? json.results
+          : [];
 
-      const targetNorm = normTitle(q);
-
-      const score = (r: TmdbSearchMovieResult) => {
-        const id = typeof r.id === 'number' ? r.id : NaN;
-        if (!Number.isFinite(id) || id <= 0) return -1;
-
-        const t1 = normTitle(toCleanStr(r.title));
-        const t2 = normTitle(toCleanStr(r.original_title));
-
-        let s = 0;
-        if (t1 && t1 === targetNorm) s += 1000;
-        if (t2 && t2 === targetNorm) s += 900;
-
-        if (
-          t1 &&
-          targetNorm &&
-          (t1.includes(targetNorm) || targetNorm.includes(t1))
-        )
-          s += 350;
-        if (
-          t2 &&
-          targetNorm &&
-          (t2.includes(targetNorm) || targetNorm.includes(t2))
-        )
-          s += 250;
-
-        const rd = toCleanStr(r.release_date);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(rd)) s += 5;
-
-        return s;
-      };
-
-      let best: TmdbSearchMovieResult | null = null;
-      let bestScore = -1;
-
-      for (const r of results.slice(0, 20)) {
-        const sc = score(r);
-        if (sc > bestScore) {
-          bestScore = sc;
-          best = r;
+        const id = this.pickBestTmdbId(query, results, yearHint);
+        if (id) {
+          return id;
         }
       }
-
-      const id = typeof best?.id === 'number' ? best.id : null;
-      return id && id > 0 ? id : null;
+      return null;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.logger.warn(`[TMDB] search/movie failed(${q}): ${msg}`);
+      this.logger.warn(
+        `[TMDB] search/movie failed(${q}${ctx.movieCd ? `, ${ctx.movieCd}` : ''}): ${msg}`,
+      );
       return null;
     }
   }
@@ -635,7 +775,20 @@ export class KobisService {
     });
 
     if (existing) {
-      return { targetDt: t, items: parseBoxOfficeItems(existing.items) };
+      const parsed = parseBoxOfficeItems(existing.items);
+      if (parsed.length > 0) return { targetDt: t, items: parsed };
+
+      // 과거 일시 장애로 빈 스냅샷이 저장된 경우 재조회해서 복구
+      const fetched = await this.fetchDailyBoxOffice(t);
+      if (fetched.length > 0) {
+        await this.prisma.kobisBoxOfficeSnapshot.update({
+          where: { targetDt: t },
+          data: { items: fetched, fetchedAt: new Date() },
+        });
+        return { targetDt: t, items: fetched };
+      }
+
+      return { targetDt: t, items: [] };
     }
 
     const items = await this.fetchDailyBoxOffice(t);

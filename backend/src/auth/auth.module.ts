@@ -9,12 +9,11 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { MailModule } from '../mail/mail.module';
+import { UserLibraryService } from './user-library.service';
 
 function normalizeExpiresIn(v: string): number | StringValue {
   const raw = v.trim();
-  // "900" 같은 값이면 초로 처리
   if (/^\d+$/.test(raw)) return Number(raw);
-  // "15m", "1h" 등은 ms StringValue로 캐스팅
   return raw as StringValue;
 }
 
@@ -37,7 +36,7 @@ function normalizeExpiresIn(v: string): number | StringValue {
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAccessStrategy],
-  exports: [AuthService],
+  providers: [AuthService, JwtAccessStrategy, UserLibraryService],
+  exports: [AuthService, UserLibraryService],
 })
 export class AuthModule {}

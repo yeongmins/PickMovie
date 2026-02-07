@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Heart, LogOut, UserRound } from "lucide-react";
-import { apiPost } from "../lib/apiClient";
+import { apiGet, apiPost } from "../lib/apiClient";
 import { Button } from "../components/ui/button";
 import { Header } from "../components/layout/Header";
 
@@ -13,14 +13,12 @@ type SafeUser = {
   nickname: string | null;
 };
 
+type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
+type PlaylistLite = { id: number; name: string };
+
 const AUTH_KEYS = {
   ACCESS: "pickmovie_access_token",
   USER: "pickmovie_user",
-} as const;
-
-const STORAGE_KEYS = {
-  FAVORITES: "pickmovie_favorites",
-  PREFERENCES: "pickmovie_preferences",
 } as const;
 
 function readStoredUser(): SafeUser | null {
@@ -33,40 +31,20 @@ function readStoredUser(): SafeUser | null {
   }
 }
 
-function readFavoritesRaw(): any[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.FAVORITES);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function getFavoriteLabel(item: any): string {
-  if (item == null) return "—";
-  if (typeof item === "string" || typeof item === "number") return String(item);
-
-  const title =
-    item.title ||
-    item.name ||
-    item.original_title ||
-    item.original_name ||
-    null;
-
-  if (title) return String(title);
-  if (item.id != null) return String(item.id);
-  return "—";
+function getFavoriteLabel(item: FavoriteItem): string {
+  const mt = item.mediaType === "tv" ? "TV" : "Movie";
+  return `${mt} #${item.id}`;
 }
 
 export function MyPage() {
   const navigate = useNavigate();
 
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
-  const [favorites, setFavorites] = useState<any[]>(() => readFavoritesRaw());
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistLite[]>([]);
 
   const favCount = favorites.length;
+  const playlistCount = playlists.length;
 
   const displayName = useMemo(() => {
     const u = me;
@@ -76,7 +54,7 @@ export function MyPage() {
 
   const favoritesPreview = useMemo(() => {
     return favorites.slice(0, 8).map((x, idx) => ({
-      key: `${idx}-${typeof x}-${(x && x.id) ?? x}`,
+      key: `${idx}-${x.mediaType}-${x.id}`,
       label: getFavoriteLabel(x),
     }));
   }, [favorites]);
@@ -84,7 +62,6 @@ export function MyPage() {
   useEffect(() => {
     const sync = () => {
       setMe(readStoredUser());
-      setFavorites(readFavoritesRaw());
     };
     window.addEventListener("pickmovie-auth-changed", sync);
     window.addEventListener("storage", sync);
@@ -93,6 +70,47 @@ export function MyPage() {
       window.removeEventListener("storage", sync);
     };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadLibrary = async () => {
+      if (!me) {
+        if (!alive) return;
+        setFavorites([]);
+        setPlaylists([]);
+        return;
+      }
+
+      try {
+        const favRes = await apiGet<{ items?: FavoriteItem[] }>("/auth/favorites");
+        if (!alive) return;
+        const items = Array.isArray(favRes?.items) ? favRes.items : [];
+        setFavorites(items);
+      } catch {
+        if (!alive) return;
+        setFavorites([]);
+      }
+
+      try {
+        const plRes = await apiGet<{ playlists?: PlaylistLite[] }>(
+          "/auth/playlists",
+        );
+        if (!alive) return;
+        const items = Array.isArray(plRes?.playlists) ? plRes.playlists : [];
+        setPlaylists(items);
+      } catch {
+        if (!alive) return;
+        setPlaylists([]);
+      }
+    };
+
+    void loadLibrary();
+
+    return () => {
+      alive = false;
+    };
+  }, [me]);
 
   useEffect(() => {
     if (!me) navigate("/login", { replace: true });
@@ -182,7 +200,7 @@ export function MyPage() {
                         최근 찜/플레이리스트
                       </div>
                       <div className="mt-1 text-xs text-white/55">
-                        최근에 저장한 콘텐츠 일부를 보여줍니다.
+                        최근에 저장한 찜 목록 일부를 보여줍니다.
                       </div>
                     </div>
 
@@ -214,7 +232,7 @@ export function MyPage() {
                   )}
 
                   <div className="mt-3 text-xs text-white/35">
-                    * 현재 찜/플레이리스트는 로컬스토리지 기반입니다.
+                    * 찜/플레이리스트는 서버 계정에 저장됩니다.
                   </div>
                 </div>
               </div>
@@ -230,10 +248,17 @@ export function MyPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-white/80">
                       <Heart className="h-4 w-4 text-pink-300" />
-                      찜/플레이리스트
+                      찜
                     </div>
                     <div className="text-lg font-extrabold text-white">
                       {favCount}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="text-white/80 text-sm">플레이리스트</div>
+                    <div className="text-lg font-extrabold text-white">
+                      {playlistCount}
                     </div>
                   </div>
 

@@ -25,7 +25,7 @@ export default function ResetPasswordPage() {
 
     try {
       setLoading(true);
-      await apiPost("/auth/password/reset/confirm", { token, newPassword: pw });
+      await apiPost("/auth/password/reset", { token, newPassword: pw });
       navigate("/login", { replace: true, state: { resetDone: true } });
     } catch (e: any) {
       setMsg(e?.message || "비밀번호 재설정에 실패했습니다.");

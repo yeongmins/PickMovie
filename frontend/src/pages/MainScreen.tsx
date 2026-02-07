@@ -76,6 +76,15 @@ type HomeCollectionKey =
   | "BOXOFFICE_TOP10";
 
 type HomeChartItem = { mediaType: MediaType; tmdbId: number; rank: number };
+type RawBoxOfficeItem = { rank: number; movieCd: string; movieNm: string };
+type BoxOfficeAttempt = {
+  url: string;
+  ok: boolean;
+  status?: number;
+  message?: string;
+  itemCount?: number;
+  rawCount?: number;
+};
 
 type HomeChartsResponse = {
   collections: Array<{
@@ -280,6 +289,9 @@ export function MainScreen({
   // ✅ (추가) 박스오피스 섹션 desc (백엔드 displayDateLabel 그대로 사용)
   const [boxOfficeDesc, setBoxOfficeDesc] =
     useState<string>("Top10 차트입니다.");
+  const [boxOfficeRawItems, setBoxOfficeRawItems] = useState<RawBoxOfficeItem[]>(
+    [],
+  );
 
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
@@ -422,6 +434,8 @@ export function MainScreen({
 
       let items: HomeChartItem[] = [];
       let displayDateLabel = "";
+      let rawItems: RawBoxOfficeItem[] = [];
+      const attempts: BoxOfficeAttempt[] = [];
 
       for (const url of tryUrls) {
         try {
@@ -431,18 +445,41 @@ export function MainScreen({
           const label = String(r?.displayDateLabel ?? "").trim();
           if (label) displayDateLabel = label;
 
+          if (Array.isArray(r?.rawItems)) {
+            rawItems = r.rawItems
+              .map((x: any, idx: number) => ({
+                rank:
+                  typeof x?.rank === "number" && x.rank > 0 ? x.rank : idx + 1,
+                movieCd: String(x?.movieCd ?? "").trim(),
+                movieNm: String(x?.movieNm ?? "").trim(),
+              }))
+              .filter((x: RawBoxOfficeItem) => !!x.movieNm);
+          }
+
           const list =
             (Array.isArray(r?.items) ? r.items : null) ??
             (Array.isArray(r?.data) ? r.data : null) ??
             (Array.isArray(r) ? r : null);
+
+          attempts.push({
+            url,
+            ok: true,
+            itemCount: Array.isArray(list) ? list.length : 0,
+            rawCount: Array.isArray(r?.rawItems) ? r.rawItems.length : 0,
+          });
 
           if (Array.isArray(list) && list.length) {
             // { mediaType, tmdbId, rank } 형태를 기대
             items = list as HomeChartItem[];
             break;
           }
-        } catch {
-          // continue
+        } catch (e: any) {
+          attempts.push({
+            url,
+            ok: false,
+            status: Number(e?.status) || undefined,
+            message: String(e?.message ?? "unknown error"),
+          });
         }
       }
 
@@ -452,9 +489,19 @@ export function MainScreen({
       } else {
         setBoxOfficeDesc("Top10 차트입니다.");
       }
+      setBoxOfficeRawItems(rawItems);
 
       if (!items.length) {
         setBoxOfficeMovies([]);
+        console.error("[BoxOffice] no mapped items from API", {
+          attempts,
+          displayDateLabel,
+          rawItemsCount: rawItems.length,
+          hint:
+            rawItems.length > 0
+              ? "KOBIS raw exists but TMDB mapping returned 0"
+              : "KOBIS API/route returned empty",
+        });
         return;
       }
 
@@ -468,6 +515,7 @@ export function MainScreen({
           rank: typeof x.rank === "number" ? x.rank : i + 1,
         }));
 
+      const detailFailedIds: number[] = [];
       const details = await pMapLimit(
         normalized,
         6,
@@ -481,15 +529,30 @@ export function MainScreen({
               trendRank: it.rank, // ✅ 카드에 #순위 표시용
             } as any;
           } catch {
+            detailFailedIds.push(it.tmdbId);
             return null;
           }
         },
       );
 
-      setBoxOfficeMovies(details.filter(Boolean) as any);
-    } catch {
+      const resolved = details.filter(Boolean) as any[];
+      setBoxOfficeMovies(resolved);
+
+      if (normalized.length > 0 && resolved.length === 0) {
+        console.error("[BoxOffice] TMDB detail hydrate failed", {
+          mappedCount: normalized.length,
+          detailFailedIds,
+          displayDateLabel,
+        });
+      }
+    } catch (e: any) {
       setBoxOfficeMovies([]);
+      setBoxOfficeRawItems([]);
       setBoxOfficeDesc("Top10 차트입니다.");
+      console.error("[BoxOffice] unexpected loader failure", {
+        message: String(e?.message ?? "unknown error"),
+        status: Number(e?.status) || undefined,
+      });
     } finally {
       setBoxOfficeLoading(false);
     }
@@ -1087,10 +1150,31 @@ export function MainScreen({
                   </div>
                 ) : boxOfficeMovies.length === 0 ? (
                   <div className="mx-auto w-full px-4 mt-4">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                      오늘의 박스오피스 차트가 없습니다. 잠시 후 다시
-                      시도해보세요.
-                    </div>
+                    {boxOfficeRawItems.length > 0 ? (
+                      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="text-sm text-white/75 mb-3">
+                          TMDB 매핑 지연으로 KOBIS 원본 순위를 표시합니다.
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {boxOfficeRawItems.slice(0, 10).map((it) => (
+                            <div
+                              key={`${it.rank}:${it.movieCd}:${it.movieNm}`}
+                              className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm"
+                            >
+                              <span className="text-white/55 mr-2">
+                                #{it.rank}
+                              </span>
+                              <span className="text-white/90">{it.movieNm}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                        오늘의 박스오피스 차트가 없습니다. 잠시 후 다시
+                        시도해보세요.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <Suspense fallback={<div className="h-40" />}>

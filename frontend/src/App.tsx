@@ -10,11 +10,12 @@ import {
 
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
-import FavoritesPage from "./pages/favorites/FavoritesPage";
+import FavoritesPlaylistPage from "./pages/favorites/FavoritesPlaylistPage";
 import Picky from "./pages/Picky";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import { MyPage } from "./pages/MyPage";
 import { Info } from "./pages/support/Info";
 import { Notices } from "./pages/support/Notices";
@@ -27,6 +28,20 @@ export interface FavoriteItem {
   id: number;
   mediaType: "movie" | "tv";
 }
+
+type PlaylistItemDto = {
+  id: number;
+  mediaType: "movie" | "tv";
+  addedAt: string;
+};
+
+export type PlaylistDto = {
+  id: number;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  items: PlaylistItemDto[];
+};
 
 const STORAGE_KEYS = {
   PREFERENCES: "pickmovie_preferences",
@@ -55,17 +70,24 @@ type MeUser = {
 
 type ApiError = Error & { status?: number; data?: any };
 
+function uniqFavoriteItems(items: FavoriteItem[]) {
+  const map = new Map<string, FavoriteItem>();
+  for (const it of items) {
+    const mt = it.mediaType === "tv" ? "tv" : "movie";
+    const id = Number(it.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    map.set(`${mt}:${id}`, { id, mediaType: mt });
+  }
+  return Array.from(map.values());
+}
+
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
   const navState = (location.state as any) ?? {};
 
-  // ✅ 모달 라우팅: backgroundLocation이 있으면 "그 페이지 위에" 오버레이로 띄움
   const backgroundLocation = navState?.backgroundLocation ?? null;
-
-  // ✅ 배우 모달이 "상세 위"로 떠야 하는 케이스: titleStackLocation을 별도로 렌더
-  // - DetailSections에서 /person 이동할 때 state.titleStack을 넣어줌
   const titleStackLocation = navState?.titleStack ?? null;
 
   const API_BASE = useMemo(() => {
@@ -75,13 +97,13 @@ export default function App() {
   }, []);
 
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(
     createEmptyPreferences,
   );
   const [me, setMe] = useState<MeUser | null>(null);
 
-  // ✅ Picky에서만 쓰는 검색 입력 상태
   const [pickyQuery, setPickyQuery] = useState("");
 
   const bootingRef = useRef(false);
@@ -138,7 +160,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEYS.USER);
   }, []);
 
-  const bootstrapAuthAndFavorites = useCallback(async () => {
+  const bootstrapAuthAndLibrary = useCallback(async () => {
     if (bootingRef.current) return;
     bootingRef.current = true;
 
@@ -147,7 +169,6 @@ export default function App() {
     try {
       let accessToken: string | null = currentToken;
 
-      // ✅ accessToken이 없을 때: "이전에 로그인한 적이 있는 경우에만" refresh 시도
       if (!accessToken) {
         const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
 
@@ -155,6 +176,7 @@ export default function App() {
           clearAuthLocal();
           setMe(null);
           setFavorites([]);
+          setPlaylists([]);
           emitAuthChanged();
           return;
         }
@@ -169,6 +191,7 @@ export default function App() {
         clearAuthLocal();
         setMe(null);
         setFavorites([]);
+        setPlaylists([]);
         emitAuthChanged();
         return;
       }
@@ -186,6 +209,7 @@ export default function App() {
             clearAuthLocal();
             setMe(null);
             setFavorites([]);
+            setPlaylists([]);
             emitAuthChanged();
             return;
           }
@@ -202,6 +226,7 @@ export default function App() {
         clearAuthLocal();
         setMe(null);
         setFavorites([]);
+        setPlaylists([]);
         emitAuthChanged();
         return;
       }
@@ -214,9 +239,19 @@ export default function App() {
         const serverItems = Array.isArray(favRes?.items)
           ? (favRes.items as FavoriteItem[])
           : [];
-        setFavorites(serverItems);
+        setFavorites(uniqFavoriteItems(serverItems));
       } catch {
         setFavorites([]);
+      }
+
+      try {
+        const plRes = await getJson("/auth/playlists");
+        const serverPlaylists = Array.isArray(plRes?.playlists)
+          ? (plRes.playlists as PlaylistDto[])
+          : [];
+        setPlaylists(serverPlaylists);
+      } catch {
+        setPlaylists([]);
       }
 
       emitAuthChanged();
@@ -226,11 +261,13 @@ export default function App() {
         clearAuthLocal();
         setMe(null);
         setFavorites([]);
+        setPlaylists([]);
         emitAuthChanged();
       } else {
         if (!localStorage.getItem(STORAGE_KEYS.ACCESS)) {
           setMe(null);
           setFavorites([]);
+          setPlaylists([]);
           emitAuthChanged();
         }
       }
@@ -262,7 +299,7 @@ export default function App() {
   useEffect(() => {
     if (isLoading) return;
 
-    void bootstrapAuthAndFavorites();
+    void bootstrapAuthAndLibrary();
 
     const onAuth = () => {
       if (bootingRef.current) return;
@@ -271,9 +308,10 @@ export default function App() {
       if (!token) {
         setMe(null);
         setFavorites([]);
+        setPlaylists([]);
         return;
       }
-      void bootstrapAuthAndFavorites();
+      void bootstrapAuthAndLibrary();
     };
 
     window.addEventListener(AUTH_EVENT, onAuth);
@@ -287,7 +325,7 @@ export default function App() {
       window.removeEventListener("storage", onAuth);
       window.removeEventListener("focus", onAuth);
     };
-  }, [isLoading, bootstrapAuthAndFavorites]);
+  }, [isLoading, bootstrapAuthAndLibrary]);
 
   const handleResetFavorites = useCallback(() => {
     if (!me) {
@@ -306,17 +344,18 @@ export default function App() {
         return;
       }
 
+      const mt: FavoriteItem["mediaType"] = mediaType === "tv" ? "tv" : "movie";
+
       setFavorites((prev) => {
-        const exists = prev.some(
-          (f) => f.id === id && f.mediaType === mediaType,
-        );
-        const next = exists
-          ? prev.filter((f) => !(f.id === id && f.mediaType === mediaType))
-          : [{ id, mediaType }, ...prev];
+        const exists = prev.some((f) => f.id === id && f.mediaType === mt);
+
+        const next: FavoriteItem[] = exists
+          ? prev.filter((f) => !(f.id === id && f.mediaType === mt))
+          : [{ id, mediaType: mt }, ...prev];
 
         void postJson("/auth/favorites/set", {
           id,
-          mediaType,
+          mediaType: mt,
           isFavorite: !exists,
         }).catch(() => {
           setFavorites(prev);
@@ -328,9 +367,157 @@ export default function App() {
     [me, navigate, postJson],
   );
 
+  // =========================
+  // ✅ Playlists handlers (DB)
+  // =========================
+
+  /**
+   * ✅ 중복 생성 방지:
+   * - "생성" 더블클릭 / Enter+클릭 등으로 create가 2번 호출되면 서버에 동일 플레이리스트가 2개 생김
+   * - 여기서 payload 시그니처 기반으로 in-flight 중복 호출을 차단
+   */
+  const createPlaylistInFlightRef = useRef<Set<string>>(new Set());
+
+  const createPlaylist = useCallback(
+    async (name: string, items: FavoriteItem[]) => {
+      const trimmed = name.trim();
+      const xs = uniqFavoriteItems(items);
+      if (!trimmed || xs.length === 0) return;
+
+      const sig = (() => {
+        const keys = xs
+          .map((x) => `${x.mediaType}:${Number(x.id)}`)
+          .filter(Boolean)
+          .sort()
+          .join(",");
+        return `${trimmed}::${keys}`;
+      })();
+
+      if (createPlaylistInFlightRef.current.has(sig)) return;
+      createPlaylistInFlightRef.current.add(sig);
+
+      const prev = playlists;
+
+      try {
+        const res = await postJson("/auth/playlists/create", {
+          name: trimmed,
+          items: xs,
+        });
+
+        const playlist = (res?.playlist as PlaylistDto | undefined) ?? null;
+        if (!playlist) {
+          const plRes = await getJson("/auth/playlists").catch(() => null);
+          const serverPlaylists = Array.isArray((plRes as any)?.playlists)
+            ? ((plRes as any).playlists as PlaylistDto[])
+            : [];
+          if (serverPlaylists.length > 0) setPlaylists(serverPlaylists);
+        } else {
+          setPlaylists((p) => [
+            playlist,
+            ...p.filter((x) => x.id !== playlist.id),
+          ]);
+        }
+      } catch {
+        setPlaylists(prev);
+      } finally {
+        createPlaylistInFlightRef.current.delete(sig);
+      }
+    },
+    [playlists, getJson, postJson],
+  );
+
+  const deletePlaylist = useCallback(
+    async (playlistId: number) => {
+      const pid = Number(playlistId);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+
+      const prev = playlists;
+      setPlaylists((p) => p.filter((x) => x.id !== pid));
+
+      try {
+        await postJson("/auth/playlists/delete", { playlistId: pid });
+      } catch {
+        setPlaylists(prev);
+      }
+    },
+    [playlists, postJson],
+  );
+
+  const renamePlaylist = useCallback(
+    async (playlistId: number, name: string) => {
+      const pid = Number(playlistId);
+      const trimmed = name.trim();
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!trimmed) return;
+
+      const prev = playlists;
+      setPlaylists((p) =>
+        p.map((x) => (x.id === pid ? { ...x, name: trimmed } : x)),
+      );
+
+      try {
+        const res = await postJson("/auth/playlists/rename", {
+          playlistId: pid,
+          name: trimmed,
+        });
+        const playlist = (res?.playlist as PlaylistDto | undefined) ?? null;
+        if (playlist) {
+          setPlaylists((p) => p.map((x) => (x.id === pid ? playlist : x)));
+        }
+      } catch {
+        setPlaylists(prev);
+      }
+    },
+    [playlists, postJson],
+  );
+
+  const setPlaylistItems = useCallback(
+    async (playlistId: number, items: FavoriteItem[]) => {
+      const pid = Number(playlistId);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+
+      const xs = uniqFavoriteItems(items);
+      const prev = playlists;
+
+      setPlaylists((p) =>
+        p.map((x) => (x.id === pid ? { ...x, items: xs as any } : x)),
+      );
+
+      try {
+        const res = await postJson("/auth/playlists/items/set", {
+          playlistId: pid,
+          items: xs,
+        });
+        const playlist = (res?.playlist as PlaylistDto | undefined) ?? null;
+        if (playlist) {
+          setPlaylists((p) => p.map((x) => (x.id === pid ? playlist : x)));
+        }
+      } catch {
+        setPlaylists(prev);
+      }
+    },
+    [playlists, postJson],
+  );
+
+  const addItemsToPlaylist = useCallback(
+    async (playlistId: number, items: FavoriteItem[]) => {
+      const pid = Number(playlistId);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+
+      const target = playlists.find((p) => p.id === pid);
+      const existing = Array.isArray(target?.items) ? target!.items : [];
+      const merged = uniqFavoriteItems([
+        ...existing.map((it) => ({ id: it.id, mediaType: it.mediaType })),
+        ...items,
+      ]);
+
+      await setPlaylistItems(pid, merged);
+    },
+    [playlists, setPlaylistItems],
+  );
+
   const isAuthed = !!me;
 
-  // ✅ 상세 모달: 항상 동일 props로 렌더 (기본/오버레이 둘 다)
   const detailModalElement = (
     <ContentDetailModal
       favorites={favorites}
@@ -343,12 +530,12 @@ export default function App() {
 
   return (
     <>
-      {/* ✅ 기본 화면 라우트 */}
       <Routes location={backgroundLocation || location}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route path="/info" element={<Info />} />
         <Route path="/notices" element={<Notices />} />
@@ -357,10 +544,7 @@ export default function App() {
 
         <Route path="/mypage" element={<MyPage />} />
 
-        {/* ✅ 상세 URL: 직접 접근/새로고침도 가능 */}
         <Route path="/title/:mediaType/:id" element={detailModalElement} />
-
-        {/* ✅ 배우 URL: 직접 접근/새로고침도 가능 */}
         <Route path="/person/:id" element={<PersonDetail />} />
 
         <Route
@@ -387,11 +571,17 @@ export default function App() {
         <Route
           path="/favorites"
           element={
-            <FavoritesPage
+            <FavoritesPlaylistPage
               userPreferences={userPreferences}
               favorites={favorites}
+              playlists={playlists}
               onToggleFavorite={handleToggleFavorite}
               onResetFavorites={handleResetFavorites}
+              onCreatePlaylist={createPlaylist}
+              onDeletePlaylist={deletePlaylist}
+              onRenamePlaylist={renamePlaylist}
+              onSetPlaylistItems={setPlaylistItems}
+              onAddItemsToPlaylist={addItemsToPlaylist}
             />
           }
         />
@@ -427,10 +617,8 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* ✅ 오버레이 라우트: backgroundLocation이 있을 때만 "덮어서" 렌더 */}
       {backgroundLocation ? (
         <>
-          {/* ✅ 핵심: /person으로 왔을 때도 /title을 "같이" 렌더해서 (상세 안에 배우를 감싸는 구조) */}
           {titleStackLocation ? (
             <Routes location={titleStackLocation}>
               <Route
@@ -440,14 +628,11 @@ export default function App() {
             </Routes>
           ) : null}
 
-          {/* ✅ 오버레이 최상단: 실제 URL에 해당하는 모달만 렌더 */}
           {isPersonOverlayOnDetail ? (
-            // ✅ 배우는 "상세 위"로만 띄우기 (경로는 /person 그대로)
             <Routes>
               <Route path="/person/:id" element={<PersonDetail />} />
             </Routes>
           ) : (
-            // ✅ 그 외 오버레이(기존 유지)
             <Routes>
               <Route
                 path="/picky"

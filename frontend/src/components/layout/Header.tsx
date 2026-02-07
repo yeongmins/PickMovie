@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
 import { apiPost } from "../../lib/apiClient";
+import { AUTH_EVENT, AUTH_KEYS, dispatchAuthChanged } from "../../lib/auth";
 
 export interface HeaderProps {
   onNavigate?: (section: string) => void;
@@ -26,13 +27,6 @@ type SafeUser = {
   email: string | null;
   nickname: string | null;
 };
-
-const AUTH_KEYS = {
-  ACCESS: "pickmovie_access_token",
-  USER: "pickmovie_user",
-} as const;
-
-const AUTH_EVENT = "pickmovie-auth-changed";
 
 function readStoredUser(): SafeUser | null {
   try {
@@ -96,7 +90,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const MAX = 72; // 0% -> 100% 채워지는 스크롤 범위(감도 조절)
+    const MAX = 72;
     let raf = 0;
 
     const onScroll = () => {
@@ -173,8 +167,9 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
     } finally {
       localStorage.removeItem(AUTH_KEYS.ACCESS);
       localStorage.removeItem(AUTH_KEYS.USER);
+      dispatchAuthChanged();
       setProfileOpen(false);
-      window.location.replace("/");
+      navigate("/", { replace: true });
     }
   };
 
@@ -217,7 +212,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
           aria-hidden="true"
         />
 
-        {/* ✅ 비메인 페이지: 은은한 베이스 배경을 항상 깔고, 스크롤 오버레이는 그대로(서서히) 올라오게 */}
         {!isMainScreen ? (
           <div
             className={[

@@ -7,7 +7,15 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="bg-[#0b0b10]">
+    <footer className="relative bg-[#0b0b10]">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-8 left-0 right-0 h-8"
+        style={{
+          backgroundImage:
+            "linear-gradient(to bottom, rgba(26,26,36,0) 0%, #0b0b10 100%)",
+        }}
+      />
       <div className="mx-auto w-full max-w-[1600px] px-6 py-12">
         {/* 상단: 로고/문구(좌) + GitHub(우) */}
         <div className="flex items-start justify-between gap-6">
