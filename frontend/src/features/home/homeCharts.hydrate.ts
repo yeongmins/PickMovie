@@ -16,6 +16,7 @@ export type HomeCardItem = {
   name?: string;
   original_title?: string;
   original_name?: string;
+  overview?: string;
 
   poster_path: string | null;
   backdrop_path: string | null;
@@ -69,6 +70,7 @@ function toCardLike(
     name: detail.name,
     original_title: detail.original_title,
     original_name: detail.original_name,
+    overview: detail.overview,
     poster_path: detail.poster_path ?? null,
     backdrop_path: detail.backdrop_path ?? null,
     vote_average: detail.vote_average,
@@ -82,16 +84,37 @@ export async function hydrateHomeCharts(
   resp: HomeChartsResponse
 ): Promise<Record<string, HomeCardItem[]>> {
   const flat = resp.collections.flatMap((c) => c.items);
+  const uniqReqs = new Map<string, { mediaType: MediaType; tmdbId: number }>();
+  for (const x of flat) {
+    const k = keyOf(x.mediaType, x.tmdbId);
+    if (!uniqReqs.has(k)) uniqReqs.set(k, { mediaType: x.mediaType, tmdbId: x.tmdbId });
+  }
 
   // 1) meta는 한 방에
-  const metas = await fetchMetaBatch(
-    flat.map((x) => ({ mediaType: x.mediaType, tmdbId: x.tmdbId }))
-  );
+  const metas = await fetchMetaBatch([...uniqReqs.values()]);
   const metaMap = new Map<string, ResolvedMeta>();
   for (const m of metas) metaMap.set(keyOf(m.mediaType, m.tmdbId), m);
 
   // 2) 디테일은 프록시로 여러 번 (동시성 제한)
   const details = await mapLimit(flat, 8, async (x) => {
+    const hasPrebuiltDetail = typeof x.title === "string" || typeof x.name === "string";
+    if (hasPrebuiltDetail) {
+      const d: TmdbDetailLike = {
+        id: x.tmdbId,
+        title: x.title,
+        name: x.name,
+        original_title: x.original_title,
+        original_name: x.original_name,
+        overview: x.overview,
+        poster_path: x.poster_path ?? null,
+        backdrop_path: x.backdrop_path ?? null,
+        vote_average: x.vote_average,
+        release_date: x.release_date,
+        first_air_date: x.first_air_date,
+      };
+      return { x, d };
+    }
+
     const d = await fetchTmdbDetailProxy(x.mediaType, x.tmdbId);
     return { x, d };
   });

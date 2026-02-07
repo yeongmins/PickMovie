@@ -76,6 +76,18 @@ type HomeCollectionKey =
   | "BOXOFFICE_TOP10";
 
 type HomeChartItem = { mediaType: MediaType; tmdbId: number; rank: number };
+type HomeChartItemHydrated = HomeChartItem & {
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  vote_average?: number;
+  release_date?: string;
+  first_air_date?: string;
+};
 type RawBoxOfficeItem = { rank: number; movieCd: string; movieNm: string };
 type BoxOfficeAttempt = {
   url: string;
@@ -90,7 +102,7 @@ type HomeChartsResponse = {
   collections: Array<{
     key: HomeCollectionKey;
     generatedAt: string;
-    items: HomeChartItem[];
+    items: HomeChartItemHydrated[];
   }>;
 };
 
@@ -289,9 +301,9 @@ export function MainScreen({
   // ✅ (추가) 박스오피스 섹션 desc (백엔드 displayDateLabel 그대로 사용)
   const [boxOfficeDesc, setBoxOfficeDesc] =
     useState<string>("Top10 차트입니다.");
-  const [boxOfficeRawItems, setBoxOfficeRawItems] = useState<RawBoxOfficeItem[]>(
-    [],
-  );
+  const [boxOfficeRawItems, setBoxOfficeRawItems] = useState<
+    RawBoxOfficeItem[]
+  >([]);
 
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
@@ -332,25 +344,57 @@ export function MainScreen({
   );
 
   const hydrateSnapshotItems = useCallback(
-    async (items: HomeChartItem[]) => {
+    async (items: HomeChartItemHydrated[]) => {
       const sorted = [...items].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-      const settled = await pMapLimit(
-        sorted,
-        6,
-        async (it): Promise<any | null> => {
-          try {
-            const d = await fetchDetailCached(it.mediaType, it.tmdbId);
-            if (!d) return null;
-            return {
-              ...(d as any),
-              media_type: it.mediaType,
-              trendRank: it.rank,
-            } as any;
-          } catch {
-            return null;
-          }
-        },
-      );
+      const settled = new Array<any | null>(sorted.length).fill(null);
+      const missing: Array<{ idx: number; item: HomeChartItemHydrated }> = [];
+
+      for (let i = 0; i < sorted.length; i += 1) {
+        const it = sorted[i];
+        if (typeof it.title === "string" || typeof it.name === "string") {
+          settled[i] = {
+            id: it.tmdbId,
+            media_type: it.mediaType,
+            trendRank: it.rank,
+            title: it.title,
+            name: it.name,
+            original_title: it.original_title,
+            original_name: it.original_name,
+            overview: it.overview ?? "",
+            poster_path: it.poster_path ?? null,
+            backdrop_path: it.backdrop_path ?? null,
+            vote_average: it.vote_average ?? 0,
+            release_date: it.release_date,
+            first_air_date: it.first_air_date,
+          } as any;
+        } else {
+          missing.push({ idx: i, item: it });
+        }
+      }
+
+      if (missing.length > 0) {
+        const fetched = await pMapLimit(
+          missing,
+          6,
+          async ({ item }): Promise<any | null> => {
+            try {
+              const d = await fetchDetailCached(item.mediaType, item.tmdbId);
+              if (!d) return null;
+              return {
+                ...(d as any),
+                media_type: item.mediaType,
+                trendRank: item.rank,
+              } as any;
+            } catch {
+              return null;
+            }
+          },
+        );
+        for (let i = 0; i < missing.length; i += 1) {
+          settled[missing[i].idx] = fetched[i];
+        }
+      }
+
       return settled.filter(Boolean) as any[];
     },
     [fetchDetailCached],
@@ -359,7 +403,7 @@ export function MainScreen({
   const loadHomeChartsSnapshot = useCallback(async () => {
     if (homeChartsRef.current) return homeChartsRef.current;
 
-    const tryUrls = ["/charts/home", "/home/charts", "/charts"];
+    const tryUrls = ["/home/charts", "/charts/home", "/charts"];
     for (const url of tryUrls) {
       try {
         const r = await apiGet<HomeChartsResponse>(url, { limit: 50 });
@@ -1164,7 +1208,9 @@ export function MainScreen({
                               <span className="text-white/55 mr-2">
                                 #{it.rank}
                               </span>
-                              <span className="text-white/90">{it.movieNm}</span>
+                              <span className="text-white/90">
+                                {it.movieNm}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -1246,7 +1292,6 @@ export function MainScreen({
           </motion.div>
         </AnimatePresence>
       </main>
-
       <div className="relative mt-10 [&>footer]:border-t-0">
         <div
           aria-hidden

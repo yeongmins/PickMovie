@@ -20,6 +20,10 @@ function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+function asNullableString(v: unknown): string | null {
+  return typeof v === 'string' ? v : null;
+}
+
 function parseHomeChartItems(v: unknown): HomeChartItem[] {
   if (!Array.isArray(v)) return [];
   const out: HomeChartItem[] = [];
@@ -32,7 +36,21 @@ function parseHomeChartItems(v: unknown): HomeChartItem[] {
     if ((mediaType !== 'movie' && mediaType !== 'tv') || !tmdbId || !rank) {
       continue;
     }
-    out.push({ mediaType, tmdbId, rank });
+    out.push({
+      mediaType,
+      tmdbId,
+      rank,
+      title: asString(it['title']) || undefined,
+      name: asString(it['name']) || undefined,
+      original_title: asString(it['original_title']) || undefined,
+      original_name: asString(it['original_name']) || undefined,
+      overview: asString(it['overview']) || undefined,
+      poster_path: asNullableString(it['poster_path']),
+      backdrop_path: asNullableString(it['backdrop_path']),
+      vote_average: asNumber(it['vote_average']) ?? undefined,
+      release_date: asString(it['release_date']) || undefined,
+      first_air_date: asString(it['first_air_date']) || undefined,
+    });
   }
 
   return out;
@@ -41,6 +59,8 @@ function parseHomeChartItems(v: unknown): HomeChartItem[] {
 @Injectable()
 export class HomeChartsService {
   private readonly tmdbBaseUrl = 'https://api.themoviedb.org/3';
+  private chartsCache: HomeChartsResponse | null = null;
+  private chartsCacheExpiresAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -54,7 +74,27 @@ export class HomeChartsService {
     return key;
   }
 
+  private cloneCharts(src: HomeChartsResponse): HomeChartsResponse {
+    return {
+      collections: src.collections.map((c) => ({
+        key: c.key,
+        generatedAt: c.generatedAt,
+        items: c.items.map((it) => ({ ...it })),
+      })),
+    };
+  }
+
+  private invalidateChartsCache(): void {
+    this.chartsCache = null;
+    this.chartsCacheExpiresAt = 0;
+  }
+
   async getCharts(): Promise<HomeChartsResponse> {
+    const now = Date.now();
+    if (this.chartsCache && now < this.chartsCacheExpiresAt) {
+      return this.cloneCharts(this.chartsCache);
+    }
+
     const keys: HomeCollectionKey[] = [
       HomeCollectionKey.POPULAR_MOVIE,
       HomeCollectionKey.POPULAR_TV,
@@ -81,10 +121,15 @@ export class HomeChartsService {
       };
     };
 
-    return { collections: keys.map(build) };
+    const response: HomeChartsResponse = { collections: keys.map(build) };
+    this.chartsCache = response;
+    this.chartsCacheExpiresAt = now + 10_000;
+    return this.cloneCharts(response);
   }
 
   async refreshAllCharts(): Promise<void> {
+    this.invalidateChartsCache();
+
     const limit = Number(this.config.get<string>('HOME_CHARTS_LIMIT') ?? '20');
     const apiKey = this.tmdbKey();
 
@@ -109,9 +154,18 @@ export class HomeChartsService {
       ...trendingMovie,
       ...trendingTv,
     ];
+
+    const uniq = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
+    for (const x of all) {
+      const k = `${x.mediaType}:${x.tmdbId}`;
+      if (!uniq.has(k)) uniq.set(k, { mediaType: x.mediaType, tmdbId: x.tmdbId });
+    }
+
     await this.meta.resolveBatch(
-      all.map((x) => ({ mediaType: x.mediaType, tmdbId: x.tmdbId })),
+      [...uniq.values()],
     );
+
+    this.invalidateChartsCache();
   }
 
   private async fetchList(
@@ -137,7 +191,21 @@ export class HomeChartsService {
       if (!isRecord(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
-      items.push({ mediaType, tmdbId: id, rank: i + 1 });
+      items.push({
+        mediaType,
+        tmdbId: id,
+        rank: i + 1,
+        title: asString(r['title']) || undefined,
+        name: asString(r['name']) || undefined,
+        original_title: asString(r['original_title']) || undefined,
+        original_name: asString(r['original_name']) || undefined,
+        overview: asString(r['overview']) || undefined,
+        poster_path: asNullableString(r['poster_path']),
+        backdrop_path: asNullableString(r['backdrop_path']),
+        vote_average: asNumber(r['vote_average']) ?? undefined,
+        release_date: asString(r['release_date']) || undefined,
+        first_air_date: asString(r['first_air_date']) || undefined,
+      });
     }
 
     return items;
@@ -166,7 +234,21 @@ export class HomeChartsService {
       if (!isRecord(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
-      items.push({ mediaType, tmdbId: id, rank: i + 1 });
+      items.push({
+        mediaType,
+        tmdbId: id,
+        rank: i + 1,
+        title: asString(r['title']) || undefined,
+        name: asString(r['name']) || undefined,
+        original_title: asString(r['original_title']) || undefined,
+        original_name: asString(r['original_name']) || undefined,
+        overview: asString(r['overview']) || undefined,
+        poster_path: asNullableString(r['poster_path']),
+        backdrop_path: asNullableString(r['backdrop_path']),
+        vote_average: asNumber(r['vote_average']) ?? undefined,
+        release_date: asString(r['release_date']) || undefined,
+        first_air_date: asString(r['first_air_date']) || undefined,
+      });
     }
 
     return items;
@@ -181,6 +263,16 @@ export class HomeChartsService {
       mediaType: x.mediaType,
       tmdbId: x.tmdbId,
       rank: x.rank,
+      title: x.title ?? null,
+      name: x.name ?? null,
+      original_title: x.original_title ?? null,
+      original_name: x.original_name ?? null,
+      overview: x.overview ?? null,
+      poster_path: x.poster_path ?? null,
+      backdrop_path: x.backdrop_path ?? null,
+      vote_average: x.vote_average ?? null,
+      release_date: x.release_date ?? null,
+      first_air_date: x.first_air_date ?? null,
     }));
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 6);

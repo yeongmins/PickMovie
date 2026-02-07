@@ -13,6 +13,16 @@ export type HomeChartItem = {
   mediaType: MediaType;
   tmdbId: number;
   rank: number;
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  vote_average?: number;
+  release_date?: string;
+  first_air_date?: string;
 };
 
 export type HomeChartsCollection = {
@@ -52,6 +62,7 @@ export type TmdbDetailLike = {
   name?: string;
   original_title?: string;
   original_name?: string;
+  overview?: string;
   poster_path: string | null;
   backdrop_path?: string | null;
   vote_average?: number;
@@ -99,6 +110,7 @@ export async function fetchTmdbDetailProxy(
       typeof r.original_title === "string" ? r.original_title : undefined,
     original_name:
       typeof r.original_name === "string" ? r.original_name : undefined,
+    overview: typeof r.overview === "string" ? r.overview : undefined,
     poster_path: r.poster_path ?? null,
     backdrop_path: r.backdrop_path ?? null,
     vote_average:
