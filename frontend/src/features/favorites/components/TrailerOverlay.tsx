@@ -222,7 +222,7 @@ export function TrailerOverlay({
             transition={{ duration: 0.2, ease: "easeOut" }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_20px_80px_rgba(0,0,0,0.7)] border border-white/10">
+            <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_20px_80px_rgba(0,0,0,0.7)]">
               <div className="w-full" style={{ aspectRatio: "16 / 9" }}>
                 {loading ? (
                   <div className="h-full w-full flex items-center justify-center text-white/70">
@@ -230,7 +230,7 @@ export function TrailerOverlay({
                   </div>
                 ) : trailer?.key ? (
                   <iframe
-                    className="h-full w-full"
+                    className="h-full w-full border-0"
                     src={`https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
                     title={trailer?.name ?? target.title ?? "Trailer"}
                     allow="autoplay; encrypted-media; picture-in-picture"

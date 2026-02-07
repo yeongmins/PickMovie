@@ -109,9 +109,9 @@ function detectCategoryKey(item: ContentCardItem): CategoryGroupKey {
 }
 
 function categoryTitle(k: CategoryGroupKey) {
-  if (k === "movie") return "Movie";
+  if (k === "movie") return "영화";
   if (k === "tv") return "TV";
-  return "Ani";
+  return "애니메이션";
 }
 
 // ✅ favorites 페이지용: tmdb 상세 캐시
@@ -167,6 +167,8 @@ export function FavoritesSection({
     EditableCarouselRow,
     BottomConfirmSheet,
     PlaylistPickerPopover,
+    EditDimmer,
+    styles,
   } = ui;
 
   // ✅ favoritesKeySet은 "서버 favorites"를 기준으로 만든다 (카드 로딩 실패/지연과 무관)
@@ -421,24 +423,7 @@ export function FavoritesSection({
   /** =========================
    * ✅ 편집 모드 배경 딤 (찜 스타일)
    * ========================= */
-  const BackgroundDimmer = (
-    <AnimatePresence>
-      {editingOpen ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.28, ease: "easeOut" }}
-          className="fixed inset-0 z-[40] pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(120% 80% at 50% 0%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.70) 100%)",
-          }}
-          aria-hidden="true"
-        />
-      ) : null}
-    </AnimatePresence>
-  );
+  const BackgroundDimmer = <EditDimmer open={editingOpen} />;
 
   // ✅ ESC: 모달>편집 순으로 닫기
   useEffect(() => {
@@ -485,7 +470,7 @@ export function FavoritesSection({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                    className={styles.sectionActionButton}
                     onClick={() => startEditGroup("all")}
                   >
                     <Pencil className="h-4 w-4" />
@@ -494,7 +479,7 @@ export function FavoritesSection({
 
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 hover:text-white transition-all duration-200"
+                    className={styles.sectionActionButtonSoft}
                     onClick={() => setResetTarget("all")}
                     aria-label="내 찜 전체 초기화"
                   >
@@ -505,7 +490,7 @@ export function FavoritesSection({
               ) : (
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                  className={styles.sectionActionButton}
                   onClick={stopEdit}
                 >
                   완료
@@ -532,6 +517,7 @@ export function FavoritesSection({
               padClass={pad}
               items={allUnique}
               favoritesKeySet={favoritesKeySet}
+              isLastCarousel={orderedCategories.length === 0}
               isEditing={editingGroup === "all"}
               selectedKeys={selectedKeys}
               onToggleSelect={toggleSelect}
@@ -558,11 +544,7 @@ export function FavoritesSection({
             <motion.section
               key={k}
               layout
-              className={[
-                "mt-10",
-                isLastCarousel ? "mb-10" : "",
-                dimmed ? "pointer-events-none" : "",
-              ].join(" ")}
+              className={["mt-5", dimmed ? "pointer-events-none" : ""].join(" ")}
               animate={{
                 opacity: editingOpen ? (isEditingThis ? 1 : 0.22) : 1,
               }}
@@ -578,7 +560,7 @@ export function FavoritesSection({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                        className={styles.sectionActionButton}
                         onClick={() => startEditGroup(k)}
                       >
                         <Pencil className="h-4 w-4" />
@@ -587,7 +569,7 @@ export function FavoritesSection({
 
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 hover:text-white transition-all duration-200"
+                        className={styles.sectionActionButtonSoft}
                         onClick={() => setResetTarget(k)}
                         aria-label={`${categoryTitle(k)} 초기화`}
                       >
@@ -598,7 +580,7 @@ export function FavoritesSection({
                   ) : (
                     <button
                       type="button"
-                      className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                      className={styles.sectionActionButton}
                       onClick={stopEdit}
                     >
                       완료
@@ -611,6 +593,7 @@ export function FavoritesSection({
                 padClass={pad}
                 items={items}
                 favoritesKeySet={favoritesKeySet}
+                isLastCarousel={isLastCarousel}
                 isEditing={isEditingThis}
                 selectedKeys={selectedKeys}
                 onToggleSelect={toggleSelect}
@@ -651,7 +634,7 @@ export function FavoritesSection({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200"
+                    className={styles.bottomGhostButton}
                     onClick={onSelectAllToggle}
                   >
                     {allSelected ? "전체취소" : "전체선택"}
@@ -668,7 +651,7 @@ export function FavoritesSection({
 
                   <button
                     type="button"
-                    className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white transition-all duration-200"
+                    className={styles.iconOnlyButton}
                     onClick={stopEdit}
                     aria-label="편집 종료"
                   >

@@ -243,7 +243,7 @@ function SharedPlaylistPickerPopover(props: {
               <div className="w-[420px] max-w-[92vw] rounded-2xl border border-white/10 bg-[#0b0b10]/95 shadow-2xl backdrop-blur overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                   <div className="text-sm font-semibold text-white/90">
-                    플레이리스트에 추가
+                    플레이리스트 추가
                   </div>
                   <button
                     type="button"
@@ -304,6 +304,30 @@ function SharedPlaylistPickerPopover(props: {
   );
 }
 
+function SharedEditDimmer(props: { open: boolean; zIndex?: number }) {
+  const { open, zIndex = 40 } = props;
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.28, ease: "easeOut" }}
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            zIndex,
+            background:
+              "radial-gradient(120% 80% at 50% 0%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.70) 100%)",
+          }}
+          aria-hidden="true"
+        />
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 /** =========================
  * ✅ Editable Carousel Row (공통)
  * - 좌/우 버튼 hover 때만 표시
@@ -313,6 +337,7 @@ function SharedEditableCarouselRow(props: {
   padClass: string;
   items: ContentCardItem[];
   favoritesKeySet: Set<string>;
+  isLastCarousel?: boolean;
 
   isEditing: boolean;
   selectedKeys: Set<string>;
@@ -325,6 +350,7 @@ function SharedEditableCarouselRow(props: {
     padClass,
     items,
     favoritesKeySet,
+    isLastCarousel = false,
     isEditing,
     selectedKeys,
     onToggleSelect,
@@ -336,16 +362,24 @@ function SharedEditableCarouselRow(props: {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [hiddenKeys, setHiddenKeys] = useState<string[]>([]);
   const uniqueItems = useMemo(() => uniqueByKey(items), [items]);
+  const canShowLeftButton = uniqueItems.length >= 5 && scrollPosition > 0;
 
   const scroll = (direction: "left" | "right") => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    if (maxScrollLeft <= 0) {
+      setScrollPosition(0);
+      return;
+    }
+
     const scrollAmount = container.clientWidth * 0.85;
-    const newPosition =
+    const targetPosition =
       direction === "left"
         ? Math.max(0, scrollPosition - scrollAmount)
         : scrollPosition + scrollAmount;
+    const newPosition = Math.max(0, Math.min(targetPosition, maxScrollLeft));
 
     container.scrollTo({ left: newPosition, behavior: "smooth" });
     setScrollPosition(newPosition);
@@ -354,14 +388,14 @@ function SharedEditableCarouselRow(props: {
   if (uniqueItems.length === 0) return null;
 
   return (
-    <div className="group/row relative">
-      {scrollPosition > 0 ? (
+    <div className={["group/row relative", isLastCarousel ? "mb-10" : ""].join(" ")}>
+      {canShowLeftButton ? (
         <button
           type="button"
           onClick={() => scroll("left")}
           className={[
             "absolute left-0 top-0 bottom-0 z-20 w-12 sm:w-14",
-            "bg-gradient-to-r from-[#1a1a24] to-transparent",
+            isEditing ? "" : "bg-gradient-to-r from-[#1a1a24] to-transparent",
             "flex items-center justify-start pl-2",
             "opacity-0 pointer-events-none",
             "group-hover/row:opacity-100 group-hover/row:pointer-events-auto",
@@ -460,7 +494,7 @@ function SharedEditableCarouselRow(props: {
         onClick={() => scroll("right")}
         className={[
           "absolute right-0 top-0 bottom-0 z-20 w-12 sm:w-14",
-          "bg-gradient-to-l from-[#1a1a24] to-transparent",
+          isEditing ? "" : "bg-gradient-to-l from-[#1a1a24] to-transparent",
           "flex items-center justify-end pr-2",
           "opacity-0 pointer-events-none",
           "group-hover/row:opacity-100 group-hover/row:pointer-events-auto",
@@ -479,6 +513,14 @@ export type FavoritesPlaylistSharedUI = {
   EditableCarouselRow: typeof SharedEditableCarouselRow;
   BottomConfirmSheet: typeof SharedBottomConfirmSheet;
   PlaylistPickerPopover: typeof SharedPlaylistPickerPopover;
+  EditDimmer: typeof SharedEditDimmer;
+  styles: {
+    sectionActionButton: string;
+    sectionActionButtonSoft: string;
+    bottomGhostButton: string;
+    bottomGhostButtonWithIcon: string;
+    iconOnlyButton: string;
+  };
 };
 
 type PlaylistLite = { id: string; name: string };
@@ -522,6 +564,19 @@ export default function FavoritesPlaylistPage({
       EditableCarouselRow: SharedEditableCarouselRow,
       BottomConfirmSheet: SharedBottomConfirmSheet,
       PlaylistPickerPopover: SharedPlaylistPickerPopover,
+      EditDimmer: SharedEditDimmer,
+      styles: {
+        sectionActionButton:
+          "inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200",
+        sectionActionButtonSoft:
+          "inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 hover:text-white transition-all duration-200",
+        bottomGhostButton:
+          "rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200",
+        bottomGhostButtonWithIcon:
+          "rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200 inline-flex items-center gap-2",
+        iconOnlyButton:
+          "rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white transition-all duration-200",
+      },
     };
   }, []);
 

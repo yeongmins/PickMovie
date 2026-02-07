@@ -139,6 +139,8 @@ export const PlaylistSection = forwardRef<
     EditableCarouselRow,
     BottomConfirmSheet,
     PlaylistPickerPopover,
+    EditDimmer,
+    styles,
   } = ui;
 
   const serverPlaylists = Array.isArray(playlists) ? playlists : [];
@@ -258,11 +260,8 @@ export const PlaylistSection = forwardRef<
   const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
 
   const pickerPlaylists = useMemo(() => {
-    const exclude = editingPlaylistId;
-    return serverPlaylists
-      .filter((p) => p.id !== exclude)
-      .map((p) => ({ id: String(p.id), name: p.name }));
-  }, [editingPlaylistId, serverPlaylists]);
+    return serverPlaylists.map((p) => ({ id: String(p.id), name: p.name }));
+  }, [serverPlaylists]);
 
   const beginCreateFromItemsInternal = (items: ContentCardItem[]) => {
     const xs = uniqueByKey(items);
@@ -533,24 +532,7 @@ export const PlaylistSection = forwardRef<
     </AnimatePresence>
   );
 
-  const BackgroundDimmer = (
-    <AnimatePresence>
-      {bottomSheetOpen ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.28, ease: "easeOut" }}
-          className="fixed inset-0 z-[40] pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(120% 80% at 50% 0%, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.70) 100%)",
-          }}
-          aria-hidden="true"
-        />
-      ) : null}
-    </AnimatePresence>
-  );
+  const BackgroundDimmer = <EditDimmer open={bottomSheetOpen} />;
 
   return (
     <>
@@ -560,7 +542,7 @@ export const PlaylistSection = forwardRef<
       <motion.section
         layout
         className="mt-2 relative"
-        style={{ zIndex: bottomSheetOpen ? 45 : 1 }}
+        style={{ zIndex: draft.active ? 65 : bottomSheetOpen ? 45 : 1 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.28, ease: "easeOut" }}
       >
@@ -634,9 +616,10 @@ export const PlaylistSection = forwardRef<
           ) : null}
         </AnimatePresence>
 
-        <div className="space-y-10 mt-5">
-          {serverPlaylists.map((pl) => {
+        <div>
+          {serverPlaylists.map((pl, idx) => {
             const isEditingThis = editingPlaylistId === pl.id;
+            const isLastCarousel = idx === serverPlaylists.length - 1;
 
             // ✅ 생성(draft) 중에는 모든 기존 섹션을 딤+비활성
             const dimmed = draft.active
@@ -654,10 +637,13 @@ export const PlaylistSection = forwardRef<
                 : pl.name;
 
             return (
-              <motion.div
+              <motion.section
                 key={pl.id}
                 layout
-                className={dimmed ? "pointer-events-none" : ""}
+                className={[
+                  idx === 0 ? "mt-2" : "mt-5",
+                  dimmed ? "pointer-events-none" : "",
+                ].join(" ")}
                 animate={{
                   opacity: draft.active
                     ? 0.22
@@ -713,7 +699,7 @@ export const PlaylistSection = forwardRef<
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                          className={styles.sectionActionButton}
                           onClick={() => startEdit(pl.id)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -722,7 +708,7 @@ export const PlaylistSection = forwardRef<
 
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                          className={styles.sectionActionButton}
                           onClick={() => setPlaylistDeleteTarget(pl.id)}
                           aria-label="플레이리스트 삭제"
                         >
@@ -733,7 +719,7 @@ export const PlaylistSection = forwardRef<
                     ) : (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/15 hover:text-white transition-all duration-200"
+                        className={styles.sectionActionButton}
                         onClick={commitAndStopEdit}
                       >
                         완료
@@ -742,7 +728,7 @@ export const PlaylistSection = forwardRef<
                   }
                 />
 
-                <div className="mt-2">
+                <div>
                   {Array.isArray(pl.items) &&
                   pl.items.length > 0 &&
                   visibleMovies.length === 0 ? (
@@ -756,6 +742,7 @@ export const PlaylistSection = forwardRef<
                       padClass={pad}
                       items={visibleMovies}
                       favoritesKeySet={favoritesKeySet}
+                      isLastCarousel={isLastCarousel}
                       isEditing={isEditingThis}
                       selectedKeys={selectedKeys}
                       onToggleSelect={toggleSelect}
@@ -766,7 +753,7 @@ export const PlaylistSection = forwardRef<
                     />
                   )}
                 </div>
-              </motion.div>
+              </motion.section>
             );
           })}
         </div>
@@ -801,7 +788,10 @@ export const PlaylistSection = forwardRef<
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200 disabled:opacity-40 inline-flex items-center gap-2"
+                    className={[
+                      styles.bottomGhostButtonWithIcon,
+                      "disabled:opacity-40",
+                    ].join(" ")}
                     onClick={onUndoLastDelete}
                     disabled={draft.active || deleteHistory.length === 0}
                     aria-label="이전"
@@ -812,7 +802,9 @@ export const PlaylistSection = forwardRef<
 
                   <button
                     type="button"
-                    className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200 disabled:opacity-40"
+                    className={[styles.bottomGhostButton, "disabled:opacity-40"].join(
+                      " ",
+                    )}
                     onClick={onSelectAllToggle}
                     disabled={draft.active || !editingPlaylistId}
                   >
@@ -821,7 +813,10 @@ export const PlaylistSection = forwardRef<
 
                   <button
                     type="button"
-                    className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200 inline-flex items-center gap-2 disabled:opacity-40"
+                    className={[
+                      styles.bottomGhostButtonWithIcon,
+                      "disabled:opacity-40",
+                    ].join(" ")}
                     onClick={onDeleteSelectedStage}
                     disabled={
                       draft.active || !editingPlaylistId || selectedCount === 0
@@ -845,7 +840,7 @@ export const PlaylistSection = forwardRef<
                   {draft.active ? (
                     <button
                       type="button"
-                      className="rounded-lg bg-white/10 px-3 py-2 text-sm text-white/85 hover:bg-white/15 transition-all duration-200"
+                      className={styles.bottomGhostButton}
                       onClick={cancelDraft}
                     >
                       취소
@@ -854,7 +849,7 @@ export const PlaylistSection = forwardRef<
 
                   <button
                     type="button"
-                    className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white transition-all duration-200"
+                    className={styles.iconOnlyButton}
                     onClick={closeEditor}
                     aria-label="편집 종료"
                   >
