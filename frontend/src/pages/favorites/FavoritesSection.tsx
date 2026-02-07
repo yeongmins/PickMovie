@@ -546,20 +546,23 @@ export function FavoritesSection({
         {/* ==================================================
             ✅ 그 아래: Movie/TV/Ani
         ================================================== */}
-        {orderedCategories.map((k) => {
+        {orderedCategories.map((k, idx) => {
           const items = grouped[k];
           if (items.length === 0) return null;
 
           const isEditingThis = editingGroup === k;
           const dimmed = editingOpen && !isEditingThis;
+          const isLastCarousel = idx === orderedCategories.length - 1;
 
           return (
             <motion.section
               key={k}
               layout
-              className={["mt-10", dimmed ? "pointer-events-none" : ""].join(
-                " ",
-              )}
+              className={[
+                "mt-10",
+                isLastCarousel ? "mb-10" : "",
+                dimmed ? "pointer-events-none" : "",
+              ].join(" ")}
               animate={{
                 opacity: editingOpen ? (isEditingThis ? 1 : 0.22) : 1,
               }}

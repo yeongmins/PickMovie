@@ -8,7 +8,7 @@ import type { UserPreferences } from "../../features/onboarding/Onboarding";
 import type { FavoriteItem, PlaylistDto } from "../../App";
 
 import { Header } from "../../components/layout/Header";
-import { Footer } from "../../components/layout/Footer";
+import { PageFooter } from "../../components/layout/Footer";
 
 import {
   ContentCard,
@@ -637,9 +637,7 @@ export default function FavoritesPlaylistPage({
 
       </main>
 
-      <div className="mt-10">
-        <Footer />
-      </div>
+      <PageFooter />
     </div>
   );
 }

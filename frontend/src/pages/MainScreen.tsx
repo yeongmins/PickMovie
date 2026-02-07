@@ -11,7 +11,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Footer } from "../components/layout/Footer";
+import { PageFooter } from "../components/layout/Footer";
 
 import type { UserPreferences } from "../features/onboarding/Onboarding";
 import type { FavoriteItem } from "../App";
@@ -1292,17 +1292,7 @@ export function MainScreen({
           </motion.div>
         </AnimatePresence>
       </main>
-      <div className="relative mt-10 [&>footer]:border-t-0">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-10 left-0 right-0 h-10"
-          style={{
-            backgroundImage:
-              "linear-gradient(to bottom, #1a1a24 0%, #0b0b10 100%)",
-          }}
-        />
-        <Footer />
-      </div>
+      <PageFooter />
     </div>
   );
 }

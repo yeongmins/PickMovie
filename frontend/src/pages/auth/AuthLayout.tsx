@@ -37,7 +37,7 @@ export function AuthLayout({
         {/* 로고 */}
         <div className="mb-8 flex justify-center">
           <Link to="/" aria-label="PickMovie 홈" className="select-none">
-            <Logo showIcon={false} size="lg" />
+            <Logo size="lg" />
           </Link>
         </div>
 

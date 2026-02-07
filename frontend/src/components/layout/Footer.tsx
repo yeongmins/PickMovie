@@ -2,6 +2,7 @@
 import { Link } from "react-router-dom";
 import { Github } from "lucide-react";
 import { Logo } from "../icons/Logo";
+import { cn } from "../ui/utils";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -10,10 +11,10 @@ export function Footer() {
     <footer className="relative bg-[#0b0b10]">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -top-8 left-0 right-0 h-8"
+        className="pointer-events-none absolute -top-10 left-0 right-0 h-10"
         style={{
           backgroundImage:
-            "linear-gradient(to bottom, rgba(26,26,36,0) 0%, #0b0b10 100%)",
+            "linear-gradient(to bottom, #1a1a24 0%, #0b0b10 100%)",
         }}
       />
       <div className="mx-auto w-full max-w-[1600px] px-6 py-12">
@@ -77,5 +78,17 @@ export function Footer() {
         </div>
       </div>
     </footer>
+  );
+}
+
+type PageFooterProps = {
+  className?: string;
+};
+
+export function PageFooter({ className }: PageFooterProps) {
+  return (
+    <div className={cn("relative mt-10 [&>footer]:border-t-0", className)}>
+      <Footer />
+    </div>
   );
 }
