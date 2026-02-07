@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MetaService } from '../meta/meta.service';
 import type { HomeChartItem, HomeChartsResponse } from './home-charts.types';
 import { HomeCollectionKey, Prisma } from '../generated/prisma';
+import { isBlockedContentByPolicy } from '../common/content-policy';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -133,7 +134,7 @@ export class HomeChartsService {
     const limit = Number(this.config.get<string>('HOME_CHARTS_LIMIT') ?? '20');
     const apiKey = this.tmdbKey();
 
-    const [popularMovie, popularTv, trendingMovie, trendingTv] =
+    const [popularMovieRaw, popularTvRaw, trendingMovieRaw, trendingTvRaw] =
       await Promise.all([
         this.fetchList('/movie/popular', apiKey, limit, 'movie'),
         this.fetchList('/tv/popular', apiKey, limit, 'tv'),
@@ -141,29 +142,31 @@ export class HomeChartsService {
         this.fetchTrending('/trending/tv/day', apiKey, limit, 'tv'),
       ]);
 
-    await Promise.all([
-      this.upsertSnapshot(HomeCollectionKey.POPULAR_MOVIE, popularMovie),
-      this.upsertSnapshot(HomeCollectionKey.POPULAR_TV, popularTv),
-      this.upsertSnapshot(HomeCollectionKey.TRENDING_MOVIE, trendingMovie),
-      this.upsertSnapshot(HomeCollectionKey.TRENDING_TV, trendingTv),
-    ]);
-
     const all = [
-      ...popularMovie,
-      ...popularTv,
-      ...trendingMovie,
-      ...trendingTv,
+      ...popularMovieRaw,
+      ...popularTvRaw,
+      ...trendingMovieRaw,
+      ...trendingTvRaw,
     ];
 
-    const uniq = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
+    const uniq = new Map<
+      string,
+      { mediaType: 'movie' | 'tv'; tmdbId: number }
+    >();
     for (const x of all) {
       const k = `${x.mediaType}:${x.tmdbId}`;
-      if (!uniq.has(k)) uniq.set(k, { mediaType: x.mediaType, tmdbId: x.tmdbId });
+      if (!uniq.has(k))
+        uniq.set(k, { mediaType: x.mediaType, tmdbId: x.tmdbId });
     }
 
-    await this.meta.resolveBatch(
-      [...uniq.values()],
-    );
+    await this.meta.resolveBatch([...uniq.values()]);
+
+    await Promise.all([
+      this.upsertSnapshot(HomeCollectionKey.POPULAR_MOVIE, popularMovieRaw),
+      this.upsertSnapshot(HomeCollectionKey.POPULAR_TV, popularTvRaw),
+      this.upsertSnapshot(HomeCollectionKey.TRENDING_MOVIE, trendingMovieRaw),
+      this.upsertSnapshot(HomeCollectionKey.TRENDING_TV, trendingTvRaw),
+    ]);
 
     this.invalidateChartsCache();
   }
@@ -186,15 +189,16 @@ export class HomeChartsService {
     const results = asArray(data['results']);
     const items: HomeChartItem[] = [];
 
-    for (let i = 0; i < Math.min(limit, results.length); i += 1) {
+    for (let i = 0; i < results.length && items.length < limit; i += 1) {
       const r = results[i];
       if (!isRecord(r)) continue;
+      if (isBlockedContentByPolicy(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
       items.push({
         mediaType,
         tmdbId: id,
-        rank: i + 1,
+        rank: items.length + 1,
         title: asString(r['title']) || undefined,
         name: asString(r['name']) || undefined,
         original_title: asString(r['original_title']) || undefined,
@@ -229,15 +233,16 @@ export class HomeChartsService {
     const results = asArray(data['results']);
     const items: HomeChartItem[] = [];
 
-    for (let i = 0; i < Math.min(limit, results.length); i += 1) {
+    for (let i = 0; i < results.length && items.length < limit; i += 1) {
       const r = results[i];
       if (!isRecord(r)) continue;
+      if (isBlockedContentByPolicy(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
       items.push({
         mediaType,
         tmdbId: id,
-        rank: i + 1,
+        rank: items.length + 1,
         title: asString(r['title']) || undefined,
         name: asString(r['name']) || undefined,
         original_title: asString(r['original_title']) || undefined,
@@ -259,21 +264,23 @@ export class HomeChartsService {
     items: HomeChartItem[],
   ): Promise<void> {
     // Prisma JSON 타입에 안전하게 들어가는 “순수 JSON”으로 변환
-    const jsonItems: Prisma.InputJsonValue = items.map((x) => ({
-      mediaType: x.mediaType,
-      tmdbId: x.tmdbId,
-      rank: x.rank,
-      title: x.title ?? null,
-      name: x.name ?? null,
-      original_title: x.original_title ?? null,
-      original_name: x.original_name ?? null,
-      overview: x.overview ?? null,
-      poster_path: x.poster_path ?? null,
-      backdrop_path: x.backdrop_path ?? null,
-      vote_average: x.vote_average ?? null,
-      release_date: x.release_date ?? null,
-      first_air_date: x.first_air_date ?? null,
-    }));
+    const jsonItems = items.map(
+      (x: HomeChartItem): Prisma.InputJsonObject => ({
+        mediaType: x.mediaType,
+        tmdbId: x.tmdbId,
+        rank: x.rank,
+        title: x.title ?? null,
+        name: x.name ?? null,
+        original_title: x.original_title ?? null,
+        original_name: x.original_name ?? null,
+        overview: x.overview ?? null,
+        poster_path: x.poster_path ?? null,
+        backdrop_path: x.backdrop_path ?? null,
+        vote_average: x.vote_average ?? null,
+        release_date: x.release_date ?? null,
+        first_air_date: x.first_air_date ?? null,
+      }),
+    ) as Prisma.InputJsonValue;
 
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 6);
 

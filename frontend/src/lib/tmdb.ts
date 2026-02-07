@@ -1,5 +1,4 @@
 // frontend/src/lib/tmdb.ts
-
 // ✅ 백엔드 API 주소 (Vite 환경변수 또는 로컬호스트)
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
@@ -207,31 +206,6 @@ async function fetchFromBackend<T>(
   }
 
   return (await res.json()) as T;
-}
-
-// =========================
-// ✅ 제목(한글) 필터링
-// =========================
-
-function getDisplayTitle(item: TMDBMovie): string {
-  return (
-    item.title ??
-    item.name ??
-    item.original_title ??
-    item.original_name ??
-    ""
-  ).trim();
-}
-
-function isKoreanTitle(item: TMDBMovie): boolean {
-  const t = getDisplayTitle(item);
-  if (!t) return false;
-  return /[가-힣]/.test(t);
-}
-
-function filterKoreanTitles(items: TMDBMovie[]): TMDBMovie[] {
-  if (!Array.isArray(items) || items.length === 0) return [];
-  return items.filter(isKoreanTitle);
 }
 
 // =========================
@@ -465,34 +439,6 @@ function normalizeListArg(arg?: number | ListOptions): Required<ListOptions> {
 }
 
 // =========================
-// ✅ 동시성 제한(OTT 판정용)
-// =========================
-
-async function promisePool<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (!items.length) return [];
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (true) {
-        const i = cursor++;
-        if (i >= items.length) break;
-        results[i] = await worker(items[i]);
-      }
-    },
-  );
-
-  await Promise.all(workers);
-  return results;
-}
-
-// =========================
 // ✅ 핵심: TV 결과를 항상 “UI 공통 포맷”으로 정규화
 // =========================
 
@@ -548,7 +494,7 @@ export async function discoverMovies(options: {
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
-  return filterKoreanTitles(base);
+  return base;
 }
 
 export async function getPopularMovies(
@@ -561,7 +507,7 @@ export async function getPopularMovies(
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
-  return filterKoreanTitles(base);
+  return base;
 }
 
 export async function getTopRatedMovies(
@@ -574,7 +520,7 @@ export async function getTopRatedMovies(
   );
 
   const base = (data.results || []).map((m) => normalizeMovieResult(m));
-  return filterKoreanTitles(base);
+  return base;
 }
 
 export async function getNowPlayingMovies(
@@ -591,8 +537,7 @@ export async function getNowPlayingMovies(
     isNowPlaying: true,
   }));
 
-  const filtered = filterKoreanTitles(base);
-  return await removeNowPlayingForOttOnly(filtered, opt.region);
+  return base;
 }
 
 export async function getPopularTVShows(
@@ -605,7 +550,7 @@ export async function getPopularTVShows(
   );
 
   const base = (data.results || []).map((tv) => normalizeTvResult(tv));
-  return filterKoreanTitles(base);
+  return base;
 }
 
 export async function getMovieDetails(
@@ -682,77 +627,6 @@ export type ProviderBadge = {
 
 const _providersCache = new Map<string, ProviderBadge[]>();
 const _ageCache = new Map<string, string>();
-
-/** OTT 전용이면 "상영중" 제거 (KR 기준 theatrical 타입이 없고 digital만 있는 경우) */
-const _ottOnlyCache = new Map<string, boolean>();
-const _ottOnlyInFlight = new Map<string, Promise<boolean>>();
-
-async function isOttOnlyMovie(
-  id: number,
-  region: string = DEFAULT_REGION,
-): Promise<boolean> {
-  const key = `${id}:${region}`;
-  if (_ottOnlyCache.has(key)) return _ottOnlyCache.get(key)!;
-  const inflight = _ottOnlyInFlight.get(key);
-  if (inflight) return inflight;
-
-  const p = (async () => {
-    const json = await tmdbDirectFetch(`/movie/${id}/release_dates`);
-    const results = Array.isArray(json?.results) ? json.results : [];
-    const block = results.find((r: any) => r?.iso_3166_1 === region);
-    const dates = Array.isArray(block?.release_dates)
-      ? block.release_dates
-      : [];
-
-    const types: number[] = dates
-      .map((d: any) => d?.type)
-      .filter((t: any) => typeof t === "number");
-
-    const hasTheatrical = types.some((t) => t === 2 || t === 3);
-    const hasDigital = types.some((t) => t === 4);
-
-    const ottOnly = !hasTheatrical && hasDigital;
-    _ottOnlyCache.set(key, ottOnly);
-    return ottOnly;
-  })()
-    .catch(() => {
-      _ottOnlyCache.set(key, false);
-      return false;
-    })
-    .finally(() => {
-      _ottOnlyInFlight.delete(key);
-    });
-
-  _ottOnlyInFlight.set(key, p);
-  return p;
-}
-
-async function removeNowPlayingForOttOnly(
-  items: TMDBMovie[],
-  region: string = DEFAULT_REGION,
-): Promise<TMDBMovie[]> {
-  if (!TMDB_API_KEY) return items;
-  const targets = items.filter(
-    (m) => m?.media_type !== "tv" && m?.isNowPlaying === true,
-  );
-  if (!targets.length) return items;
-
-  const ids = targets.map((m) => m.id);
-  const results = await promisePool(
-    ids,
-    6,
-    async (id) => [id, await isOttOnlyMovie(id, region)] as const,
-  );
-
-  const ottMap = new Map<number, boolean>(results);
-
-  return items.map((m) => {
-    if (m?.media_type === "tv" || m?.isNowPlaying !== true) return m;
-    const ottOnly = ottMap.get(m.id);
-    if (ottOnly) return { ...m, isNowPlaying: false };
-    return m;
-  });
-}
 
 /** OTT Providers (KR) */
 export async function getWatchProviders(

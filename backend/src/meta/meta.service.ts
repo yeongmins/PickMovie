@@ -900,7 +900,8 @@ export class MetaService {
         theatricalOriginal: null,
         theatricalRerun: null,
         hasMultipleTheatrical: false,
-        hidden: false,
+        // ✅ TV는 KR watch providers가 없으면 무조건 제외
+        hidden: !hasOttProviders,
       };
     }
 

@@ -153,7 +153,6 @@ export class TmdbController {
     }
 
     if (!path) throw new BadRequestException('Invalid proxy path');
-
     return this.tmdb.proxy(path, toTmdbQuery(raw));
   }
 }

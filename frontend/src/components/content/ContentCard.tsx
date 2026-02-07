@@ -6,7 +6,6 @@ import { getPosterUrl } from "../../lib/tmdb";
 import type { ContentCardProps } from "./contentCard.types";
 import {
   getDisplayTitle,
-  isKoreanTitle,
   isLoggedInFallback,
 } from "./contentCard.utils";
 import { AgeBadge, Chip, ProviderBadges } from "./contentCard.ui";
@@ -95,9 +94,8 @@ export function ContentCard({
   onPosterError,
   className,
   canFavorite,
+  showRecommendReason = false,
 }: ContentCardProps) {
-  if (!isKoreanTitle(item)) return null;
-
   const { ref: cardRef, inView } = useInViewOnce<HTMLDivElement>({
     rootMargin: "300px",
     threshold: 0.01,
@@ -299,7 +297,7 @@ export function ContentCard({
           {title}
         </div>
 
-        {(item as any).recommendReason && (
+        {showRecommendReason && (item as any).recommendReason && (
           <div className="mt-1 text-[11px] text-white/55 line-clamp-1">
             {(item as any).recommendReason}
           </div>

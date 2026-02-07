@@ -28,12 +28,6 @@ export function getDisplayTitle(item: ContentCardItem) {
   );
 }
 
-export function isKoreanTitle(item: ContentCardItem): boolean {
-  const t = String(getDisplayTitle(item) || "").trim();
-  if (!t || t === "제목 정보 없음") return false;
-  return /[가-힣]/.test(t);
-}
-
 export function inferMediaType(item: ContentCardItem): MediaType {
   if (item.media_type === "tv") return "tv";
   if (item.media_type === "movie") return "movie";

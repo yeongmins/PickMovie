@@ -20,6 +20,7 @@ import {
   inferPickySignals,
 } from './picky.lexicon';
 import { expandWithLexicon } from './picky.query';
+import { isBlockedContentByPolicy } from '../common/content-policy';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1008,6 +1009,7 @@ export class PickyService {
       for (const it of [...searchCands, ...discoverCands]) {
         const id: unknown = it.id;
         if (!isNumber(id)) continue;
+        if (isBlockedContentByPolicy(it)) continue;
         const key = `${it.mediaType}:${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -1023,7 +1025,7 @@ export class PickyService {
           includeAdult,
           source: 'retry',
         });
-        merged.push(...retry);
+        merged.push(...retry.filter((it) => !isBlockedContentByPolicy(it)));
       }
 
       // ✅ 7) 점수화 토큰/부정 토큰 구성
@@ -1100,7 +1102,6 @@ export class PickyService {
 
         return item;
       });
-
       return { items: enriched };
     } catch (e: unknown) {
       this.logger.error(

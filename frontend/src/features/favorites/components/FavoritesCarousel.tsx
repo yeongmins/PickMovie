@@ -544,7 +544,7 @@ function FavoritesCarouselInner(
                   <>
                     <Sparkles className="w-5 h-5 text-purple-300" />
                     <span className="text-purple-300 text-sm font-semibold">
-                      오늘의 PickMovie 인기 차트
+                      PickMovie 인기 차트
                     </span>
                     {typeof (currentMovie as any).trendRank === "number" && (
                       <div className="ml-2">

@@ -11,6 +11,7 @@ import { firstValueFrom } from 'rxjs';
 import { KobisService } from '../kobis/kobis.service';
 import { ScreeningService } from './screening.service';
 import { MemoryCache } from '../common/memoryCache';
+import { isBlockedContentByPolicy } from '../common/content-policy';
 
 import type { TmdbMovieResult, TmdbMultiResult } from './tmdb.types';
 
@@ -199,6 +200,19 @@ export class TmdbService {
     return { page, results, total_pages, total_results };
   }
 
+  private applyContentPolicyToPaged<T>(
+    paged: TmdbPagedResponse<T>,
+  ): TmdbPagedResponse<T> {
+    const filtered = paged.results.filter(
+      (item) => !isBlockedContentByPolicy(item),
+    );
+    return {
+      ...paged,
+      results: filtered,
+      total_results: filtered.length,
+    };
+  }
+
   /* =========================
      ✅ Controllers 호환: proxy / images / videos / similar / discover / search
   ========================= */
@@ -264,12 +278,12 @@ export class TmdbService {
       page,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async discoverMovies(query: TmdbQuery): Promise<TmdbPagedResponse<unknown>> {
     const raw = await this.tmdbGetOrNull<unknown>('/discover/movie', query);
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async searchMovie(params: {
@@ -290,7 +304,9 @@ export class TmdbService {
       year: params.year,
       primary_release_year: params.primaryReleaseYear,
     });
-    return this.normalizePaged<TmdbMovieResult>(raw);
+    return this.applyContentPolicyToPaged(
+      this.normalizePaged<TmdbMovieResult>(raw),
+    );
   }
 
   async multiSearch(params: {
@@ -307,7 +323,9 @@ export class TmdbService {
       region: params.region ?? 'KR',
       include_adult: params.includeAdult ?? false,
     });
-    return this.normalizePaged<TmdbMultiResult>(raw);
+    return this.applyContentPolicyToPaged(
+      this.normalizePaged<TmdbMultiResult>(raw),
+    );
   }
 
   /** ✅ movies.controller 가 찾는 이름 그대로 제공 */
@@ -331,7 +349,7 @@ export class TmdbService {
       region,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async getTopRatedMovies(page = 1, region = 'KR', language = 'ko-KR') {
@@ -340,7 +358,7 @@ export class TmdbService {
       region,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async getNowPlayingMovies(page = 1, region = 'KR', language = 'ko-KR') {
@@ -349,7 +367,7 @@ export class TmdbService {
       region,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async getUpcomingMovies(page = 1, region = 'KR', language = 'ko-KR') {
@@ -358,7 +376,7 @@ export class TmdbService {
       region,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async getPopularTVShows(page = 1, language = 'ko-KR') {
@@ -366,15 +384,23 @@ export class TmdbService {
       page,
       language,
     });
-    return this.normalizePaged<unknown>(raw);
+    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
   }
 
   async getMovieDetails(id: number, language = 'ko-KR'): Promise<unknown> {
-    return await this.tmdbGetOrNull<unknown>(`/movie/${id}`, { language });
+    const detail = await this.tmdbGetOrNull<unknown>(`/movie/${id}`, {
+      language,
+    });
+    if (isBlockedContentByPolicy(detail)) return null;
+    return detail;
   }
 
   async getTVDetails(id: number, language = 'ko-KR'): Promise<unknown> {
-    return await this.tmdbGetOrNull<unknown>(`/tv/${id}`, { language });
+    const detail = await this.tmdbGetOrNull<unknown>(`/tv/${id}`, {
+      language,
+    });
+    if (isBlockedContentByPolicy(detail)) return null;
+    return detail;
   }
 
   /* =========================

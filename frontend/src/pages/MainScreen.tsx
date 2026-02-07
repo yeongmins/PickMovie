@@ -16,17 +16,15 @@ import { PageFooter } from "../components/layout/Footer";
 import type { UserPreferences } from "../features/onboarding/Onboarding";
 import type { FavoriteItem } from "../App";
 
-import { apiGet } from "../lib/apiClient";
+import { apiGet, apiPost } from "../lib/apiClient";
 import { AUTH_EVENT, isLoggedInFallback } from "../lib/auth";
 import {
   getPopularMovies,
   getPopularTVShows,
   getTopRatedMovies,
   getNowPlayingMovies,
-  discoverMovies,
   calculateMatchScore,
   normalizeTVToMovie,
-  GENRE_IDS,
   type TMDBMovie,
 } from "../lib/tmdb";
 
@@ -130,6 +128,72 @@ function unwrapList<T = any>(v: any): T[] {
 const NEW_USER_FLAG = "pickmovie_new_signup";
 const ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
 const KR = { region: "KR", language: "ko-KR" } as const;
+const PICK_REASON_TREND = "PickMovie 트렌드를 반영한 추천";
+
+type TrendSignalItem = {
+  rank: number;
+  score: number;
+};
+
+function trendRankTo01(rank?: number): number {
+  if (!Number.isFinite(rank as number)) return 0;
+  const r = Math.max(1, Math.min(100, Number(rank)));
+  return (101 - r) / 100;
+}
+
+function buildTrendBoostedList(
+  items: TMDBMovie[],
+  opts: {
+    mediaType: MediaType;
+    movieTrendMap: Record<number, TrendSignalItem>;
+    tvTrendRankMap: Record<number, number>;
+    reason: string;
+    extraNowPlayingBoost?: boolean;
+    trendWeight?: number;
+    qualityWeight?: number;
+  },
+): TMDBMovie[] {
+  const trendWeight = Number.isFinite(opts.trendWeight)
+    ? Number(opts.trendWeight)
+    : 0.82;
+  const qualityWeight = Number.isFinite(opts.qualityWeight)
+    ? Number(opts.qualityWeight)
+    : 0.1;
+
+  const scored = items.map((m) => {
+    const id = Number((m as any)?.id);
+    const movieTrend = opts.movieTrendMap[id];
+    const tvRank = opts.tvTrendRankMap[id];
+
+    const trend01 =
+      opts.mediaType === "movie"
+        ? movieTrend
+          ? 0.75 * trendRankTo01(movieTrend.rank) +
+            0.25 * Math.max(0, Math.min(1, (movieTrend.score || 0) / 2.5))
+          : 0
+        : trendRankTo01(tvRank);
+
+    const quality01 = Math.max(
+      0,
+      Math.min(1, ((Number((m as any)?.vote_average) || 0) - 5) / 5),
+    );
+
+    const status01 =
+      opts.extraNowPlayingBoost && (m as any)?.isNowPlaying ? 0.12 : 0;
+
+    const pickScore =
+      trendWeight * trend01 + qualityWeight * quality01 + status01;
+    return {
+      ...(m as any),
+      media_type: (m as any)?.media_type ?? opts.mediaType,
+      recommendReason: opts.reason,
+      _pickScore: pickScore,
+    };
+  });
+
+  scored.sort((a: any, b: any) => (b._pickScore ?? 0) - (a._pickScore ?? 0));
+  return scored.map(({ _pickScore, ...rest }: any) => rest as TMDBMovie);
+}
 
 /**
  * ✅ 동시성 제한 (기존 UI 유지, 폭주 방지)
@@ -153,15 +217,6 @@ async function pMapLimit<T, R>(
 
   await Promise.all(workers);
   return out;
-}
-
-function extractGenreIdsFromAny(item: any): number[] {
-  const a = Array.isArray(item?.genre_ids) ? item.genre_ids : [];
-  const b = Array.isArray(item?.genres)
-    ? item.genres.map((g: any) => g?.id).filter((x: any) => Number.isFinite(x))
-    : [];
-  const merged = [...a, ...b].filter((x) => typeof x === "number" && x > 0);
-  return Array.from(new Set(merged));
 }
 
 function RowHeader({
@@ -307,10 +362,16 @@ export function MainScreen({
 
   const [forYouMovies, setForYouMovies] = useState<TMDBMovie[]>([]);
   const [forYouLoading, setForYouLoading] = useState(false);
-  const forYouOnceRef = useRef(false);
+  const forYouRequestSigRef = useRef<string>("");
 
   const [trendMoviesRaw, setTrendMoviesRaw] = useState<TMDBMovie[]>([]);
   const [trendLoading, setTrendLoading] = useState(false);
+  const [movieTrendMap, setMovieTrendMap] = useState<
+    Record<number, TrendSignalItem>
+  >({});
+  const [tvTrendRankMap, setTvTrendRankMap] = useState<Record<number, number>>(
+    {},
+  );
 
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
@@ -330,13 +391,57 @@ export function MainScreen({
 
   const favoriteIdList = useMemo(() => favorites.map((f) => f.id), [favorites]);
 
+  const popularMoviesPick = useMemo(
+    () =>
+      buildTrendBoostedList(popularMovies, {
+        mediaType: "movie",
+        movieTrendMap,
+        tvTrendRankMap,
+        reason: PICK_REASON_TREND,
+      }),
+    [popularMovies, movieTrendMap, tvTrendRankMap],
+  );
+
+  const popularTvPick = useMemo(
+    () =>
+      buildTrendBoostedList(popularTV, {
+        mediaType: "tv",
+        movieTrendMap,
+        tvTrendRankMap,
+        reason: PICK_REASON_TREND,
+      }),
+    [popularTV, movieTrendMap, tvTrendRankMap],
+  );
+
+  const latestMoviesPick = useMemo(
+    () =>
+      buildTrendBoostedList(latestMovies, {
+        mediaType: "movie",
+        movieTrendMap,
+        tvTrendRankMap,
+        reason: "PickMovie 트렌드와 상영 상태를 반영한 추천",
+        extraNowPlayingBoost: true,
+        trendWeight: 0.95,
+        qualityWeight: 0.04,
+      }),
+    [latestMovies, movieTrendMap, tvTrendRankMap],
+  );
+
   const fetchDetailCached = useCallback(
-    async (mediaType: MediaType, id: number) => {
-      const key = `${mediaType}:${id}`;
+    async (
+      mediaType: MediaType,
+      id: number,
+      opts?: { policyBypass?: "boxoffice" },
+    ) => {
+      const bypass = opts?.policyBypass ? `:${opts.policyBypass}` : "";
+      const key = `${mediaType}:${id}${bypass}`;
       const cached = detailCacheRef.current.get(key);
       if (cached) return cached;
 
-      const d = await apiGet<any>(`/tmdb/proxy/${mediaType}/${id}`, KR);
+      const d = await apiGet<any>(`/tmdb/proxy/${mediaType}/${id}`, {
+        ...KR,
+        ...(opts?.policyBypass ? { policyBypass: opts.policyBypass } : {}),
+      });
       if (d) detailCacheRef.current.set(key, d);
       return d;
     },
@@ -421,33 +526,86 @@ export function MainScreen({
   }, []);
 
   const loadAnonHeroTop10 = useCallback(async () => {
-    if (loggedIn || currentSection !== "home") return;
+    if (currentSection !== "home") return;
 
     setAnonHeroLoading(true);
     try {
-      const charts = await loadHomeChartsSnapshot();
+      const r = await apiGet<{
+        items?: Array<{
+          tmdbId: number | null;
+          mediaType?: "movie" | "tv" | "anime";
+          tmdbType?: "movie" | "tv" | null;
+          rank: number;
+          score: number;
+        }>;
+      }>("/trends/kr", { limit: 20 });
 
-      const items =
+      const items = Array.isArray(r?.items) ? r.items : [];
+      const targets = items
+        .filter((x) => typeof x.tmdbId === "number" && x.tmdbId)
+        .slice(0, 10);
+
+      const details = await pMapLimit(
+        targets,
+        6,
+        async (it): Promise<any | null> => {
+          try {
+            const type: MediaType =
+              it.tmdbType === "tv"
+                ? "tv"
+                : it.tmdbType === "movie"
+                  ? "movie"
+                  : it.mediaType === "tv"
+                    ? "tv"
+                    : "movie";
+            const d = await fetchDetailCached(type, it.tmdbId as number);
+            if (!d) return null;
+            return {
+              ...(d as any),
+              media_type: type,
+              trendRank: it.rank,
+              trendScore: it.score,
+              recommendReason: PICK_REASON_TREND,
+            } as any;
+          } catch {
+            return null;
+          }
+        },
+      );
+
+      const picked = details.filter(Boolean) as any[];
+      if (picked.length > 0) {
+        setAnonHeroMovies(picked as any);
+        return;
+      }
+
+      const charts = await loadHomeChartsSnapshot();
+      const snapshotItems =
         charts?.collections?.find((c) => c.key === "TRENDING_MOVIE")?.items ??
         charts?.collections?.find((c) => c.key === "POPULAR_MOVIE")?.items ??
         [];
-
       const hydrated =
-        items.length > 0 ? await hydrateSnapshotItems(items.slice(0, 10)) : [];
+        snapshotItems.length > 0
+          ? await hydrateSnapshotItems(snapshotItems.slice(0, 10))
+          : [];
 
-      // ✅ 완전 실패 시: 화면은 깨지지 않게 TMDB 인기 영화로 대체(Top10)
-      if (!hydrated.length) {
-        const fallback = popularMovies.slice(0, 10).map((m) => ({
-          ...(m as any),
-          media_type: "movie",
-          trendRank: undefined,
-        }));
-        setAnonHeroMovies(fallback as any);
-      } else {
-        setAnonHeroMovies(hydrated as any);
+      if (hydrated.length > 0) {
+        setAnonHeroMovies(
+          hydrated.map((x) => ({
+            ...(x as any),
+            recommendReason: PICK_REASON_TREND,
+          })) as any,
+        );
+        return;
       }
+
+      const fallback = popularMoviesPick.slice(0, 10).map((m) => ({
+        ...(m as any),
+        media_type: "movie",
+      }));
+      setAnonHeroMovies(fallback as any);
     } catch {
-      const fallback = popularMovies.slice(0, 10).map((m) => ({
+      const fallback = popularMoviesPick.slice(0, 10).map((m) => ({
         ...(m as any),
         media_type: "movie",
       }));
@@ -456,11 +614,11 @@ export function MainScreen({
       setAnonHeroLoading(false);
     }
   }, [
-    loggedIn,
     currentSection,
+    fetchDetailCached,
     loadHomeChartsSnapshot,
     hydrateSnapshotItems,
-    popularMovies,
+    popularMoviesPick,
   ]);
 
   const loadRealBoxOfficeTop10 = useCallback(async () => {
@@ -565,7 +723,9 @@ export function MainScreen({
         6,
         async (it): Promise<any | null> => {
           try {
-            const d = await fetchDetailCached("movie", it.tmdbId);
+            const d = await fetchDetailCached("movie", it.tmdbId, {
+              policyBypass: "boxoffice",
+            });
             if (!d) return null;
             return {
               ...(d as any),
@@ -736,18 +896,12 @@ export function MainScreen({
     void loadRealBoxOfficeTop10();
   }, [loadRealBoxOfficeTop10]);
 
-  // ✅ 로그인 시 트렌드 로드
+  // ✅ 트렌드 로드: PickMovie 인기차트 + 섹션 보정용 시그널 생성
   useEffect(() => {
     if (currentSection !== "home") return;
 
-    if (!loggedIn) {
-      setTrendMoviesRaw([]);
-      setTrendLoading(false);
-      return;
-    }
-
     let mounted = true;
-    setTrendLoading(true);
+    if (loggedIn) setTrendLoading(true);
 
     (async () => {
       try {
@@ -756,12 +910,41 @@ export function MainScreen({
           items: Array<{
             tmdbId: number | null;
             keyword: string;
+            mediaType?: "movie" | "tv" | "anime";
+            tmdbType?: "movie" | "tv" | null;
             rank: number;
             score: number;
           }>;
         }>("/trends/kr", { limit: 20 });
 
         const items = Array.isArray(r?.items) ? r.items : [];
+        const movieSignal: Record<number, TrendSignalItem> = {};
+        const tvSignal: Record<number, number> = {};
+        for (const it of items) {
+          if (typeof it?.tmdbId !== "number" || !it.tmdbId) continue;
+          const type =
+            it.tmdbType === "tv"
+              ? "tv"
+              : it.tmdbType === "movie"
+                ? "movie"
+                : it.mediaType === "tv"
+                  ? "tv"
+                  : "movie";
+          if (type === "tv") {
+            tvSignal[it.tmdbId] = Number(it.rank) || 999;
+          } else {
+            movieSignal[it.tmdbId] = {
+              rank: Number(it.rank) || 999,
+              score: Number(it.score) || 0,
+            };
+          }
+        }
+
+        if (mounted) {
+          setMovieTrendMap(movieSignal);
+          setTvTrendRankMap(tvSignal);
+        }
+
         const targets = items
           .filter((x) => typeof x.tmdbId === "number" && x.tmdbId)
           .slice(0, 20);
@@ -771,13 +954,22 @@ export function MainScreen({
           6,
           async (it): Promise<any | null> => {
             try {
-              const d = await fetchDetailCached("movie", it.tmdbId as number);
+              const type: MediaType =
+                it.tmdbType === "tv"
+                  ? "tv"
+                  : it.tmdbType === "movie"
+                    ? "movie"
+                    : it.mediaType === "tv"
+                      ? "tv"
+                      : "movie";
+              const d = await fetchDetailCached(type, it.tmdbId as number);
               if (!d) return null;
               return {
                 ...(d as any),
-                media_type: "movie",
+                media_type: type,
                 trendRank: it.rank,
                 trendScore: it.score,
+                recommendReason: PICK_REASON_TREND,
               } as any;
             } catch {
               return null;
@@ -794,109 +986,91 @@ export function MainScreen({
                 )?.items ?? []) as any,
               );
 
+        const charts = await loadHomeChartsSnapshot();
+        if (mounted && Object.keys(tvSignal).length === 0) {
+          const tvItems =
+            charts?.collections?.find((c) => c.key === "TRENDING_TV")?.items ??
+            [];
+          const tvMap: Record<number, number> = {};
+          for (const tv of tvItems) {
+            if (typeof tv?.tmdbId !== "number") continue;
+            tvMap[tv.tmdbId] = Number(tv.rank) || 999;
+          }
+          setTvTrendRankMap(tvMap);
+        }
+
         if (!mounted) return;
-        setTrendMoviesRaw(picked as any);
+        if (loggedIn) {
+          setTrendMoviesRaw(
+            (picked as any[]).map((x) => ({
+              ...(x as any),
+              recommendReason: (x as any)?.recommendReason ?? PICK_REASON_TREND,
+            })) as any,
+          );
+        }
       } catch {
-        if (mounted) setTrendMoviesRaw([]);
+        if (mounted) {
+          if (loggedIn) setTrendMoviesRaw([]);
+          setMovieTrendMap({});
+          setTvTrendRankMap({});
+        }
       } finally {
-        if (mounted) setTrendLoading(false);
+        if (mounted && loggedIn) setTrendLoading(false);
       }
     })();
 
     return () => {
       mounted = false;
     };
-  }, [currentSection, loggedIn, fetchDetailCached, hydrateSnapshotItems]);
+  }, [
+    currentSection,
+    loggedIn,
+    fetchDetailCached,
+    hydrateSnapshotItems,
+    loadHomeChartsSnapshot,
+  ]);
 
-  // ✅ 로그인+찜 충분할 때 forYou 생성
+  // ✅ for-you는 백엔드에서 전부 계산, 프론트는 결과 렌더링만 담당
   useEffect(() => {
-    if (forYouOnceRef.current) return;
     if (!loggedIn || currentSection !== "home") return;
 
     const MIN_FAV = 5;
-    if (favorites.length < MIN_FAV || favoriteMovies.length < 1) return;
+    if (favorites.length < MIN_FAV) return;
+
+    const requestSig = JSON.stringify({
+      fav: favorites
+        .map((x) => `${x.mediaType}:${x.id}`)
+        .sort()
+        .join(","),
+      prefGenres: (userPreferences?.genres || []).slice().sort().join(","),
+      prefReleaseYear: userPreferences?.releaseYear ?? "",
+    });
+    if (forYouRequestSigRef.current === requestSig) return;
 
     let mounted = true;
     setForYouLoading(true);
-    forYouOnceRef.current = true;
+    forYouRequestSigRef.current = requestSig;
 
     (async () => {
       try {
-        const counts = new Map<number, number>();
-        for (const f of favoriteMovies) {
-          const ids = extractGenreIdsFromAny(f);
-          for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
-        }
-
-        const prefIds = (userPreferences?.genres || [])
-          .map((g) => GENRE_IDS[g])
-          .filter(Boolean) as number[];
-
-        const topFromFav = Array.from(counts.entries())
-          .sort((a, b) => b[1] - a[1])
-          .map(([id]) => id)
-          .slice(0, 5);
-
-        const seedGenreIds = Array.from(
-          new Set([...topFromFav, ...prefIds]),
-        ).slice(0, 6);
-
-        if (!seedGenreIds.length) {
-          if (mounted) setForYouMovies([]);
-          return;
-        }
-
-        const [p1, p2] = await Promise.all([
-          discoverMovies({ genres: seedGenreIds, page: 1, ...KR }),
-          discoverMovies({ genres: seedGenreIds, page: 2, ...KR }),
-        ]);
-
-        const pool = [...(p1 || []), ...(p2 || [])];
-
-        const seen = new Set<number>();
-        const favMovieIds = new Set(
-          favorites.filter((x) => x.mediaType === "movie").map((x) => x.id),
+        const res = await apiPost<{ items?: TMDBMovie[] }>(
+          "/auth/recommendations/for-you",
+          {
+            limit: 20,
+            region: "KR",
+            language: "ko-KR",
+            preferences: {
+              genres: userPreferences?.genres || [],
+              releaseYear: userPreferences?.releaseYear || "",
+            },
+          },
+          { timeoutMs: 12000, retry: 1, retryDelayMs: 180 },
         );
-
-        const candidates = pool
-          .filter((m) => m && typeof (m as any).id === "number")
-          .filter((m) => !favMovieIds.has((m as any).id))
-          .filter((m) => {
-            const id = (m as any).id;
-            if (seen.has(id)) return false;
-            seen.add(id);
-            return true;
-          })
-          .map((m) => ({ ...(m as any), media_type: "movie" })) as any[];
-
-        const favGenreSet = new Set<number>();
-        for (const f of favoriteMovies) {
-          extractGenreIdsFromAny(f).forEach((id) => favGenreSet.add(id));
-        }
-
-        const scored = candidates
-          .map((m: any) => {
-            const base = calculateMatchScore(m as TMDBMovie, userPreferences);
-            const gids = extractGenreIdsFromAny(m);
-            const overlap =
-              gids.length > 0
-                ? gids.filter((id) => favGenreSet.has(id)).length / gids.length
-                : 0;
-
-            const boosted = Math.max(0, Math.min(99, base + overlap * 20));
-
-            return {
-              ...(m as any),
-              matchScore: boosted,
-              showMatchBadge: true,
-              recommendReason: "내 찜/플레이리스트 기반 생성",
-            };
-          })
-          .sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
-          .slice(0, 20);
-
-        if (mounted) setForYouMovies(scored);
+        if (!mounted) return;
+        const items = Array.isArray(res?.items) ? res.items : [];
+        setForYouMovies(items as any);
       } catch {
+        forYouRequestSigRef.current = "";
         if (mounted) setForYouMovies([]);
       } finally {
         if (mounted) setForYouLoading(false);
@@ -906,7 +1080,7 @@ export function MainScreen({
     return () => {
       mounted = false;
     };
-  }, [loggedIn, currentSection, favorites, favoriteMovies, userPreferences]);
+  }, [loggedIn, currentSection, favorites, userPreferences]);
 
   const openContentDetail = useCallback(
     (movie: any) => {
@@ -1079,6 +1253,7 @@ export function MainScreen({
                           }
                           onMovieClick={openContentDetail as any}
                           showMatchScore
+                          showRecommendReason
                         />
                       </Suspense>
                     )}
@@ -1089,8 +1264,8 @@ export function MainScreen({
                   <>
                     <RowHeader
                       className="mt-5"
-                      title="PickMovie 인기 영화"
-                      desc="PickMovie의 알고리즘을 적용한 인기 영화입니다."
+                      title="PickMovie 인기 차트"
+                      desc="PickMovie 트렌드 점수를 반영한 인기 차트입니다."
                     />
 
                     {trendLoading ? (
@@ -1127,12 +1302,12 @@ export function MainScreen({
                 <RowHeader
                   className="mt-5"
                   title="인기 영화"
-                  desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 영화입니다."
+                  desc="TMDB에서 많이 찾고 있는 영화들을 한눈에 모아봤어요."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <ContentRow
                     title=""
-                    movies={popularMovies as any}
+                    movies={popularMoviesPick as any}
                     favorites={favoriteIdList}
                     favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>
@@ -1145,12 +1320,12 @@ export function MainScreen({
                 <RowHeader
                   className="mt-5"
                   title="인기 TV 프로그램"
-                  desc="TMDB 인기 지표를 기반으로 한국 지역에서 많이 보는 TV 콘텐츠입니다."
+                  desc="요즘 TMDB에서 반응 좋은 TV 프로그램을 중심으로 보여드립니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <ContentRow
                     title=""
-                    movies={popularTV as any}
+                    movies={popularTvPick as any}
                     favorites={favoriteIdList}
                     favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>
@@ -1163,12 +1338,12 @@ export function MainScreen({
                 <RowHeader
                   className="mt-5"
                   title="최신 개봉작"
-                  desc="현재 상영 중 / 재개봉 중인 작품입니다."
+                  desc="TMDB 기준으로 최근 공개된 작품들 중 지금 보기 좋은 타이틀을 담았습니다."
                 />
                 <Suspense fallback={<div className="h-40" />}>
                   <ContentRow
                     title=""
-                    movies={latestMovies as any}
+                    movies={latestMoviesPick as any}
                     favorites={favoriteIdList}
                     favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>
@@ -1248,7 +1423,7 @@ export function MainScreen({
                 <Suspense fallback={<div className="h-40" />}>
                   <ContentRow
                     title="인기 영화"
-                    movies={popularMovies as any}
+                    movies={popularMoviesPick as any}
                     favorites={favoriteIdList}
                     favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>
@@ -1278,7 +1453,7 @@ export function MainScreen({
                 <Suspense fallback={<div className="h-40" />}>
                   <ContentRow
                     title="인기 TV 프로그램"
-                    movies={popularTV as any}
+                    movies={popularTvPick as any}
                     favorites={favoriteIdList}
                     favoriteKeySet={favoriteKeySet}
                     onToggleFavorite={(id: number, type?: MediaType) =>

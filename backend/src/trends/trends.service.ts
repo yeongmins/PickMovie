@@ -17,13 +17,15 @@ import { TmdbService } from '../tmdb/tmdb.service';
 import type { TmdbMovieResult } from '../tmdb/tmdb.types';
 
 type TrendSource = 'kobis' | 'youtube' | 'naver' | 'netflix';
+type ResponseTrendSource = TrendSource | 'tmdb';
 type TrendMediaType = 'movie' | 'tv' | 'anime' | 'unknown';
 
 type RankedTrendItem = {
   id: number;
   keyword: string;
-  source: TrendSource;
+  source: ResponseTrendSource;
   mediaType: TrendMediaType;
+  tmdbType: 'movie' | 'tv' | null;
   rank: number;
   score: number;
   tmdbId: number | null;
@@ -134,6 +136,11 @@ function normTitle(s: string): string {
     .replace(/[~`!@#$%^&*()_+\-={}[\]|\\:;"'<>,.?/·•…：]/g, '');
 }
 
+function isBlockedTrendKeyword(keyword: string): boolean {
+  void keyword;
+  return false;
+}
+
 function yearFromReleaseDate(v?: string): number | null {
   if (!v) return null;
   const m = /^(\d{4})-\d{2}-\d{2}$/.exec(v);
@@ -238,23 +245,192 @@ export class TrendsService {
       },
     });
 
+    const safeRows = (rows as Row[]).filter(
+      (r) => !isBlockedTrendKeyword(r.seed.keyword),
+    );
+
+    const movieSeedItems: RankedTrendItem[] = safeRows.map((r, idx) => ({
+      id: r.seed.id,
+      keyword: r.seed.keyword,
+      source: r.seed.source as TrendSource,
+      mediaType: r.seed.mediaType as TrendMediaType,
+      tmdbType: 'movie',
+      rank: idx + 1,
+      score: r.score,
+      tmdbId: r.seed.tmdbId!,
+      year: r.seed.year ?? null,
+      topicId: r.seed.topicId ?? null,
+      topicTitle: r.seed.topic?.canonicalTitle ?? null,
+    }));
+
+    const extras = await this.fetchExtendedTrendsFromTmdb(
+      Math.max(limit, 30),
+      movieSeedItems[0]?.score ?? 1,
+    );
+
+    const merged = new Map<string, RankedTrendItem>();
+    for (const it of [...movieSeedItems, ...extras]) {
+      const key = `${it.tmdbType ?? 'none'}:${it.tmdbId ?? 0}`;
+      const prev = merged.get(key);
+      if (!prev || it.score > prev.score) merged.set(key, it);
+    }
+
+    const finalItems = Array.from(merged.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((it, idx) => ({ ...it, rank: idx + 1 }));
+
     return {
       date,
-      items: (rows as Row[]).map((r, idx) => ({
-        id: r.seed.id,
-        keyword: r.seed.keyword,
-        source: r.seed.source as TrendSource,
-        mediaType: r.seed.mediaType as TrendMediaType,
-
-        rank: idx + 1, // ✅ 여기서 “연속 랭크”로 재부여 (6 다음이 7로 내려감)
-
-        score: r.score,
-        tmdbId: r.seed.tmdbId!, // not null 조건이라 항상 존재
-        year: r.seed.year ?? null,
-        topicId: r.seed.topicId ?? null,
-        topicTitle: r.seed.topic?.canonicalTitle ?? null,
-      })),
+      items: finalItems,
     };
+  }
+
+  private asRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === 'object' && v !== null;
+  }
+
+  private getResults(raw: unknown): Array<Record<string, unknown>> {
+    if (!this.asRecord(raw)) return [];
+    const arr = raw.results;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((x): x is Record<string, unknown> => this.asRecord(x));
+  }
+
+  private getDisplayNameFromTmdbRow(row: Record<string, unknown>): string {
+    const title = typeof row.title === 'string' ? row.title : '';
+    const name = typeof row.name === 'string' ? row.name : '';
+    const originalTitle =
+      typeof row.original_title === 'string' ? row.original_title : '';
+    const originalName =
+      typeof row.original_name === 'string' ? row.original_name : '';
+    return (title || name || originalTitle || originalName).trim();
+  }
+
+  private getGenreIdsFromTmdbRow(row: Record<string, unknown>): number[] {
+    if (!Array.isArray(row.genre_ids)) return [];
+    return row.genre_ids
+      .map((x) => (typeof x === 'number' && Number.isFinite(x) ? x : null))
+      .filter((x): x is number => x !== null);
+  }
+
+  private scoreByRank(rank: number, baseScore: number, weight = 0.9): number {
+    const base = clamp(baseScore, 0.3, 2.5);
+    const decay = Math.max(0.06, 1 - (rank - 1) * 0.04);
+    return base * decay * weight;
+  }
+
+  private async fetchExtendedTrendsFromTmdb(
+    maxCount: number,
+    movieBaseScore: number,
+  ): Promise<RankedTrendItem[]> {
+    const language = process.env.TMDB_LANGUAGE ?? 'ko-KR';
+    const region = process.env.TMDB_REGION ?? 'KR';
+
+    const [tvTrendRaw, aniMovieRaw, aniTvRaw] = await Promise.all([
+      this.tmdb.proxy('/trending/tv/day', { language, page: 1 }),
+      this.tmdb.proxy('/discover/movie', {
+        language,
+        region,
+        include_adult: false,
+        with_genres: 16,
+        sort_by: 'popularity.desc',
+        page: 1,
+      }),
+      this.tmdb.proxy('/discover/tv', {
+        language,
+        region,
+        include_adult: false,
+        with_genres: 16,
+        sort_by: 'popularity.desc',
+        page: 1,
+      }),
+    ]);
+
+    const out: RankedTrendItem[] = [];
+    let seq = 1_000_000;
+
+    const pushIfValid = (
+      row: Record<string, unknown>,
+      opts: {
+        rank: number;
+        tmdbType: 'movie' | 'tv';
+        mediaType: TrendMediaType;
+        weight: number;
+      },
+    ) => {
+      const tmdbId =
+        typeof row.id === 'number' && Number.isFinite(row.id) ? row.id : 0;
+      if (!tmdbId) return;
+
+      const keyword = this.getDisplayNameFromTmdbRow(row);
+      if (!keyword || isBlockedTrendKeyword(keyword)) return;
+
+      if (opts.mediaType === 'anime') {
+        const gids = this.getGenreIdsFromTmdbRow(row);
+        if (!gids.includes(16)) return;
+      }
+
+      const year = yearFromReleaseDate(
+        typeof row.release_date === 'string'
+          ? row.release_date
+          : typeof row.first_air_date === 'string'
+            ? row.first_air_date
+            : undefined,
+      );
+
+      out.push({
+        id: seq++,
+        keyword,
+        source: 'tmdb',
+        mediaType: opts.mediaType,
+        tmdbType: opts.tmdbType,
+        rank: opts.rank,
+        score: this.scoreByRank(opts.rank, movieBaseScore, opts.weight),
+        tmdbId,
+        year,
+        topicId: null,
+        topicTitle: null,
+      });
+    };
+
+    const tvRows = this.getResults(tvTrendRaw).slice(0, Math.min(20, maxCount));
+    tvRows.forEach((row, i) =>
+      pushIfValid(row, {
+        rank: i + 1,
+        tmdbType: 'tv',
+        mediaType: 'tv',
+        weight: 0.92,
+      }),
+    );
+
+    const aniMovieRows = this.getResults(aniMovieRaw).slice(
+      0,
+      Math.min(20, maxCount),
+    );
+    aniMovieRows.forEach((row, i) =>
+      pushIfValid(row, {
+        rank: i + 1,
+        tmdbType: 'movie',
+        mediaType: 'anime',
+        weight: 0.96,
+      }),
+    );
+
+    const aniTvRows = this.getResults(aniTvRaw).slice(
+      0,
+      Math.min(20, maxCount),
+    );
+    aniTvRows.forEach((row, i) =>
+      pushIfValid(row, {
+        rank: i + 1,
+        tmdbType: 'tv',
+        mediaType: 'anime',
+        weight: 0.95,
+      }),
+    );
+
+    return out;
   }
 
   // ✅ 기존 컨트롤러 엔드포인트 유지용 래퍼
@@ -1336,6 +1512,7 @@ export class TrendsService {
 
       for (const it of list) {
         if (!it?.movieCd) continue;
+        if (isBlockedTrendKeyword(String(it.movieNm ?? ''))) continue;
 
         const rankNum = safeNumber(it.rank, 999);
         const audiAccNum = safeNumber(it.audiAcc, 0);

@@ -386,7 +386,9 @@ export class KobisService {
     }
 
     const todayKst = toYmdKST(new Date());
-    const candidates = Array.from({ length: 8 }, (_, i) => shiftYmd(todayKst, -i));
+    const candidates = Array.from({ length: 8 }, (_, i) =>
+      shiftYmd(todayKst, -i),
+    );
 
     let targetDt = todayKst;
     let snap = { targetDt, items: [] as BoxOfficeSnapshotItem[] };
@@ -412,7 +414,12 @@ export class KobisService {
     }));
 
     if (!top10.length) {
-      this.boxOfficeTop10Cache = { fetchedAt: now, targetDt, items: [], rawItems };
+      this.boxOfficeTop10Cache = {
+        fetchedAt: now,
+        targetDt,
+        items: [],
+        rawItems,
+      };
       return {
         targetDt,
         generatedAt: new Date(now).toISOString(),
@@ -454,7 +461,9 @@ export class KobisService {
     };
   }
 
-  private async fetchKobisMovieInfo(movieCd: string): Promise<KobisMovieInfo | null> {
+  private async fetchKobisMovieInfo(
+    movieCd: string,
+  ): Promise<KobisMovieInfo | null> {
     const cd = toCleanStr(movieCd);
     if (!cd) return null;
 
@@ -499,10 +508,18 @@ export class KobisService {
       let s = 0;
       if (t1 && t1 === targetNorm) s += 1000;
       if (t2 && t2 === targetNorm) s += 900;
-      if (t1 && targetNorm && (t1.includes(targetNorm) || targetNorm.includes(t1))) {
+      if (
+        t1 &&
+        targetNorm &&
+        (t1.includes(targetNorm) || targetNorm.includes(t1))
+      ) {
         s += 350;
       }
-      if (t2 && targetNorm && (t2.includes(targetNorm) || targetNorm.includes(t2))) {
+      if (
+        t2 &&
+        targetNorm &&
+        (t2.includes(targetNorm) || targetNorm.includes(t2))
+      ) {
         s += 250;
       }
       if (yearHint && y) {
@@ -541,7 +558,9 @@ export class KobisService {
       return null;
     }
 
-    const info = ctx.movieCd ? await this.fetchKobisMovieInfo(ctx.movieCd) : null;
+    const info = ctx.movieCd
+      ? await this.fetchKobisMovieInfo(ctx.movieCd)
+      : null;
     const infoKo = toCleanStr(info?.movieNm);
     const infoEn = toCleanStr(info?.movieNmEn);
     const openIso = ymdToIso(toCleanStr(info?.openDt)) ?? null;

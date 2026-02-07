@@ -60,4 +60,5 @@ export type ContentCardProps = {
   className?: string;
 
   canFavorite?: boolean;
+  showRecommendReason?: boolean;
 };

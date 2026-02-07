@@ -100,8 +100,9 @@ export function computeMovieStatus(args: {
 
   const krHasTheatrical = Boolean(earliestKr) || krUpcoming;
 
-  const krEligible = krHasTheatrical || args.hasOttProviders;
-  const hidden = !krHasTheatrical && !args.hasOttProviders;
+  // ✅ KR 개봉일 정보가 없으면 무조건 제외
+  const krEligible = krHasTheatrical;
+  const hidden = !krHasTheatrical;
 
   const latestKrUpcoming = latestKr
     ? new Date(latestKr).getTime() > now.getTime()

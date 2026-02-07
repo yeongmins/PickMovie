@@ -19,6 +19,7 @@ export interface ContentRowProps {
   onMovieClick: (movie: ContentCardItem) => void;
 
   showMatchScore?: boolean;
+  showRecommendReason?: boolean;
 }
 
 export function ContentRow({
@@ -28,15 +29,25 @@ export function ContentRow({
   favoriteKeySet,
   onToggleFavorite,
   onMovieClick,
+  showRecommendReason = false,
 }: ContentRowProps) {
   const [scrollPosition, setScrollPosition] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const [hiddenMovieIds, setHiddenMovieIds] = useState<number[]>([]);
+  const [hiddenMovieKeys, setHiddenMovieKeys] = useState<string[]>([]);
 
   const uniqueMovies = useMemo(() => {
     return Array.from(new Map(movies.map((m) => [m.id, m])).values());
   }, [movies]);
+
+  const visibleMovies = useMemo(() => {
+    return uniqueMovies.filter((movie) => {
+      const mt = (movie.media_type || "movie") as MediaType;
+      const key = `${mt}:${movie.id}`;
+      if (hiddenMovieKeys.includes(key)) return false;
+      return true;
+    });
+  }, [uniqueMovies, hiddenMovieKeys]);
 
   const scroll = (direction: "left" | "right") => {
     const container = scrollContainerRef.current;
@@ -52,7 +63,7 @@ export function ContentRow({
     setScrollPosition(newPosition);
   };
 
-  if (uniqueMovies.length === 0) return null;
+  if (visibleMovies.length === 0) return null;
 
   const sectionPad = "px-4 sm:px-6 lg:px-6";
 
@@ -81,9 +92,7 @@ export function ContentRow({
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           onScroll={(e) => setScrollPosition(e.currentTarget.scrollLeft)}
         >
-          {uniqueMovies.map((movie) => {
-            if (hiddenMovieIds.includes(movie.id)) return null;
-
+          {visibleMovies.map((movie) => {
             const mt = (movie.media_type || "movie") as MediaType;
             const key = `${mt}:${movie.id}`;
             const isFav = favoriteKeySet
@@ -101,9 +110,10 @@ export function ContentRow({
                   onClick={() => onMovieClick(movie)}
                   onToggleFavorite={() => onToggleFavorite(movie.id, mt)}
                   context="default"
+                  showRecommendReason={showRecommendReason}
                   onPosterError={() => {
-                    setHiddenMovieIds((prev) =>
-                      prev.includes(movie.id) ? prev : [...prev, movie.id],
+                    setHiddenMovieKeys((prev) =>
+                      prev.includes(key) ? prev : [...prev, key],
                     );
                   }}
                 />

@@ -22,6 +22,7 @@ import { JwtAccessGuard } from './guards/jwt-access.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { JwtAccessPayload } from './strategies/jwt-access.strategy';
 import { UserLibraryService } from './user-library.service';
+import { ForYouRecommendationService } from './for-you-recommendation.service';
 
 type ApiOk = { ok: true };
 
@@ -30,12 +31,22 @@ type CreatePlaylistBody = { name: string; items: FavoriteItem[] };
 type DeletePlaylistBody = { playlistId: number };
 type RenamePlaylistBody = { playlistId: number; name: string };
 type SetPlaylistItemsBody = { playlistId: number; items: FavoriteItem[] };
+type ForYouRequestBody = {
+  limit?: number;
+  region?: string;
+  language?: string;
+  preferences?: {
+    genres?: string[];
+    releaseYear?: string;
+  };
+};
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly library: UserLibraryService,
+    private readonly forYou: ForYouRecommendationService,
     private readonly config: ConfigService,
   ) {}
 
@@ -393,5 +404,38 @@ export class AuthController {
       items,
     );
     return { playlist };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('recommendations/for-you')
+  async forYouRecommendations(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: ForYouRequestBody,
+  ) {
+    const limit = Number(body?.limit);
+    const region = typeof body?.region === 'string' ? body.region : 'KR';
+    const language =
+      typeof body?.language === 'string' ? body.language : 'ko-KR';
+
+    const items = await this.forYou.recommendForUser({
+      userId: user.sub,
+      limit: Number.isFinite(limit) ? limit : 20,
+      region,
+      language,
+      preferences: {
+        genres: Array.isArray(body?.preferences?.genres)
+          ? body.preferences.genres
+          : [],
+        releaseYear:
+          typeof body?.preferences?.releaseYear === 'string'
+            ? body.preferences.releaseYear
+            : '',
+      },
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      items,
+    };
   }
 }

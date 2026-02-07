@@ -106,12 +106,6 @@ export const getDisplayTitle = (movie: any) => {
   );
 };
 
-export function isKoreanTitle(movie: any): boolean {
-  const t = String(getDisplayTitle(movie) || "").trim();
-  if (!t || t === "제목 정보 없음") return false;
-  return /[가-힣]/.test(t);
-}
-
 export function inferMediaType(item: any): MediaType {
   if (item?.media_type === "tv") return "tv";
   if (item?.media_type === "movie") return "movie";
@@ -357,7 +351,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
 
   const activeMovies = useMemo(() => {
     const raw = loggedIn ? movies : trendMovies;
-    return (Array.isArray(raw) ? raw : []).filter(isKoreanTitle);
+    return Array.isArray(raw) ? raw : [];
   }, [loggedIn, movies, trendMovies]);
 
   const currentMovie: Movie | null = useMemo(() => {
@@ -519,4 +513,3 @@ export function useFavoritesHeroState(movies: Movie[]) {
     trailerOpen,
   };
 }
-

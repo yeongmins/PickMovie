@@ -10,6 +10,9 @@ import { AuthService } from './auth.service';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { MailModule } from '../mail/mail.module';
 import { UserLibraryService } from './user-library.service';
+import { TmdbModule } from '../tmdb/tmdb.module';
+import { ForYouRecommendationService } from './for-you-recommendation.service';
+import { TrendsModule } from '../trends/trends.module';
 
 function normalizeExpiresIn(v: string): number | StringValue {
   const raw = v.trim();
@@ -21,6 +24,8 @@ function normalizeExpiresIn(v: string): number | StringValue {
   imports: [
     PassportModule,
     MailModule,
+    TmdbModule,
+    TrendsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService): JwtModuleOptions => {
@@ -36,7 +41,12 @@ function normalizeExpiresIn(v: string): number | StringValue {
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAccessStrategy, UserLibraryService],
+  providers: [
+    AuthService,
+    JwtAccessStrategy,
+    UserLibraryService,
+    ForYouRecommendationService,
+  ],
   exports: [AuthService, UserLibraryService],
 })
 export class AuthModule {}
