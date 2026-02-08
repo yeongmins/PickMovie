@@ -617,9 +617,16 @@ export const PlaylistSection = forwardRef<
         </AnimatePresence>
 
         <div>
-          {serverPlaylists.map((pl, idx) => {
-            const isEditingThis = editingPlaylistId === pl.id;
-            const isLastCarousel = idx === serverPlaylists.length - 1;
+          {serverPlaylists.length === 0 ? (
+            <div className={`${pad} py-16`}>
+              <div className="w-full flex items-center justify-center text-sm text-white/60">
+                플레이리스트가 없습니다.
+              </div>
+            </div>
+          ) : (
+            serverPlaylists.map((pl, idx) => {
+              const isEditingThis = editingPlaylistId === pl.id;
+              const isLastCarousel = idx === serverPlaylists.length - 1;
 
             // ✅ 생성(draft) 중에는 모든 기존 섹션을 딤+비활성
             const dimmed = draft.active
@@ -636,126 +643,127 @@ export const PlaylistSection = forwardRef<
                 ? playlistNameEdit.name
                 : pl.name;
 
-            return (
-              <motion.section
-                key={pl.id}
-                layout
-                className={[
-                  idx === 0 ? "mt-2" : "mt-5",
-                  dimmed ? "pointer-events-none" : "",
-                ].join(" ")}
-                animate={{
-                  opacity: draft.active
-                    ? 0.22
-                    : bottomSheetOpen
-                      ? isEditingThis
-                        ? 1
-                        : 0.22
-                      : 1,
-                }}
-                transition={{ duration: 0.28, ease: "easeOut" }}
-              >
-                <SectionHeader
-                  padClass={pad}
-                  title={
-                    isEditingThis ? (
-                      <input
-                        autoFocus
-                        value={nameValue}
-                        onChange={(e) =>
-                          setPlaylistNameEdit((prev) => {
-                            if (!prev || prev.playlistId !== pl.id) {
-                              return {
-                                playlistId: pl.id,
-                                name: e.target.value,
-                              };
-                            }
-                            return { ...prev, name: e.target.value };
-                          })
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitAndStopEdit();
+              return (
+                <motion.section
+                  key={pl.id}
+                  layout
+                  className={[
+                    idx === 0 ? "mt-2" : "mt-5",
+                    dimmed ? "pointer-events-none" : "",
+                  ].join(" ")}
+                  animate={{
+                    opacity: draft.active
+                      ? 0.22
+                      : bottomSheetOpen
+                        ? isEditingThis
+                          ? 1
+                          : 0.22
+                        : 1,
+                  }}
+                  transition={{ duration: 0.28, ease: "easeOut" }}
+                >
+                  <SectionHeader
+                    padClass={pad}
+                    title={
+                      isEditingThis ? (
+                        <input
+                          autoFocus
+                          value={nameValue}
+                          onChange={(e) =>
+                            setPlaylistNameEdit((prev) => {
+                              if (!prev || prev.playlistId !== pl.id) {
+                                return {
+                                  playlistId: pl.id,
+                                  name: e.target.value,
+                                };
+                              }
+                              return { ...prev, name: e.target.value };
+                            })
                           }
-                        }}
-                        className={[
-                          "w-full bg-transparent",
-                          "text-xl font-semibold text-white/95",
-                          "outline-none",
-                          "placeholder:text-white/35",
-                          "caret-white",
-                          "animate-pulse",
-                        ].join(" ")}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitAndStopEdit();
+                            }
+                          }}
+                          className={[
+                            "w-full bg-transparent",
+                            "text-xl font-semibold text-white/95",
+                            "outline-none",
+                            "placeholder:text-white/35",
+                            "caret-white",
+                            "animate-pulse",
+                          ].join(" ")}
+                        />
+                      ) : (
+                        pl.name
+                      )
+                    }
+                    titleClassName="text-xl font-bold"
+                    isActive={isEditingThis}
+                    right={
+                      !isEditingThis ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className={styles.sectionActionButton}
+                            onClick={() => startEdit(pl.id)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            편집
+                          </button>
+
+                          <button
+                            type="button"
+                            className={styles.sectionActionButton}
+                            onClick={() => setPlaylistDeleteTarget(pl.id)}
+                            aria-label="플레이리스트 삭제"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            삭제
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.sectionActionButton}
+                          onClick={commitAndStopEdit}
+                        >
+                          완료
+                        </button>
+                      )
+                    }
+                  />
+
+                  <div>
+                    {Array.isArray(pl.items) &&
+                    pl.items.length > 0 &&
+                    visibleMovies.length === 0 ? (
+                      <div className={`${pad} py-10`}>
+                        <div className="text-sm text-white/60 text-center">
+                          플레이리스트를 불러오는 중입니다...
+                        </div>
+                      </div>
+                    ) : (
+                      <EditableCarouselRow
+                        padClass={pad}
+                        items={visibleMovies}
+                        favoritesKeySet={favoritesKeySet}
+                        isLastCarousel={isLastCarousel}
+                        isEditing={isEditingThis}
+                        selectedKeys={selectedKeys}
+                        onToggleSelect={toggleSelect}
+                        onToggleFavorite={(id, mt) =>
+                          onToggleFavorite(id, mt as MediaType)
+                        }
+                        onOpenDetail={onOpenDetail}
                       />
-                    ) : (
-                      pl.name
-                    )
-                  }
-                  titleClassName="text-xl font-bold"
-                  isActive={isEditingThis}
-                  right={
-                    !isEditingThis ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className={styles.sectionActionButton}
-                          onClick={() => startEdit(pl.id)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          편집
-                        </button>
-
-                        <button
-                          type="button"
-                          className={styles.sectionActionButton}
-                          onClick={() => setPlaylistDeleteTarget(pl.id)}
-                          aria-label="플레이리스트 삭제"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          삭제
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className={styles.sectionActionButton}
-                        onClick={commitAndStopEdit}
-                      >
-                        완료
-                      </button>
-                    )
-                  }
-                />
-
-                <div>
-                  {Array.isArray(pl.items) &&
-                  pl.items.length > 0 &&
-                  visibleMovies.length === 0 ? (
-                    <div className={`${pad} py-10`}>
-                      <div className="text-sm text-white/60 text-center">
-                        플레이리스트를 불러오는 중입니다...
-                      </div>
-                    </div>
-                  ) : (
-                    <EditableCarouselRow
-                      padClass={pad}
-                      items={visibleMovies}
-                      favoritesKeySet={favoritesKeySet}
-                      isLastCarousel={isLastCarousel}
-                      isEditing={isEditingThis}
-                      selectedKeys={selectedKeys}
-                      onToggleSelect={toggleSelect}
-                      onToggleFavorite={(id, mt) =>
-                        onToggleFavorite(id, mt as MediaType)
-                      }
-                      onOpenDetail={onOpenDetail}
-                    />
-                  )}
-                </div>
-              </motion.section>
-            );
-          })}
+                    )}
+                  </div>
+                </motion.section>
+              );
+            })
+          )}
         </div>
       </motion.section>
 
@@ -879,9 +887,6 @@ export const PlaylistSection = forwardRef<
       <BottomConfirmSheet
         open={!!playlistDeleteTarget}
         title="삭제하시겠습니까?"
-        titleMeta={
-          playlistDeleteName ? `플레이리스트: ${playlistDeleteName}` : null
-        }
         footerLeft={playlistDeleteName ? playlistDeleteName : null}
         confirmText="삭제"
         cancelText="취소"

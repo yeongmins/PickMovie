@@ -7,7 +7,7 @@ import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 
 import { AiModule } from './ai/ai.module';
-import { PickyModule } from './picky/picky.module';
+import { SearchModule } from './search/search.module';
 import { TmdbModule } from './tmdb/tmdb.module';
 import { MoviesModule } from './movies/movies.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -28,7 +28,7 @@ import { HealthModule } from './health/health.module';
     AppCacheModule,
     TmdbModule,
     AiModule,
-    PickyModule,
+    SearchModule,
     MoviesModule,
     PrismaModule,
     MailModule,

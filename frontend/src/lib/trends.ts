@@ -59,7 +59,7 @@ export async function getKrTrends(limit = 10) {
   return apiGet<KrTrendsResponse>("/trends/kr", { limit });
 }
 
-// ✅ Picky 키워드 칩에 재사용
+// ✅ Search 키워드 칩에 재사용
 export function extractTrendKeywords(items: KrTrendItem[], max = 12): string[] {
   const out: string[] = [];
   const seen = new Set<string>();

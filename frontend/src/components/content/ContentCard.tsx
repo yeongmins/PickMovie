@@ -264,15 +264,23 @@ export function ContentCard({
             <button
               type="button"
               aria-label="찜 토글"
-              className="w-[30px] h-[30px] rounded-[5px] bg-black/55 hover:bg-black/70 flex items-center justify-center"
+              className={[
+                "group/fav relative w-[30px] h-[30px] rounded-[5px] flex items-center justify-center overflow-hidden cursor-pointer",
+                "transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-[0_6px_16px_rgba(0,0,0,0.35)]",
+                isFavorite
+                  ? "bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/45 hover:ring-1 hover:ring-rose-300/55"
+                  : "bg-zinc-900/58 hover:bg-zinc-800/82 border border-white/10 hover:ring-1 hover:ring-white/30",
+              ].join(" ")}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleFavorite();
               }}
             >
               <Heart
-                className={`h-4 w-4 ${
-                  isFavorite ? "fill-red-500 text-red-500" : "text-white"
+                className={`h-4 w-4 transition-colors duration-200 ${
+                  isFavorite
+                    ? "fill-rose-500 text-rose-500 group-hover/fav:fill-rose-400 group-hover/fav:text-rose-400"
+                    : "text-zinc-100 group-hover/fav:text-white"
                 }`}
               />
             </button>

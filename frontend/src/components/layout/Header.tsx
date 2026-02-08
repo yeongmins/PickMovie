@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, useId } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import {
-  Sparkles,
+  Search,
   User,
   LogOut,
   UserRound,
@@ -143,9 +143,9 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
     };
   }, [profileOpen]);
 
-  const openPickyOverlay = () => {
+  const openSearchOverlay = () => {
     setProfileOpen(false);
-    navigate("/picky", { state: { backgroundLocation: location } });
+    navigate("/search", { state: { backgroundLocation: location } });
   };
 
   const go = (section: string) => {
@@ -182,20 +182,10 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
 
   const tooltipId = useId();
 
-  const pickyBtnVariants: Variants = {
+  const searchBtnVariants: Variants = {
     rest: { scale: 1 },
     hover: { scale: 1.03, transition: { duration: 0.15, ease: "easeOut" } },
     tap: { scale: 0.98 },
-  };
-
-  const sparkleVariants: Variants = {
-    rest: { rotate: 0, scale: 1 },
-    hover: {
-      rotate: [0, -12, 12, -6, 0] as any,
-      scale: [1, 1.18, 1.05, 1.14, 1] as any,
-      transition: { duration: 0.55, ease: "easeOut" },
-    },
-    tap: { scale: 0.95 },
   };
 
   return (
@@ -274,26 +264,23 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
             <div className="relative group">
               <motion.button
                 type="button"
-                onClick={openPickyOverlay}
-                aria-label="Picky에게 추천받기"
+                onClick={openSearchOverlay}
+                aria-label="검색"
                 aria-describedby={tooltipId}
-                variants={pickyBtnVariants}
+                variants={searchBtnVariants}
                 initial="rest"
                 animate="rest"
                 whileHover="hover"
                 whileTap="tap"
                 className={[
                   "h-9 w-9 rounded-full flex items-center justify-center",
-                  "bg-gradient-to-r from-purple-500/10 to-pink-500/10",
-                  "border border-purple-500/20 text-purple-300",
-                  "hover:text-white hover:border-purple-500/40 transition-all",
-                  "shadow-none hover:shadow-[0_0_0_1px_rgba(168,85,247,0.35),0_0_26px_rgba(236,72,153,0.22)]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]",
+                  "bg-white/5 border border-white/15 text-white/80",
+                  "hover:text-white hover:border-white/30 hover:bg-white/10 transition-all",
+                  "shadow-none",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]",
                 ].join(" ")}
               >
-                <motion.span variants={sparkleVariants}>
-                  <Sparkles className="h-5 w-5" />
-                </motion.span>
+                <Search className="h-5 w-5" />
               </motion.button>
 
               <div
@@ -307,11 +294,11 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                   "transition duration-150 ease-out",
                 ].join(" ")}
               >
-                <div className="relative rounded-xl border border-purple-500/20 bg-black/75 backdrop-blur-xl px-3 py-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
+                <div className="relative rounded-xl border border-white/20 bg-black/75 backdrop-blur-xl px-3 py-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
                   <div className="text-xs font-semibold text-white/90 whitespace-nowrap">
-                    Picky에게 추천받기
+                    검색하기
                   </div>
-                  <div className="absolute right-4 -top-1 h-2 w-2 rotate-45 border-t border-l border-purple-500/20 bg-black/75" />
+                  <div className="absolute right-4 -top-1 h-2 w-2 rotate-45 border-t border-l border-white/20 bg-black/75" />
                 </div>
               </div>
             </div>

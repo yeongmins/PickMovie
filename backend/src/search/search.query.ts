@@ -1,4 +1,4 @@
-// backend/src/picky/picky.query.ts
+// backend/src/search/search.query.ts
 import {
   LEXICON,
   STOPWORDS_EN,
@@ -6,7 +6,7 @@ import {
   NEGATION_PATTERNS,
   JUNK_TOKENS,
   type LexiconEntry,
-} from './picky.lexicon';
+} from './search.lexicon';
 
 export type ExpandedQuery = {
   normalized: string;

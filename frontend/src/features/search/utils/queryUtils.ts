@@ -1,6 +1,6 @@
-// frontend/src/features/picky/utils/queryUtils.ts
+// frontend/src/features/search/utils/queryUtils.ts
 // ✅ 이번 정리에서는 "컴파일 깨짐 방지"를 위해 기존 exports는 유지.
-// ✅ 다만 pickyApi에서는 추론 로직(inferMediaTypes/inferYearRange/extractIncludeKeywords)을 더 이상 사용하지 않음.
+// ✅ 다만 searchApi에서는 추론 로직(inferMediaTypes/inferYearRange/extractIncludeKeywords)을 더 이상 사용하지 않음.
 
 export type MediaType = "movie" | "tv";
 
@@ -50,7 +50,7 @@ export function extractTagsFromQuery(q: string) {
   return uniq(cleaned).slice(0, 12);
 }
 
-// ----- 아래는 "레거시" (현재 pickyApi에서는 사용하지 않음) -----
+// ----- 아래는 "레거시" (현재 searchApi에서는 사용하지 않음) -----
 
 export function extractIncludeKeywords(q: string, tags: string[] = []) {
   const tokens = q

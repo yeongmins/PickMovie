@@ -1,4 +1,4 @@
-// backend/src/picky/dto/picky.dto.ts
+// backend/src/search/dto/search.dto.ts
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -23,9 +23,9 @@ export type ProviderBadge = {
 };
 
 /**
- * Picky 기본 아이템(서비스 toBaseItem() 결과와 1:1 매칭)
+ * Search 기본 아이템(서비스 toBaseItem() 결과와 1:1 매칭)
  */
-export type PickyBaseItem = {
+export type SearchBaseItem = {
   id: number;
   mediaType: MediaType;
 
@@ -48,7 +48,7 @@ export type PickyBaseItem = {
 /**
  * 최종 반환 아이템(서비스 enriched 결과와 1:1 매칭)
  */
-export type PickyItem = PickyBaseItem & {
+export type SearchItem = SearchBaseItem & {
   providers: ProviderBadge[];
   ageRating: string | null;
 
@@ -56,11 +56,11 @@ export type PickyItem = PickyBaseItem & {
   matchReasons: string[];
 };
 
-export type PickyRecommendResponse = {
-  items: PickyItem[];
+export type SearchRecommendResponse = {
+  items: SearchItem[];
 };
 
-export class PickyRecommendDto {
+export class SearchRecommendDto {
   @IsString()
   prompt!: string;
 

@@ -1,5 +1,5 @@
 // frontend/src/pages/favorites/FavoritesPlaylistPage.tsx
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
@@ -36,6 +36,17 @@ type FavoritesPlaylistPageProps = {
 };
 
 type ViewMode = "favorites" | "playlists";
+
+function buildFavoritesKeySet(favorites: FavoriteItem[]): Set<string> {
+  const set = new Set<string>();
+  for (const f of Array.isArray(favorites) ? favorites : []) {
+    const mt = f?.mediaType === "tv" ? "tv" : "movie";
+    const id = Number(f?.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    set.add(`${mt}:${id}`);
+  }
+  return set;
+}
 
 function itemKey(item: ContentCardItem): string {
   const mt = String((item as any)?.media_type ?? "").toLowerCase();
@@ -542,11 +553,39 @@ export default function FavoritesPlaylistPage({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [viewMode, setViewMode] = useState<ViewMode>("favorites");
+  const initialViewMode = useMemo<ViewMode>(() => {
+    const st = (location.state as any) ?? {};
+    return st?.initialView === "playlists" ? "playlists" : "favorites";
+  }, [location.state]);
+  const shouldScrollTopOnEnterPlaylists = useMemo(() => {
+    const st = (location.state as any) ?? {};
+    return Boolean(st?.scrollToTop);
+  }, [location.state]);
 
-  const [favoritesKeySet, setFavoritesKeySet] = useState<Set<string>>(
-    () => new Set(),
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
+
+  useEffect(() => {
+    if (initialViewMode === "playlists") {
+      setViewMode("playlists");
+    }
+  }, [initialViewMode]);
+
+  useEffect(() => {
+    if (!shouldScrollTopOnEnterPlaylists) return;
+    if (viewMode !== "playlists") return;
+    const raf = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [shouldScrollTopOnEnterPlaylists, viewMode]);
+
+  const [favoritesKeySet, setFavoritesKeySet] = useState<Set<string>>(() =>
+    buildFavoritesKeySet(favorites),
   );
+
+  useEffect(() => {
+    setFavoritesKeySet(buildFavoritesKeySet(favorites));
+  }, [favorites]);
 
   const playlistRef = useRef<PlaylistSectionHandle | null>(null);
 
@@ -631,7 +670,12 @@ export default function FavoritesPlaylistPage({
       <Header />
 
       <main className="flex-1 pt-[84px] relative">
-        <div className={pad}>
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: "easeOut" }}
+          className={pad}
+        >
           <div className="flex justify-between items-end gap-4">
             <div className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">
@@ -644,7 +688,7 @@ export default function FavoritesPlaylistPage({
 
             <div className="shrink-0">{TopToggle}</div>
           </div>
-        </div>
+        </motion.div>
 
         {TopDivider}
 

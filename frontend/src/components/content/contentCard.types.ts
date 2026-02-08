@@ -54,7 +54,7 @@ export type ContentCardProps = {
   onToggleFavorite: () => void;
 
   onRemove?: () => void;
-  context?: "default" | "picky";
+  context?: "default" | "search";
   onPosterError?: () => void;
 
   className?: string;

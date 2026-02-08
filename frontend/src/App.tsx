@@ -11,7 +11,7 @@ import {
 import type { UserPreferences } from "./features/onboarding/Onboarding";
 import { MainScreen } from "./pages/MainScreen";
 import FavoritesPlaylistPage from "./pages/favorites/FavoritesPlaylistPage";
-import Picky from "./pages/Picky";
+import Search from "./pages/Search";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
@@ -89,6 +89,28 @@ export default function App() {
 
   const backgroundLocation = navState?.backgroundLocation ?? null;
   const titleStackLocation = navState?.titleStack ?? null;
+  const isTitleOverSearch =
+    location.pathname.startsWith("/title/") &&
+    String(backgroundLocation?.pathname ?? "") === "/search";
+
+  const searchOverlayLocation = useMemo(() => {
+    // /search 단독 진입일 때는 base Routes에서만 렌더 (중복 overlay 렌더 방지)
+    if (location.pathname === "/search" && backgroundLocation) return location;
+    if (
+      location.pathname.startsWith("/title/") &&
+      String(backgroundLocation?.pathname ?? "") === "/search"
+    ) {
+      return backgroundLocation;
+    }
+    return null;
+  }, [location, backgroundLocation]);
+
+  const effectiveBaseLocation = useMemo(() => {
+    if (!backgroundLocation) return location;
+    if (!isTitleOverSearch) return backgroundLocation;
+    const rootUnderSearch = (backgroundLocation.state as any)?.backgroundLocation;
+    return rootUnderSearch ?? backgroundLocation;
+  }, [backgroundLocation, isTitleOverSearch, location]);
 
   const API_BASE = useMemo(() => {
     return (
@@ -104,7 +126,7 @@ export default function App() {
   );
   const [me, setMe] = useState<MeUser | null>(null);
 
-  const [pickyQuery, setPickyQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const bootingRef = useRef(false);
 
@@ -530,7 +552,7 @@ export default function App() {
 
   return (
     <>
-      <Routes location={backgroundLocation || location}>
+      <Routes location={effectiveBaseLocation}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -548,9 +570,15 @@ export default function App() {
         <Route path="/person/:id" element={<PersonDetail />} />
 
         <Route
-          path="/picky"
+          path="/search"
           element={
-            <Picky searchQuery={pickyQuery} onSearchChange={setPickyQuery} />
+            <Search
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onCreatePlaylist={createPlaylist}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
           }
         />
 
@@ -617,6 +645,23 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
+      {searchOverlayLocation ? (
+        <Routes location={searchOverlayLocation}>
+          <Route
+            path="/search"
+            element={
+              <Search
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onCreatePlaylist={createPlaylist}
+                favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
+              />
+            }
+          />
+        </Routes>
+      ) : null}
+
       {backgroundLocation ? (
         <>
           {titleStackLocation ? (
@@ -634,15 +679,6 @@ export default function App() {
             </Routes>
           ) : (
             <Routes>
-              <Route
-                path="/picky"
-                element={
-                  <Picky
-                    searchQuery={pickyQuery}
-                    onSearchChange={setPickyQuery}
-                  />
-                }
-              />
               <Route
                 path="/title/:mediaType/:id"
                 element={detailModalElement}

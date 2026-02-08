@@ -1,16 +1,16 @@
-// backend/src/picky/picky.lexicon.ts
+// backend/src/search/search.lexicon.ts
 
-export type PickyLexiconEntry = {
+export type SearchLexiconEntry = {
   /** query 확장에 쓰는 alias들 (동의어/약칭/영문명/표기 흔들림) */
   aliases: string[];
   /** TMDB company 검색에 넣을 힌트(영문 공식명 위주) */
   companyHints?: string[];
 };
 
-export type PickyLexicon = Record<string, PickyLexiconEntry>;
+export type SearchLexicon = Record<string, SearchLexiconEntry>;
 
 /**
- * picky.query.ts 호환용
+ * search.query.ts 호환용
  */
 export type LexiconEntry = {
   expand?: string[];
@@ -45,14 +45,14 @@ const uniqStrings = (arr: Array<string | undefined | null>) => {
   return out;
 };
 
-const E = (aliases: string[], companyHints?: string[]): PickyLexiconEntry => ({
+const E = (aliases: string[], companyHints?: string[]): SearchLexiconEntry => ({
   aliases: uniqStrings(aliases),
   companyHints: companyHints ? uniqStrings(companyHints) : undefined,
 });
 
 /**
  * ------------------------------------------------------------------------------------
- * ✅ STOPWORDS / JUNK / NEGATION (picky.query.ts에서 그대로 import)
+ * ✅ STOPWORDS / JUNK / NEGATION (search.query.ts에서 그대로 import)
  * ------------------------------------------------------------------------------------
  */
 export const STOPWORDS_KO: ReadonlySet<string> = new Set(
@@ -192,10 +192,10 @@ export const NEGATION_PATTERNS: readonly string[] = [
  * ------------------------------------------------------------------------------------
  * ✅ 대용량 브랜드/프랜차이즈/장르 렉시콘
  * ------------------------------------------------------------------------------------
- * ⚠️ 아래 PICKY_LEXICON은 네가 준 데이터(대용량)를 그대로 유지/확장한 구조.
+ * ⚠️ 아래 SEARCH_LEXICON은 네가 준 데이터(대용량)를 그대로 유지/확장한 구조.
  * 필요하면 이 블록에 계속 추가만 하면 됨.
  */
-export const PICKY_LEXICON: PickyLexicon = {
+export const SEARCH_LEXICON: SearchLexicon = {
   // ===========================================================================
   // Disney / Pixar / Marvel / Lucasfilm / 20th / Searchlight
   // ===========================================================================
@@ -713,16 +713,17 @@ export const PICKY_LEXICON: PickyLexicon = {
   다큐: E(['다큐', 'documentary', '다큐멘터리', '실화'], undefined),
 };
 
-export const PICKY_ALIASES: Record<string, string[]> = (() => {
+export const SEARCH_ALIASES: Record<string, string[]> = (() => {
   const out: Record<string, string[]> = {};
-  for (const k of Object.keys(PICKY_LEXICON)) out[k] = PICKY_LEXICON[k].aliases;
+  for (const k of Object.keys(SEARCH_LEXICON))
+    out[k] = SEARCH_LEXICON[k].aliases;
   return out;
 })();
 
 export const BRAND_HINTS: Record<string, string[]> = (() => {
   const out: Record<string, string[]> = {};
-  for (const k of Object.keys(PICKY_LEXICON)) {
-    const hints = PICKY_LEXICON[k].companyHints;
+  for (const k of Object.keys(SEARCH_LEXICON)) {
+    const hints = SEARCH_LEXICON[k].companyHints;
     if (hints?.length) out[k] = hints;
   }
   return out;
@@ -788,18 +789,18 @@ const KEYWORD_STOPLIST = new Set(
   ].map((s) => norm(s)),
 );
 
-const LEXICON_KEYS = Object.keys(PICKY_LEXICON);
+const LEXICON_KEYS = Object.keys(SEARCH_LEXICON);
 const LEXICON_KEYS_LOWER = LEXICON_KEYS.map((k) => k.toLowerCase());
 
-const PICKY_KEY_BY_NORM = new Map<string, string>();
-for (const k of LEXICON_KEYS) PICKY_KEY_BY_NORM.set(norm(k), k);
+const SEARCH_KEY_BY_NORM = new Map<string, string>();
+for (const k of LEXICON_KEYS) SEARCH_KEY_BY_NORM.set(norm(k), k);
 
-const getPickyEntry = (k: string): PickyLexiconEntry | undefined => {
-  const direct = PICKY_LEXICON[k];
+const getSearchEntry = (k: string): SearchLexiconEntry | undefined => {
+  const direct = SEARCH_LEXICON[k];
   if (direct) return direct;
   const nk = norm(k);
-  const orig = PICKY_KEY_BY_NORM.get(nk);
-  return orig ? PICKY_LEXICON[orig] : undefined;
+  const orig = SEARCH_KEY_BY_NORM.get(nk);
+  return orig ? SEARCH_LEXICON[orig] : undefined;
 };
 
 export function expandQueriesByBrandLexicon(query: string, max = 6): string[] {
@@ -825,7 +826,7 @@ export function expandQueriesByBrandLexicon(query: string, max = 6): string[] {
 
   const keys = uniqStrings(hitKeys).slice(0, 6);
   for (const k of keys) {
-    const entry = getPickyEntry(k);
+    const entry = getSearchEntry(k);
     if (!entry) continue;
 
     // query 확장: 원문 + "원문 + alias" + alias 단독
@@ -852,7 +853,7 @@ export function expandKeywordsByBrandLexicon(
   const extra: string[] = [];
 
   for (const k of base) {
-    const entry = getPickyEntry(k);
+    const entry = getSearchEntry(k);
     if (!entry) continue;
     for (const a of entry.aliases) extra.push(a);
   }
@@ -863,7 +864,7 @@ export function expandKeywordsByBrandLexicon(
   return merged.slice(0, max);
 }
 
-export function inferPickySignals(
+export function inferSearchSignals(
   prompt: string,
   includeKeywords: string[],
   opts?: { maxInclude?: number },
@@ -896,7 +897,7 @@ export function inferPickySignals(
 
   const companyQueries: string[] = [];
   for (const k of uniqStrings([...hitKeys, ...base])) {
-    const entry = getPickyEntry(k);
+    const entry = getSearchEntry(k);
     if (!entry?.companyHints?.length) continue;
     companyQueries.push(...entry.companyHints);
   }
@@ -918,7 +919,7 @@ export function inferPickySignals(
 
 /**
  * ------------------------------------------------------------------------------------
- * ✅ picky.query.ts 호환 LEXICON 생성(자동)
+ * ✅ search.query.ts 호환 LEXICON 생성(자동)
  * ------------------------------------------------------------------------------------
  */
 const mergeLexiconEntry = (
@@ -965,7 +966,7 @@ const looksLikeMediaHint = (k: string) => {
 
 const inferTagBucket = (
   k: string,
-  e: PickyLexiconEntry,
+  e: SearchLexiconEntry,
 ): { tag: string; bucket: keyof NonNullable<LexiconEntry['entityHints']> } => {
   const nk = norm(k);
 
@@ -994,8 +995,8 @@ const inferTagBucket = (
 export const LEXICON: Record<string, LexiconEntry> = (() => {
   const map: Record<string, LexiconEntry> = {};
 
-  for (const head of Object.keys(PICKY_LEXICON)) {
-    const entry = PICKY_LEXICON[head];
+  for (const head of Object.keys(SEARCH_LEXICON)) {
+    const entry = SEARCH_LEXICON[head];
     const { tag, bucket } = inferTagBucket(head, entry);
 
     const expand = uniqStrings([

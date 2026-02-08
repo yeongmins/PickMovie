@@ -268,6 +268,7 @@ export function FavoritesSection({
   }, [favorites]);
 
   const allUnique = useMemo(() => uniqueByKey(favItems), [favItems]);
+  const hasFavorites = favoritesKeySet.size > 0;
 
   // ✅ 카테고리 그룹핑(Movie/TV/Ani)
   const grouped = useMemo(() => {
@@ -466,7 +467,7 @@ export function FavoritesSection({
             titleClassName="text-xl font-bold"
             isActive={editingGroup === "all"}
             right={
-              editingGroup !== "all" ? (
+              !hasFavorites ? null : editingGroup !== "all" ? (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"

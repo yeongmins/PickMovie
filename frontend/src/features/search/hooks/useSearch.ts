@@ -1,9 +1,9 @@
-// frontend/src/features/picky/hooks/usePickySearch.ts
+// frontend/src/features/search/hooks/useSearch.ts
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { AiSearchResponse, ResultItem } from "../api/pickyApi";
-import { runPickySearch } from "../api/pickyApi";
+import type { AiSearchResponse, ResultItem } from "../api/searchApi";
+import { runSearch } from "../api/searchApi";
 
-type UsePickySearchState = {
+type UseSearchState = {
   query: string;
   loading: boolean;
   error: string | null;
@@ -19,17 +19,36 @@ type UsePickySearchState = {
   cancel: () => void;
 };
 
-export function usePickySearch(initialQuery = ""): UsePickySearchState {
-  const [query, setQuery] = useState(initialQuery);
-  const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+type SearchSnapshot = {
+  query: string;
+  hasSearched: boolean;
+  error: string | null;
+  tags: string[];
+  results: ResultItem[];
+  aiAnalysis: AiSearchResponse["aiAnalysis"] | null;
+};
 
-  const [tags, setTags] = useState<string[]>([]);
-  const [results, setResults] = useState<ResultItem[]>([]);
+let searchSnapshot: SearchSnapshot | null = null;
+
+export function useSearch(initialQuery = ""): UseSearchState {
+  const snapshot = searchSnapshot;
+
+  const [query, setQuery] = useState(() => snapshot?.query ?? initialQuery);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(
+    () => snapshot?.hasSearched ?? false,
+  );
+  const [error, setError] = useState<string | null>(
+    () => snapshot?.error ?? null,
+  );
+
+  const [tags, setTags] = useState<string[]>(() => snapshot?.tags ?? []);
+  const [results, setResults] = useState<ResultItem[]>(
+    () => snapshot?.results ?? [],
+  );
   const [aiAnalysis, setAiAnalysis] = useState<
     AiSearchResponse["aiAnalysis"] | null
-  >(null);
+  >(() => snapshot?.aiAnalysis ?? null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -45,6 +64,7 @@ export function usePickySearch(initialQuery = ""): UsePickySearchState {
     setTags([]);
     setResults([]);
     setAiAnalysis(null);
+    searchSnapshot = null;
   }, [cancel]);
 
   const search = useCallback(
@@ -61,7 +81,7 @@ export function usePickySearch(initialQuery = ""): UsePickySearchState {
       setError(null);
 
       try {
-        const res = await runPickySearch(q, { signal: ctrl.signal });
+        const res = await runSearch(q, { signal: ctrl.signal });
         setTags(res.tags ?? []);
         setResults(res.results ?? []);
         setAiAnalysis(res.aiAnalysis ?? null);
@@ -80,7 +100,7 @@ export function usePickySearch(initialQuery = ""): UsePickySearchState {
   );
 
   // UI에서 쓰기 좋은 파생값(선택)
-  const state = useMemo<UsePickySearchState>(
+  const state = useMemo<UseSearchState>(
     () => ({
       query,
       loading,
@@ -107,6 +127,15 @@ export function usePickySearch(initialQuery = ""): UsePickySearchState {
       cancel,
     ]
   );
+
+  searchSnapshot = {
+    query,
+    hasSearched,
+    error,
+    tags,
+    results,
+    aiAnalysis,
+  };
 
   return state;
 }

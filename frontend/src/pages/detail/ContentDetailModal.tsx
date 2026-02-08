@@ -137,10 +137,20 @@ export default function ContentDetailModal({
     return st?.__underlay === "person";
   }, [location.state]);
 
-  const closeTargetPath = useMemo(() => {
+  // ✅ Search 위에서 열린 상세는 배경을 최대한 유지
+  const isOverSearchOverlay = useMemo(() => {
+    const st = location.state as any;
+    const bg = st?.backgroundLocation;
+    return String(bg?.pathname ?? "") === "/search";
+  }, [location.state]);
+
+  const closeTarget = useMemo(() => {
     const st = location.state as any;
     const root = st?.rootLocation ?? st?.backgroundLocation ?? null;
-    return locationToPath(root) ?? "/";
+    return {
+      path: locationToPath(root) ?? "/",
+      state: root?.state ?? null,
+    };
   }, [location.state]);
 
   const [detail, setDetail] = useState<DetailBase | null>(null);
@@ -365,13 +375,15 @@ export default function ContentDetailModal({
   const heroKey = `${mediaType}:${id}`;
 
   return (
-    <div className="fixed inset-0 z-[999]">
+    <div className="fixed inset-0 z-[999]" data-pm-detail-modal="true">
       <motion.div
         className={[
           "absolute inset-0",
           isUnderPersonOverlay
             ? "bg-transparent"
-            : "bg-black/70 backdrop-blur-[2px]",
+            : isOverSearchOverlay
+              ? "bg-black/15"
+              : "bg-black/70 backdrop-blur-[2px]",
         ].join(" ")}
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
@@ -399,7 +411,12 @@ export default function ContentDetailModal({
         }
         onAnimationComplete={() => {
           if (!closing) return;
-          navigate(closeTargetPath, { replace: true });
+          // ✅ 중첩 상세(시즌/시리즈)에서도 항상 루트 목적지로 복귀
+          // - navigate(-1)은 이전 history가 또 다른 /title 인 경우 overlay가 남아 터치가 막힐 수 있음
+          navigate(closeTarget.path, {
+            replace: true,
+            state: closeTarget.state ?? undefined,
+          });
         }}
       >
         <button

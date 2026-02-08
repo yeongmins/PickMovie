@@ -1,4 +1,4 @@
-// frontend/src/features/picky/api/pickyApi.ts
+// frontend/src/features/search/api/searchApi.ts
 import { extractTagsFromQuery, safeNum } from "../utils/queryUtils";
 
 type MediaType = "movie" | "tv";
@@ -83,8 +83,8 @@ async function requestJSON<T>(
 }
 
 /**
- * ✅ (기존 PickyPage 호환) ResultItem 유지
- * - 백엔드 PickyItem(camelCase)을 프론트에서 snake_case로 1회 매핑만 수행
+ * ✅ (기존 SearchPage 호환) ResultItem 유지
+ * - 백엔드 SearchItem(camelCase)을 프론트에서 snake_case로 1회 매핑만 수행
  * - 점수/정렬/부스트는 절대 프론트에서 하지 않음
  */
 export type ResultItem = {
@@ -178,13 +178,13 @@ function mapBackendItemToResultItem(it: any): ResultItem {
 }
 
 /**
- * ✅ 정리된 runPickySearch
+ * ✅ 정리된 runSearch
  * - 프론트에서 includeKeywords/mediaTypes/year 추론 X (백엔드가 infer)
  * - search/multi는 expandedQueries(표시용)만 받아옴 (실패해도 추천은 계속 진행)
  * - fallback(/movies/search/multi) 제거 (문제 숨김 방지)
  * - 부스트/정렬 제거 (서버 결과 그대로 사용)
  */
-export async function runPickySearch(
+export async function runSearch(
   userQuery: string,
   opts?: { signal?: AbortSignal }
 ): Promise<AiSearchResponse> {
@@ -211,7 +211,7 @@ export async function runPickySearch(
   try {
     const res = await requestJSON<SearchMultiResponse>(
       "GET",
-      "picky/search/multi",
+      "search/multi",
       {
         params: {
           query: q,
@@ -234,7 +234,7 @@ export async function runPickySearch(
   // 2) recommend: 백엔드가 하이브리드/랭킹/확장 전부 담당
   const recommend = await requestJSON<RecommendResponse>(
     "POST",
-    "picky/recommend",
+    "search/recommend",
     {
       body: {
         prompt: q,
@@ -244,7 +244,7 @@ export async function runPickySearch(
         includeAdult: false,
         sortBy: "popularity.desc",
         // ✅ mediaTypes/includeKeywords/year/genreIds/originalLanguage 등은 보내지 않음
-        // -> 백엔드(PickyService)가 infer + lexicon 기반으로 처리
+        // -> 백엔드(SearchService)가 infer + lexicon 기반으로 처리
       },
       signal: opts?.signal,
     }
@@ -258,15 +258,17 @@ export async function runPickySearch(
       (x) => x.id > 0 && (x.media_type === "movie" || x.media_type === "tv")
     );
 
+  const mergedTags = Array.from(new Set(tags)).slice(0, 12);
+
   return {
-    tags,
+    tags: mergedTags,
     results,
     aiAnalysis: {
       originalQuery: userQuery,
       normalizedQuery: q,
       expandedQueries,
       mediaTypes: ["movie", "tv"],
-      tags,
+      tags: mergedTags,
     },
   };
 }

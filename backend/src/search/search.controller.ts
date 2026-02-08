@@ -1,4 +1,4 @@
-// backend/src/picky/picky.controller.ts
+// backend/src/search/search.controller.ts
 import {
   Body,
   Controller,
@@ -8,30 +8,30 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { PickyService } from './picky.service';
-import { PickyRecommendDto } from './dto/picky.dto'; // ✅ 반드시 value import
-import type { PickyRecommendResponse } from './dto/picky.dto';
+import { SearchService } from './search.service';
+import { SearchRecommendDto } from './dto/search.dto'; // ✅ 반드시 value import
+import type { SearchRecommendResponse } from './dto/search.dto';
 
 type SearchMultiResponse = {
   expandedQueries: string[];
   results: Array<Record<string, unknown>>;
 };
 
-@Controller('picky')
-export class PickyController {
-  constructor(private readonly pickyService: PickyService) {}
+@Controller('search')
+export class SearchController {
+  constructor(private readonly searchService: SearchService) {}
 
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @Post('recommend')
   async recommend(
-    @Body() dto: PickyRecommendDto,
-  ): Promise<PickyRecommendResponse> {
+    @Body() dto: SearchRecommendDto,
+  ): Promise<SearchRecommendResponse> {
     // ✅ 이건 “터미널”이 아니라 “여기(코드)”에 써야 함
-    // console.log('[picky/recommend] dto =', dto);
-    return await this.pickyService.recommend(dto);
+    // console.log('[search/recommend] dto =', dto);
+    return await this.searchService.recommend(dto);
   }
 
-  @Get('search/multi')
+  @Get('multi')
   async searchMultiGet(
     @Query('query') query: string,
     @Query('page') page?: string,
@@ -45,7 +45,7 @@ export class PickyController {
       String(includeAdult ?? 'false').toLowerCase() === 'true' ||
       String(includeAdult ?? 'false') === '1';
 
-    return await this.pickyService.searchMultiWithLexicon({
+    return await this.searchService.searchMultiWithLexicon({
       query: q,
       page: p,
       language: language ?? undefined,
@@ -53,7 +53,7 @@ export class PickyController {
     });
   }
 
-  @Post('search/multi')
+  @Post('multi')
   async searchMultiPost(
     @Body()
     body: {
@@ -66,7 +66,7 @@ export class PickyController {
     const q = String(body?.query ?? '').trim();
     const p = Number(body?.page ?? 1) || 1;
 
-    return await this.pickyService.searchMultiWithLexicon({
+    return await this.searchService.searchMultiWithLexicon({
       query: q,
       page: p,
       language: body?.language ?? undefined,

@@ -1,4 +1,4 @@
-// frontend/src/features/picky/data/keywordPool.ts
+// frontend/src/features/search/data/keywordPool.ts
 export const KEYWORD_POOL: string[] = [
   "2025년 상반기 화제작 🔥",
   "도파민 폭발 액션 💥",

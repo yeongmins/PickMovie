@@ -1,4 +1,4 @@
-// backend/src/picky/picky.service.ts
+// backend/src/search/search.service.ts
 import {
   Injectable,
   InternalServerErrorException,
@@ -9,17 +9,17 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   MediaType,
-  PickyRecommendDto,
-  PickyRecommendResponse,
-  PickyItem,
+  SearchRecommendDto,
+  SearchRecommendResponse,
+  SearchItem,
   ProviderBadge,
-} from './dto/picky.dto';
+} from './dto/search.dto';
 
 import {
   expandQueriesByBrandLexicon,
-  inferPickySignals,
-} from './picky.lexicon';
-import { expandWithLexicon } from './picky.query';
+  inferSearchSignals,
+} from './search.lexicon';
+import { expandWithLexicon } from './search.query';
 import { isBlockedContentByPolicy } from '../common/content-policy';
 
 type JsonRecord = Record<string, unknown>;
@@ -106,8 +106,8 @@ type InferResult = {
 };
 
 @Injectable()
-export class PickyService {
-  private readonly logger = new Logger(PickyService.name);
+export class SearchService {
+  private readonly logger = new Logger(SearchService.name);
   private readonly tmdbBase = 'https://api.themoviedb.org/3';
 
   private readonly keywordIdCache = new Map<string, number | null>();
@@ -418,11 +418,11 @@ export class PickyService {
     source: 'search' | 'retry';
   }): Promise<
     Array<
-      JsonRecord & { mediaType: MediaType; _pickySource: 'search' | 'retry' }
+      JsonRecord & { mediaType: MediaType; _searchSource: 'search' | 'retry' }
     >
   > {
     const out: Array<
-      JsonRecord & { mediaType: MediaType; _pickySource: 'search' | 'retry' }
+      JsonRecord & { mediaType: MediaType; _searchSource: 'search' | 'retry' }
     > = [];
     const seen = new Set<string>();
 
@@ -455,7 +455,7 @@ export class PickyService {
         if (seen.has(key)) continue;
         seen.add(key);
 
-        out.push({ ...it, mediaType: mt, _pickySource: opts.source });
+        out.push({ ...it, mediaType: mt, _searchSource: opts.source });
       }
     }
 
@@ -500,7 +500,7 @@ export class PickyService {
 
   private buildDiscoverUrl(
     mediaType: MediaType,
-    dto: PickyRecommendDto,
+    dto: SearchRecommendDto,
     filters: {
       keywordIds: number[];
       companyIds: number[];
@@ -555,19 +555,19 @@ export class PickyService {
   private normalizeDiscoverItems(
     data: unknown,
     mediaType: MediaType,
-  ): Array<JsonRecord & { mediaType: MediaType; _pickySource: 'discover' }> {
+  ): Array<JsonRecord & { mediaType: MediaType; _searchSource: 'discover' }> {
     if (!isRecord(data)) return [];
     const results: unknown = data.results;
     if (!isArray(results)) return [];
 
     const out: Array<
-      JsonRecord & { mediaType: MediaType; _pickySource: 'discover' }
+      JsonRecord & { mediaType: MediaType; _searchSource: 'discover' }
     > = [];
     for (const r of results) {
       if (!isRecord(r)) continue;
       const id: unknown = r.id;
       if (!isNumber(id)) continue;
-      out.push({ ...r, mediaType, _pickySource: 'discover' });
+      out.push({ ...r, mediaType, _searchSource: 'discover' });
     }
     return out;
   }
@@ -715,10 +715,11 @@ export class PickyService {
   }
 
   private calcMatchScore(
-    it: JsonRecord & { _pickySource?: 'search' | 'discover' | 'retry' },
+    it: JsonRecord & { _searchSource?: 'search' | 'discover' | 'retry' },
     mediaType: MediaType,
     tokens: string[],
     notTokens: string[],
+    preferredLanguages?: Set<string>,
     yearFrom?: number,
     yearTo?: number,
   ): { score: number; reasons: string[] } {
@@ -734,12 +735,12 @@ export class PickyService {
     const hayLower = `${title} ${overview}`.toLowerCase();
 
     // ✅ 검색 소스 보너스: 실제 텍스트 검색 결과를 discover보다 우선
-    if (it._pickySource === 'search') {
-      score += 10;
-      reasons.push('검색결과 우선 +10');
-    } else if (it._pickySource === 'retry') {
+    if (it._searchSource === 'search') {
       score += 6;
-      reasons.push('재검색 +6');
+      reasons.push('검색결과 +6');
+    } else if (it._searchSource === 'retry') {
+      score += 4;
+      reasons.push('재검색 +4');
     }
 
     const hit = containsAny(hayLower, tokens);
@@ -788,6 +789,19 @@ export class PickyService {
       score += clamp(voteAverage, 0, 10) * 0.6;
     if (Number.isFinite(voteCount) && voteCount > 0)
       score += clamp(Math.log10(voteCount + 1) * 2.2, 0, 7);
+
+    if (preferredLanguages?.size) {
+      const lang = norm(
+        isString(it.original_language) ? it.original_language : '',
+      );
+      if (preferredLanguages.has(lang)) {
+        score += 4;
+        reasons.push('권장 언어 +4');
+      } else if (lang) {
+        score -= 6;
+        reasons.push('비권장 언어 -6');
+      }
+    }
 
     score = clamp(score, 0, 100);
 
@@ -901,7 +915,7 @@ export class PickyService {
     return [...ascii.slice(0, 8), ...nonAscii.slice(0, 4)];
   }
 
-  async recommend(dto: PickyRecommendDto): Promise<PickyRecommendResponse> {
+  async recommend(dto: SearchRecommendDto): Promise<SearchRecommendResponse> {
     try {
       const prompt = (dto.prompt ?? '').trim();
       if (!prompt) return { items: [] };
@@ -911,9 +925,10 @@ export class PickyService {
 
       // ✅ 2) 기존 휴리스틱 + 브랜드 사전 시그널
       const inferred = this.inferFromPrompt(prompt);
-      const signals = inferPickySignals(prompt, dto.includeKeywords ?? [], {
+      const signals = inferSearchSignals(prompt, dto.includeKeywords ?? [], {
         maxInclude: 24,
       });
+      const preferredLanguageSet = new Set(['ko', 'ja', 'en']);
 
       // ✅ 회사/네트워크/프랜차이즈/키워드 힌트를 적극 반영
       const companyHintPool = uniqStrings([
@@ -930,14 +945,13 @@ export class PickyService {
         ...lex.entityHints.franchise,
       ]).slice(0, 18);
 
-      // ✅ discover에서 강하게 잡아야 하는 장르도 dto에 반영
-      const effective: PickyRecommendDto = {
+      const effective: SearchRecommendDto = {
         ...dto,
         mediaTypes: dto.mediaTypes?.length
           ? dto.mediaTypes
           : inferred.mediaTypes,
-        yearFrom: dto.yearFrom ?? inferred.yearFrom,
-        yearTo: dto.yearTo ?? inferred.yearTo,
+        yearFrom: dto.yearFrom ?? inferred.yearFrom ?? null,
+        yearTo: dto.yearTo ?? inferred.yearTo ?? null,
         genreIds: dto.genreIds?.length ? dto.genreIds : inferred.forceGenreIds,
         includeKeywords: uniqStrings([
           ...signals.includeExpanded,
@@ -1001,7 +1015,7 @@ export class PickyService {
       const merged: Array<
         JsonRecord & {
           mediaType: MediaType;
-          _pickySource?: 'search' | 'discover' | 'retry';
+          _searchSource?: 'search' | 'discover' | 'retry';
         }
       > = [];
       const seen = new Set<string>();
@@ -1010,6 +1024,7 @@ export class PickyService {
         const id: unknown = it.id;
         if (!isNumber(id)) continue;
         if (isBlockedContentByPolicy(it)) continue;
+        if (!isString(it.poster_path) || !it.poster_path.trim()) continue;
         const key = `${it.mediaType}:${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -1025,8 +1040,27 @@ export class PickyService {
           includeAdult,
           source: 'retry',
         });
-        merged.push(...retry.filter((it) => !isBlockedContentByPolicy(it)));
+        merged.push(
+          ...retry.filter(
+            (it) =>
+              !isBlockedContentByPolicy(it) &&
+              isString(it.poster_path) &&
+              !!it.poster_path.trim(),
+          ),
+        );
       }
+
+      const preferredOnly = merged.filter((it) => {
+        const lang = norm(
+          isString(it.original_language) ? it.original_language : '',
+        );
+        return preferredLanguageSet.has(lang);
+      });
+      const scopedByLanguage =
+        preferredOnly.length >= 8 ||
+        (merged.length <= 8 && preferredOnly.length > 0)
+          ? preferredOnly
+          : merged;
 
       // ✅ 7) 점수화 토큰/부정 토큰 구성
       const tokens = uniqStrings([
@@ -1037,12 +1071,15 @@ export class PickyService {
         ...lex.entityHints.keyword,
       ]).slice(0, 26);
 
-      const notTokens = uniqStrings([...lex.notTokens])
+      const notTokens = uniqStrings([
+        ...lex.notTokens,
+        ...(dto.excludeKeywords ?? []),
+      ])
         .filter((t) => norm(t).length >= 2)
-        .slice(0, 18);
+        .slice(0, 22);
 
       // ✅ 8) 부정 토큰이 강하게 걸리면 아예 제외(“공포 빼고” 같은 케이스)
-      const filtered = merged.filter((it) => {
+      const filtered = scopedByLanguage.filter((it) => {
         const title = isString(it.title)
           ? it.title
           : isString(it.name)
@@ -1054,31 +1091,66 @@ export class PickyService {
         return bad.length === 0;
       });
 
-      const scored = (filtered.length ? filtered : merged)
+      const scored = (filtered.length ? filtered : scopedByLanguage)
         .map((it) => {
           const base = this.toBaseItem(
             it as JsonRecord & { mediaType: MediaType },
           );
+          const title = isString(it.title)
+            ? it.title
+            : isString(it.name)
+              ? it.name
+              : '';
+          const overview = isString(it.overview) ? it.overview : '';
+          const hayLower = `${title} ${overview}`.toLowerCase();
+          const tokenHits = containsAny(hayLower, tokens).length;
+          const genreHits = (base.genreIds ?? []).filter((id) =>
+            (effective.genreIds ?? []).includes(id),
+          ).length;
           const ms = this.calcMatchScore(
             it,
             (it as { mediaType: MediaType }).mediaType,
             tokens,
             notTokens,
+            preferredLanguageSet,
             effective.yearFrom ?? undefined,
             effective.yearTo ?? undefined,
           );
-          return { base, matchScore: ms.score, matchReasons: ms.reasons };
+          return {
+            base,
+            matchScore: ms.score,
+            matchReasons: ms.reasons,
+            tokenHits,
+            genreHits,
+            source: (it as { _searchSource?: 'search' | 'discover' | 'retry' })
+              ._searchSource,
+          };
         })
         .filter((x) => x.base.id !== 0);
 
-      scored.sort((a, b) => {
+      const hasDiscoverFilter =
+        !!effective.yearFrom ||
+        !!effective.yearTo ||
+        !!effective.originalLanguage ||
+        (effective.genreIds?.length ?? 0) > 0 ||
+        keywordIds.length > 0 ||
+        companyIds.length > 0;
+
+      const scoredRelevant = scored.filter((x) => {
+        if (x.matchScore < 36) return false;
+        if (x.tokenHits > 0 || x.genreHits > 0) return true;
+        if (x.source === 'discover' && hasDiscoverFilter) return true;
+        return false;
+      });
+
+      const finalScored = scoredRelevant.sort((a, b) => {
         if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
         if (b.base.voteAverage !== a.base.voteAverage)
           return b.base.voteAverage - a.base.voteAverage;
         return b.base.voteCount - a.base.voteCount;
       });
 
-      const top = scored.slice(0, 24);
+      const top = finalScored.slice(0, 24);
 
       const enriched = await this.mapLimit(top, 6, async (x) => {
         const providers = await this.getWatchProviders(
@@ -1092,7 +1164,7 @@ export class PickyService {
           region,
         );
 
-        const item: PickyItem = {
+        const item: SearchItem = {
           ...x.base,
           providers,
           ageRating,
@@ -1102,6 +1174,7 @@ export class PickyService {
 
         return item;
       });
+
       return { items: enriched };
     } catch (e: unknown) {
       this.logger.error(

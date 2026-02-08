@@ -290,7 +290,7 @@ function OnboardingPromptModal({
                     </span>
                     과{" "}
                     <span className="text-white/85 font-semibold">
-                      Picky 검색 품질
+                      Search 검색 품질
                     </span>
                     이 확 올라가요. (선택사항)
                   </div>
