@@ -8,6 +8,7 @@ export type FooterNoticeItem = {
 };
 
 export const NOTICE_ITEMS: FooterNoticeItem[] = [
+  { date: "2026-02-09", title: "디자인 개선: footer 구조 개선 및 픽무비 공통 색상 변경", body: "footer 구조 개선 및 픽무비 공통 색상 변경 관련 업데이트를 반영했습니다." },
   { date: "2026-02-08", title: "기능 업데이트: 추천 관련 코드 검색 코드로 이관 및 속도 개선 진행", body: "추천 관련 코드 검색 코드로 이관 및 속도 개선 진행 관련 업데이트를 반영했습니다." },
   { date: "2026-02-08", title: "기능 업데이트: 공통 필터 정리", body: "공통 필터 정리 관련 업데이트를 반영했습니다." },
   { date: "2026-02-08", title: "디자인 개선: 찜/플레이리스트 UX UI 개선", body: "찜/플레이리스트 UX UI 개선 관련 업데이트를 반영했습니다." },
