@@ -406,7 +406,7 @@ function SharedEditableCarouselRow(props: {
           onClick={() => scroll("left")}
           className={[
             "absolute left-0 top-0 bottom-0 z-20 w-12 sm:w-14",
-            isEditing ? "" : "bg-gradient-to-r from-[#1a1a24] to-transparent",
+            isEditing ? "" : "bg-gradient-to-r from-[#10131b] to-transparent",
             "flex items-center justify-start pl-2",
             "opacity-0 pointer-events-none",
             "group-hover/row:opacity-100 group-hover/row:pointer-events-auto",
@@ -505,7 +505,7 @@ function SharedEditableCarouselRow(props: {
         onClick={() => scroll("right")}
         className={[
           "absolute right-0 top-0 bottom-0 z-20 w-12 sm:w-14",
-          isEditing ? "" : "bg-gradient-to-l from-[#1a1a24] to-transparent",
+          isEditing ? "" : "bg-gradient-to-l from-[#10131b] to-transparent",
           "flex items-center justify-end pr-2",
           "opacity-0 pointer-events-none",
           "group-hover/row:opacity-100 group-hover/row:pointer-events-auto",
@@ -666,7 +666,7 @@ export default function FavoritesPlaylistPage({
   }, [playlists]);
 
   return (
-    <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden flex flex-col">
+    <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
       <Header />
 
       <main className="flex-1 pt-[84px] relative">

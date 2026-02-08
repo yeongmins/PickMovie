@@ -18,8 +18,6 @@ import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import { MyPage } from "./pages/MyPage";
 import { Info } from "./pages/support/Info";
-import { Notices } from "./pages/support/Notices";
-import { Legal } from "./pages/support/Legal";
 
 import ContentDetailModal from "./pages/detail/ContentDetailModal";
 import PersonDetail from "./pages/person/PersonDetail";
@@ -560,9 +558,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route path="/info" element={<Info />} />
-        <Route path="/notices" element={<Notices />} />
         <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
-        <Route path="/legal/:section" element={<Legal />} />
 
         <Route path="/mypage" element={<MyPage />} />
 

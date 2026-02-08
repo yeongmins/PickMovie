@@ -216,7 +216,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
         <div
           className={[
             "pointer-events-none absolute inset-0",
-            "bg-[#1a1a24]/90 backdrop-blur-md",
+            "bg-[#10131b]/90 backdrop-blur-md",
             "will-change-[opacity,box-shadow]",
           ].join(" ")}
           style={{

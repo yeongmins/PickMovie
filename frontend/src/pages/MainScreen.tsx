@@ -269,7 +269,7 @@ function OnboardingPromptModal({
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: 10, scale: 0.985, filter: "blur(10px)" }}
             transition={{ duration: 0.22, ease: "easeOut" }}
-            className="relative w-full max-w-[720px] rounded-2xl border border-white/10 bg-[#1a1a24]/90 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.55)] overflow-hidden"
+            className="relative w-full max-w-[720px] rounded-2xl border border-white/10 bg-[#10131b]/90 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.55)] overflow-hidden"
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1123,7 +1123,7 @@ export function MainScreen({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1a1a24] flex items-center justify-center">
+      <div className="min-h-screen bg-[#10131b] flex items-center justify-center">
         <Loader2
           className="w-12 h-12 animate-spin text-purple-400"
           aria-label="로딩 중"
@@ -1136,7 +1136,7 @@ export function MainScreen({
   const canBuildForYou = loggedIn && favorites.length >= MIN_FAV_FOR_YOU;
 
   return (
-    <div className="min-h-screen bg-[#1a1a24] text-white overflow-x-hidden flex flex-col">
+    <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
       <Suspense fallback={<div className="h-16" />}>
         <Header currentSection={currentSection} />
       </Suspense>

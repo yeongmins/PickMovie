@@ -527,7 +527,7 @@ function FavoritesCarouselInner(
             )}
 
             <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a24] via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#10131b] via-transparent to-transparent" />
           </div>
 
           <div className="relative h-full flex items-center px-12 carousel-content">

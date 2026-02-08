@@ -79,7 +79,7 @@ export function ContentRow({
         {scrollPosition > 0 && (
           <button
             onClick={() => scroll("left")}
-            className={`absolute left-0 top-0 bottom-0 z-20 w-12 sm:w-14 bg-gradient-to-r from-[#1a1a24] to-transparent flex items-center justify-start pl-2 opacity-0 group-hover/row:opacity-100 transition-opacity`}
+            className={`absolute left-0 top-0 bottom-0 z-20 w-12 sm:w-14 bg-gradient-to-r from-[#10131b] to-transparent flex items-center justify-start pl-2 opacity-0 group-hover/row:opacity-100 transition-opacity`}
             aria-label={`${title} 왼쪽으로 스크롤`}
           >
             <ChevronLeft className="w-10 h-10 text-white drop-shadow-lg" />
@@ -124,7 +124,7 @@ export function ContentRow({
 
         <button
           onClick={() => scroll("right")}
-          className="absolute right-0 top-0 bottom-0 z-20 w-12 sm:w-14 bg-gradient-to-l from-[#1a1a24] to-transparent flex items-center justify-end pr-2 opacity-0 group-hover/row:opacity-100 transition-opacity"
+          className="absolute right-0 top-0 bottom-0 z-20 w-12 sm:w-14 bg-gradient-to-l from-[#10131b] to-transparent flex items-center justify-end pr-2 opacity-0 group-hover/row:opacity-100 transition-opacity"
           aria-label={`${title} 오른쪽으로 스크롤`}
         >
           <ChevronRight className="w-10 h-10 text-white drop-shadow-lg" />

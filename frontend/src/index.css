@@ -1520,14 +1520,14 @@
   }
 
   .bg-search {
-    background-color: #1a1a24ab;
+    background-color: #10131bab;
   }
 
-  .bg-\[\#1a1a24\] {
-    background-color: #1a1a24;
+  .bg-\[\#10131b\] {
+    background-color: #10131b;
   }
 
-  .bg-\[\#1a1a24\]\/95 {
+  .bg-\[\#10131b\]\/95 {
     background-color: oklab(20.838% 0.00407 -0.01525 / 0.95);
   }
 
@@ -1905,8 +1905,8 @@
     background-image: linear-gradient(var(--tw-gradient-stops));
   }
 
-  .from-\[\#1a1a24\] {
-    --tw-gradient-from: #1a1a24;
+  .from-\[\#10131b\] {
+    --tw-gradient-from: #10131b;
     --tw-gradient-stops: var(
       --tw-gradient-via-stops,
       var(--tw-gradient-position),
@@ -2057,7 +2057,7 @@
     }
   }
 
-  .via-\[\#1a1a24\]\/80 {
+  .via-\[\#10131b\]\/80 {
     --tw-gradient-via: oklab(22.2494% 0.00492509 -0.0187526 / 0.8);
     --tw-gradient-via-stops:
       var(--tw-gradient-position),
@@ -2107,8 +2107,8 @@
     --tw-gradient-stops: var(--tw-gradient-via-stops);
   }
 
-  .to-\[\#1a1a24\] {
-    --tw-gradient-to: #1a1a24;
+  .to-\[\#10131b\] {
+    --tw-gradient-to: #10131b;
     --tw-gradient-stops: var(
       --tw-gradient-via-stops,
       var(--tw-gradient-position),
@@ -3416,7 +3416,7 @@ html {
 }
 
 body {
-  background: #1a1a24;
+  background: #10131b;
   position: relative;
 }
 

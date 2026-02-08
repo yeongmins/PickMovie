@@ -87,7 +87,7 @@ export function PreferencesStep({
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
+    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
       {/* 필요 시 켜서 중앙 스포트라이트 효과 줄 수 있는 코드 (현재는 주석 처리) */}
       {/* <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-3xl pointer-events-none" /> */}
 

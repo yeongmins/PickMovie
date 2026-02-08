@@ -76,7 +76,7 @@ export function ExcludeStep({
   };
 
   return (
-    <div className="min-h-screen flex p-6 relative bg-[#1a1a24] overflow-hidden items-center justify-center">
+    <div className="min-h-screen flex p-6 relative bg-[#10131b] overflow-hidden items-center justify-center">
       <div className="max-w-5xl mx-auto w-full relative z-10">
         {/* 설문 화면과 분석 화면을 프레이머 모션으로 전환 */}
         <AnimatePresence mode="wait">

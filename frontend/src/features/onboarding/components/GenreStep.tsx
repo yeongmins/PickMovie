@@ -80,7 +80,7 @@ export function GenreStep({
     localGenres.length === 0 || localGenres.length > MAX_SELECTION;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
+    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
       <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
         {/* 왼쪽: 장르 선택 UI */}
         <div className="flex-1 flex flex-col max-w-2xl">

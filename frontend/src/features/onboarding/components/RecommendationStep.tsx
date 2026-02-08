@@ -145,7 +145,7 @@ export function RecommendationStep({
   // TMDB 호출 로딩 화면
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
+      <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-purple-400 mx-auto mb-4" />
           <p className="text-white text-xl">영화 데이터를 불러오는 중...</p>
@@ -177,7 +177,7 @@ export function RecommendationStep({
     }
 
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#1a1a24]">
+      <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
         <div className="text-center max-w-lg">
           <div className="text-6xl mb-6">😅</div>
           <p className="text-white text-2xl mb-4">검색 결과가 없습니다</p>
@@ -245,7 +245,7 @@ export function RecommendationStep({
       initial={{ opacity: 0, y: 20 }} // 처음 진입 시 아래에서 살짝 올라오듯
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6 }}
-      className="min-h-screen p-6 pb-20 relative bg-[#1a1a24] flex items-center justify-center"
+      className="min-h-screen p-6 pb-20 relative bg-[#10131b] flex items-center justify-center"
     >
       <div className="max-w-5xl mx-auto relative z-10 w-full">
         {/* 상단 헤더: 로고 + 설명 + 요약 */}
