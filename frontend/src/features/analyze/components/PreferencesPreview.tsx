@@ -39,22 +39,18 @@ export function PreferencesPreview({
   currentStep,
 }: PreferencesPreviewProps) {
   return (
-    // 오른쪽에 고정되는 프리뷰 카드 (스크롤 내려도 고정)
     <div className="sticky top-6">
-      {/* 프리뷰 카드 전체 컨테이너 */}
       <motion.div
-        className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-5"
+        className="bg-[#0f1420]/88 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-[0_12px_40px_rgba(0,0,0,0.35)]"
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.12 }}
       >
-        {/* 제목 영역 */}
         <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="w-4 h-4 text-purple-300" />
+          <Sparkles className="w-4 h-4 text-purple-200" />
           <h3 className="text-white text-base font-medium">선택한 취향</h3>
         </div>
 
-        {/* 온보딩 진행도(1~4 단계 막대 표시) */}
         <div className="mb-5">
           <div className="flex items-center gap-1 mb-2">
             {[1, 2, 3, 4].map((step) => (
@@ -75,7 +71,7 @@ export function PreferencesPreview({
           {/* 장르 목록 칩 */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Film className="w-3 h-3 text-purple-300" />
+              <Film className="w-3 h-3 text-purple-200" />
               <span className="text-gray-300 text-xs">장르</span>
             </div>
             {genres.length > 0 ? (

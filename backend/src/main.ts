@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
-import type { Express } from 'express';
+import { json, urlencoded, type Express } from 'express';
 import { AppModule } from './app.module';
 
 function parseOrigins(raw: string | undefined): string[] {
@@ -14,11 +14,13 @@ function parseOrigins(raw: string | undefined): string[] {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // ✅ 프록시(https) 환경에서 쿠키/클라이언트 IP 정상 처리 (Render/Railway/Fly 등)
   const expressApp = app.getHttpAdapter().getInstance() as Express;
   expressApp.set('trust proxy', 1);
+  expressApp.use(json({ limit: '5mb' }));
+  expressApp.use(urlencoded({ extended: true, limit: '5mb' }));
 
   app.use(cookieParser());
 

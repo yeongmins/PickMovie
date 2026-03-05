@@ -40,7 +40,6 @@ function readStoredUser(): SafeUser | null {
 
 function getActiveSection(pathname: string) {
   if (pathname.startsWith("/favorites")) return "favorites";
-  if (pathname.startsWith("/mypage")) return "mypage";
   if (pathname.startsWith("/settings")) return "settings";
   return "home";
 }
@@ -148,10 +147,20 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
     navigate("/search", { state: { backgroundLocation: location } });
   };
 
+  const openAnalyze = () => {
+    setProfileOpen(false);
+    navigate("/analyze");
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+  };
+
+  const analyzeBtnClass =
+    "!border-0 !bg-gradient-to-r !from-purple-600 !to-pink-600 hover:brightness-110";
+
   const go = (section: string) => {
     if (section === "home") return navigate("/");
     if (section === "favorites") return navigate("/favorites");
-    if (section === "mypage") return navigate("/mypage");
     if (section === "settings") return navigate("/settings");
     onNavigate?.(section);
   };
@@ -261,6 +270,28 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
           </div>
 
           <div className="flex items-center gap-2 flex-1 justify-end ml-3">
+            {isMdUp ? (
+              <motion.button
+                type="button"
+                onClick={openAnalyze}
+                variants={searchBtnVariants}
+                initial="rest"
+                animate="rest"
+                whileHover="hover"
+                whileTap="tap"
+                className={[
+                  "h-9 px-4 rounded-full inline-flex items-center justify-center",
+                  "text-sm font-bold text-white",
+                  analyzeBtnClass,
+                  "shadow-none",
+                  "transition",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]",
+                ].join(" ")}
+              >
+                분석하기
+              </motion.button>
+            ) : null}
+
             <div className="relative group">
               <motion.button
                 type="button"
@@ -361,8 +392,14 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                                 animate={{ opacity: 1, height: "auto" }}
                                 exit={{ opacity: 0, height: 0 }}
                                 transition={{ duration: 0.18, ease: "easeOut" }}
-                                className="overflow-hidden"
+                                className="overflow-hidden grid gap-2"
                               >
+                                <MenuButton
+                                  label="분석하기"
+                                  onClick={openAnalyze}
+                                  className={analyzeBtnClass}
+                                  arrowClassName="text-white/80"
+                                />
                                 <MenuButton
                                   label="찜/플레이리스트"
                                   onClick={() => {
@@ -374,13 +411,6 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                             ) : null}
                           </AnimatePresence>
 
-                          <MenuButton
-                            label="마이페이지"
-                            onClick={() => {
-                              setProfileOpen(false);
-                              navigate("/mypage");
-                            }}
-                          />
                           <MenuButton
                             label="설정"
                             icon={
@@ -437,22 +467,29 @@ function MenuButton({
   label,
   icon,
   onClick,
+  className,
+  arrowClassName,
 }: {
   label: string;
   icon?: React.ReactNode;
   onClick: () => void;
+  className?: string;
+  arrowClassName?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-white flex items-center justify-between"
+      className={[
+        "w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm font-semibold text-white flex items-center justify-between",
+        className ?? "",
+      ].join(" ")}
     >
       <span className="flex items-center gap-2">
         {icon ? icon : null}
         {label}
       </span>
-      <span className="text-white/35">→</span>
+      <span className={arrowClassName ?? "text-white/35"}>→</span>
     </button>
   );
 }

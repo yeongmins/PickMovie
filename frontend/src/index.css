@@ -4046,24 +4046,28 @@ body:after {
    공통 유틸리티/컴포넌트
    ========================= */
 @layer utilities {
-  /* 🔍 온보딩 전체 축소: 작은 화면에서 한 화면에 넣기 위한 스케일 조정 */
+  /* 🔍 분석/온보딩 전체 축소: 작은 화면에서 한 화면에 넣기 위한 스케일 조정 */
+  .analyze-root,
   .onboarding-root {
     @apply transform-gpu origin-top transition-transform duration-200 ease-out;
   }
 
   @media (max-height: 900px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.95);
     }
   }
 
   @media (max-height: 800px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.9);
     }
   }
 
   @media (max-height: 700px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.85);
     }

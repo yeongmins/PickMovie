@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "../../../components/ui/button";
 import { PreferencesPreview } from "./PreferencesPreview";
-import { type UserPreferences } from "../Onboarding";
+import { type UserPreferences } from "../Analyze";
 
 interface ExcludeStepProps {
   onNext: () => void; // 분석 완료 후 추천 화면으로 이동
@@ -76,7 +76,9 @@ export function ExcludeStep({
   };
 
   return (
-    <div className="min-h-screen flex p-6 relative bg-[#10131b] overflow-hidden items-center justify-center">
+    <div className="flex px-6 pt-6 pb-20 relative bg-[#10131b] overflow-hidden justify-center max-[900px]:pb-16">
+      <div className="pointer-events-none absolute -top-24 right-10 h-72 w-72 rounded-full bg-orange-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 left-10 h-72 w-72 rounded-full bg-purple-600/15 blur-3xl" />
       <div className="max-w-5xl mx-auto w-full relative z-10">
         {/* 설문 화면과 분석 화면을 프레이머 모션으로 전환 */}
         <AnimatePresence mode="wait">
@@ -91,36 +93,31 @@ export function ExcludeStep({
               transition={{ duration: 0.4 }}
               className="flex gap-6"
             >
-              {/* 왼쪽: 제외 요소 선택 UI */}
-              <div className="flex-1 flex flex-col max-w-2xl">
+              <div className="flex-1 flex flex-col max-w-3xl rounded-3xl border border-white/10 bg-[#0f1420]/85 p-6 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
                 <div className="mb-3">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white text-base font-medium">
-                      4
-                    </div>
-                    <h2 className="text-white text-2xl font-medium">
-                      제외하고 싶은 요소가 있나요?
-                    </h2>
+                  <div className="inline-flex items-center rounded-full border border-orange-300/30 bg-orange-500/10 px-3 py-1 text-xs text-orange-200">
+                    STEP 4/4
                   </div>
-                  <p className="text-gray-400 text-sm">
-                    선택 사항입니다 (여러 개 선택 가능)
+                  <h2 className="mt-3 text-white text-2xl font-semibold">
+                    제외하고 싶은 요소가 있나요?
+                  </h2>
+                  <p className="text-gray-300 text-sm mt-2">
+                    선택 사항이며 여러 개를 고를 수 있어요.
                   </p>
                 </div>
 
-                {/* 제외 요소 카드 그리드 */}
-                <div className="flex-1 grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                   {excludeOptions.map((option) => (
                     <button
                       key={option.id}
                       onClick={() => toggleExclude(option.label)}
-                      className={`p-4 rounded-xl border-2 transition-all text-left ${
+                      className={`min-h-24 rounded-2xl border px-3 py-3 text-left transition-all ${
                         localExcludes.includes(option.label)
-                          ? // 선택된 경우: 오렌지색 강조
-                            "bg-orange-500/20 border-orange-500 shadow-lg shadow-orange-500/20"
+                          ? "bg-orange-500/20 border-orange-400/80 shadow-[0_0_0_1px_rgba(251,146,60,0.35)_inset]"
                           : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
                       }`}
                     >
-                      <div className="text-2xl mb-1">{option.icon}</div>
+                      <div className="text-2xl">{option.icon}</div>
                       <div className="text-white text-sm font-medium">
                         {option.label}
                       </div>
@@ -128,8 +125,7 @@ export function ExcludeStep({
                   ))}
                 </div>
 
-                {/* 하단 이전/완료 버튼 */}
-                <div className="flex gap-3">
+                <div className="mt-4 flex gap-3">
                   <Button
                     onClick={onBack}
                     size="lg"
@@ -142,12 +138,11 @@ export function ExcludeStep({
                     size="lg"
                     className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none transition-opacity"
                   >
-                    완료
+                    분석 시작
                   </Button>
                 </div>
               </div>
 
-              {/* 오른쪽: 현재까지 취향 요약 프리뷰 카드 */}
               <div className="w-80 flex-shrink-0 preview-hide-mobile">
                 <PreferencesPreview
                   genres={currentPreferences.genres}
@@ -235,7 +230,7 @@ export function ExcludeStep({
                   <div className="grid grid-cols-2 gap-3 text-xs text-left">
                     <div>
                       <span className="text-gray-400">장르</span>
-                      <p className="text-purple-300 text-xs">
+                      <p className="text-purple-200 text-xs">
                         {currentPreferences.genres.join(", ")}
                       </p>
                     </div>

@@ -20,6 +20,15 @@ export function hasKoreanTitle(raw: unknown): boolean {
   return hasHangul(displayTitle);
 }
 
+function hasDisplayTitle(raw: unknown): boolean {
+  if (!isRecord(raw)) return false;
+  const title = toStringValue(raw['title']);
+  const name = toStringValue(raw['name']);
+  return Boolean(title || name);
+}
+
 export function isBlockedContentByPolicy(raw: unknown): boolean {
-  return !hasKoreanTitle(raw);
+  // 이전에는 "한글 제목만 허용"이라 해외 작품이 거의 전부 걸러졌음.
+  // 제목 자체가 없는 비정상 데이터만 차단하도록 완화한다.
+  return !hasDisplayTitle(raw);
 }

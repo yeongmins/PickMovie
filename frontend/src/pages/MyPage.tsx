@@ -1,10 +1,20 @@
-// frontend/src/pages/MyPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Heart, LogOut, UserRound } from "lucide-react";
-import { apiGet, apiPost } from "../lib/apiClient";
-import { Button } from "../components/ui/button";
+import {
+  AlertTriangle,
+  KeyRound,
+  Laptop,
+  LogOut,
+  Mail,
+  Shield,
+  Trash2,
+  UserRound,
+} from "lucide-react";
+import { apiGet, apiPost, ApiError } from "../lib/apiClient";
 import { Header } from "../components/layout/Header";
+import { Button } from "../components/ui/button";
+import { AUTH_KEYS, dispatchAuthChanged } from "../lib/auth";
+import { PageFooter } from "../components/layout/Footer";
 
 type SafeUser = {
   id: number;
@@ -13,13 +23,14 @@ type SafeUser = {
   nickname: string | null;
 };
 
-type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
-type PlaylistLite = { id: number; name: string };
-
-const AUTH_KEYS = {
-  ACCESS: "pickmovie_access_token",
-  USER: "pickmovie_user",
-} as const;
+type SessionItem = {
+  id: number;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  isCurrent: boolean;
+};
 
 function readStoredUser(): SafeUser | null {
   try {
@@ -31,20 +42,57 @@ function readStoredUser(): SafeUser | null {
   }
 }
 
-function getFavoriteLabel(item: FavoriteItem): string {
-  const mt = item.mediaType === "tv" ? "TV" : "Movie";
-  return `${mt} #${item.id}`;
+function formatDateTime(value: string): string {
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(ms);
+}
+
+function parseDeviceLabel(userAgent: string | null): string {
+  const ua = (userAgent ?? "").toLowerCase();
+  if (!ua) return "알 수 없는 기기";
+  if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ios")) {
+    return "iOS";
+  }
+  if (ua.includes("android")) return "Android";
+  if (ua.includes("mac os") || ua.includes("macintosh")) return "macOS";
+  if (ua.includes("windows")) return "Windows";
+  if (ua.includes("linux")) return "Linux";
+  return "기타 기기";
 }
 
 export function MyPage() {
   const navigate = useNavigate();
 
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
-  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
-  const [playlists, setPlaylists] = useState<PlaylistLite[]>([]);
+  const [nickname, setNickname] = useState("");
+  const [nicknameDraft, setNicknameDraft] = useState("");
 
-  const favCount = favorites.length;
-  const playlistCount = playlists.length;
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [nicknameEditing, setNicknameEditing] = useState(false);
+  const [nickCheckLoading, setNickCheckLoading] = useState(false);
+  const [nickCheckedValue, setNickCheckedValue] = useState<string | null>(null);
+  const [nickCheckMessage, setNickCheckMessage] = useState<string | null>(null);
+
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [logoutOthersLoading, setLogoutOthersLoading] = useState(false);
+  const [logoutAllLoading, setLogoutAllLoading] = useState(false);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const displayName = useMemo(() => {
     const u = me;
@@ -52,17 +100,8 @@ export function MyPage() {
     return (u.nickname?.trim() || u.username || "").trim();
   }, [me]);
 
-  const favoritesPreview = useMemo(() => {
-    return favorites.slice(0, 8).map((x, idx) => ({
-      key: `${idx}-${x.mediaType}-${x.id}`,
-      label: getFavoriteLabel(x),
-    }));
-  }, [favorites]);
-
   useEffect(() => {
-    const sync = () => {
-      setMe(readStoredUser());
-    };
+    const sync = () => setMe(readStoredUser());
     window.addEventListener("pickmovie-auth-changed", sync);
     window.addEventListener("storage", sync);
     return () => {
@@ -72,213 +111,529 @@ export function MyPage() {
   }, []);
 
   useEffect(() => {
+    if (!me) {
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    setNickname(me.nickname ?? "");
+    setNicknameDraft(me.nickname ?? "");
+    setNicknameEditing(false);
+    setNickCheckedValue(null);
+    setNickCheckMessage(null);
+  }, [me, navigate]);
+
+  useEffect(() => {
     let alive = true;
 
-    const loadLibrary = async () => {
-      if (!me) {
-        if (!alive) return;
-        setFavorites([]);
-        setPlaylists([]);
-        return;
-      }
-
+    const loadMe = async () => {
+      if (!me) return;
       try {
-        const favRes = await apiGet<{ items?: FavoriteItem[] }>("/auth/favorites");
-        if (!alive) return;
-        const items = Array.isArray(favRes?.items) ? favRes.items : [];
-        setFavorites(items);
+        const res = await apiGet<{ user: SafeUser }>("/auth/me");
+        if (!alive || !res?.user) return;
+        setMe(res.user);
+        localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(res.user));
+        dispatchAuthChanged();
       } catch {
-        if (!alive) return;
-        setFavorites([]);
-      }
-
-      try {
-        const plRes = await apiGet<{ playlists?: PlaylistLite[] }>(
-          "/auth/playlists",
-        );
-        if (!alive) return;
-        const items = Array.isArray(plRes?.playlists) ? plRes.playlists : [];
-        setPlaylists(items);
-      } catch {
-        if (!alive) return;
-        setPlaylists([]);
+        // ignore
       }
     };
 
-    void loadLibrary();
+    void loadMe();
 
     return () => {
       alive = false;
     };
-  }, [me]);
+  }, [me?.id]);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const res = await apiGet<{ sessions?: SessionItem[] }>("/auth/sessions");
+      setSessions(Array.isArray(res?.sessions) ? res.sessions : []);
+    } catch {
+      setSessionsError("세션 목록을 불러오지 못했습니다.");
+      setSessions([]);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!me) navigate("/login", { replace: true });
-  }, [me, navigate]);
+    if (!me) return;
+    void loadSessions();
+  }, [me?.id]);
 
-  const onLogout = async () => {
+  const saveProfile = async (params: {
+    nickname: string;
+    successMessage: string;
+  }) => {
+    if (!me) return;
+
+    setProfileSaving(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
     try {
-      await apiPost("/auth/logout", {});
+      const res = await apiPost<{ user: SafeUser }>("/auth/profile", {
+        nickname: params.nickname,
+      });
+
+      if (res?.user) {
+        setMe(res.user);
+        localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(res.user));
+        dispatchAuthChanged();
+        setNickname(res.user.nickname ?? "");
+        setNicknameDraft(res.user.nickname ?? "");
+      }
+
+      setProfileMessage(params.successMessage);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.message : "프로필 저장에 실패했습니다.";
+      setProfileError(msg);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const onCheckNickname = async () => {
+    if (!me) return;
+    const trimmed = nicknameDraft.trim();
+
+    if (!trimmed) {
+      setNickCheckedValue(null);
+      setNickCheckMessage("닉네임을 입력해주세요.");
+      return;
+    }
+
+    if (trimmed.length > 20) {
+      setNickCheckedValue(null);
+      setNickCheckMessage("닉네임은 최대 20자까지 가능합니다.");
+      return;
+    }
+
+    if (trimmed === (me.nickname ?? "").trim()) {
+      setNickCheckedValue(trimmed);
+      setNickCheckMessage("현재 사용 중인 닉네임입니다.");
+      return;
+    }
+
+    setNickCheckLoading(true);
+    setNickCheckMessage(null);
+
+    try {
+      const res = await apiPost<{ available?: boolean }>("/auth/check-nickname", {
+        nickname: trimmed,
+      });
+
+      if (!res?.available) {
+        setNickCheckedValue(null);
+        setNickCheckMessage("이미 사용 중인 닉네임입니다.");
+        return;
+      }
+
+      setNickCheckedValue(trimmed);
+      setNickCheckMessage("사용 가능한 닉네임입니다.");
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.message : "중복 확인 중 오류가 발생했습니다.";
+      setNickCheckedValue(null);
+      setNickCheckMessage(msg);
+    } finally {
+      setNickCheckLoading(false);
+    }
+  };
+
+  const onApplyNickname = async () => {
+    if (profileSaving) return;
+    const trimmed = nicknameDraft.trim();
+    if (!trimmed) {
+      setNickCheckMessage("닉네임을 입력해주세요.");
+      return;
+    }
+
+    if (nickCheckedValue !== trimmed) {
+      setNickCheckMessage("중복 확인을 먼저 진행해주세요.");
+      return;
+    }
+
+    await saveProfile({
+      nickname: trimmed,
+      successMessage: "닉네임이 변경되었습니다.",
+    });
+
+    setNicknameEditing(false);
+    setNickCheckedValue(null);
+    setNickCheckMessage(null);
+  };
+
+  const onLogoutOthers = async () => {
+    setLogoutOthersLoading(true);
+    setSessionsError(null);
+    try {
+      await apiPost("/auth/sessions/logout-others", {});
+      await loadSessions();
+    } catch {
+      setSessionsError("다른 기기 로그아웃에 실패했습니다.");
+    } finally {
+      setLogoutOthersLoading(false);
+    }
+  };
+
+  const onLogoutAll = async () => {
+    setLogoutAllLoading(true);
+    try {
+      await apiPost("/auth/sessions/logout-all", {});
     } finally {
       localStorage.removeItem(AUTH_KEYS.ACCESS);
       localStorage.removeItem(AUTH_KEYS.USER);
-      window.dispatchEvent(new Event("pickmovie-auth-changed"));
+      dispatchAuthChanged();
+      navigate("/login", { replace: true });
+      setLogoutAllLoading(false);
+    }
+  };
+
+  const onDeleteAccount = async () => {
+    setDeleteLoading(true);
+    setDeleteError(null);
+
+    try {
+      await apiPost("/auth/account/delete", {
+        password: deletePassword,
+        confirmText: deleteConfirmText,
+      });
+
+      localStorage.removeItem(AUTH_KEYS.ACCESS);
+      localStorage.removeItem(AUTH_KEYS.USER);
+      dispatchAuthChanged();
       navigate("/", { replace: true });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "계정 탈퇴에 실패했습니다.";
+      setDeleteError(msg);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
   if (!me) return null;
 
   return (
-    <div className="min-h-screen bg-[#0b0b12]">
-      <Header currentSection="mypage" />
+    <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
+      <Header currentSection="settings" />
 
-      {/* 배경 */}
       <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-800/18 via-[#0b0b12]/75 to-pink-800/14" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_62%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.10),transparent_52%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.08),transparent_52%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0),rgba(0,0,0,0.72))]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-800/16 via-[#0b0b12]/80 to-pink-800/12" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.09),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.07),transparent_50%)]" />
       </div>
 
-      <div className="pt-20 px-6 pb-12">
+      <main className="pt-16 md:pt-20 px-4 md:px-6 pb-4 md:pb-6">
         <div className="mx-auto w-full max-w-[980px]">
-          <h1 className="text-2xl font-extrabold text-white">마이페이지</h1>
-          <p className="mt-2 text-sm text-white/55">
-            내 계정 정보와 활동(찜/플레이리스트)을 관리하세요.
+          <h1 className="text-xl md:text-2xl font-extrabold text-white">설정</h1>
+          <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/55">
+            프로필, 로그인 기기, 계정 상태를 관리하세요.
           </p>
 
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)]">
-              <div className="p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="h-12 w-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                      <UserRound className="h-6 w-6 text-white/75" />
-                    </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:gap-4">
+            <section className="rounded-xl md:rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
+              <div className="flex items-center gap-1.5 md:gap-2 text-white">
+                <UserRound className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
+                <h2 className="text-sm md:text-base font-bold">프로필 정보</h2>
+              </div>
 
-                    <div className="min-w-0">
-                      <div className="text-lg font-bold text-white truncate">
-                        {displayName}
+              <div className="mt-4 md:mt-5">
+                <div className="space-y-3 md:space-y-4">
+                  <div className="rounded-xl border border-white/10 bg-black/25 px-2 md:px-4 py-2.5 md:py-3">
+                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-start gap-1.5 md:gap-3">
+                      <div
+                        className={`text-white text-xs md:text-sm font-semibold ${
+                          nicknameEditing ? "pt-1" : "pt-0"
+                        }`}
+                      >
+                        닉네임
                       </div>
-
-                      <div className="mt-1 text-sm text-white/55">
-                        아이디:{" "}
-                        <span className="text-white/85 font-semibold">
-                          {me.username}
-                        </span>
+                      <div className="min-w-0">
+                        <div className="relative overflow-hidden">
+                          <div
+                            className={`transition-all duration-250 ease-out ${
+                              nicknameEditing
+                                ? "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
+                                : "max-h-12 opacity-100 translate-y-0"
+                            }`}
+                          >
+                            <div className="text-xs md:text-sm text-white/90 truncate">
+                              {(me.nickname ?? "").trim() || "닉네임 미설정"}
+                            </div>
+                          </div>
+                          <div
+                            className={`transition-all duration-250 ease-out ${
+                              nicknameEditing
+                                ? "max-h-40 opacity-100 translate-y-0 mt-0"
+                                : "max-h-0 opacity-0 -translate-y-1 pointer-events-none mt-0"
+                            }`}
+                          >
+                            <div className="flex flex-wrap gap-2">
+                              <input
+                                value={nicknameDraft}
+                                onChange={(e) => {
+                                  setNicknameDraft(e.target.value);
+                                  setNickCheckedValue(null);
+                                  setNickCheckMessage(null);
+                                }}
+                                maxLength={20}
+                                placeholder="닉네임을 입력하세요"
+                                className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-purple-400/50"
+                              />
+                              <Button
+                                type="button"
+                                onClick={onCheckNickname}
+                                disabled={nickCheckLoading || profileSaving}
+                                className="pick-cta !h-8 md:!h-10 min-w-[80px] md:min-w-[96px] !py-0 px-2.5 md:px-4 leading-none text-[11px] md:text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                              >
+                                {nickCheckLoading ? "확인 중..." : "중복확인"}
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={onApplyNickname}
+                                disabled={profileSaving}
+                                className="pick-cta !h-8 md:!h-10 min-w-[80px] md:min-w-[96px] !py-0 px-2.5 md:px-4 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                              >
+                                {profileSaving ? "처리 중..." : "적용"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/50">
+                          프로필에 표시되는 닉네임 입니다.
+                        </p>
+                        {nickCheckMessage ? (
+                          <div
+                            className={`mt-1.5 md:mt-2 text-xs md:text-sm ${
+                              nickCheckedValue ? "text-emerald-300" : "text-rose-300"
+                            }`}
+                          >
+                            {nickCheckMessage}
+                          </div>
+                        ) : null}
                       </div>
-
-                      <div className="mt-1 text-sm text-white/55 flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-white/45" />
-                        <span className="truncate">
-                          {me.email ?? "이메일 미등록"}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 text-xs text-white/35">
-                        계정 관련 설정은 추후 “설정” 메뉴로 확장될 예정입니다.
-                      </div>
+                      <button
+                        type="button"
+                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1"
+                        onClick={() => {
+                          if (nicknameEditing) {
+                            setNicknameEditing(false);
+                            setNicknameDraft(nickname);
+                            setNickCheckedValue(null);
+                            setNickCheckMessage(null);
+                            return;
+                          }
+                          setNicknameEditing(true);
+                          setNickCheckedValue(null);
+                          setNickCheckMessage(null);
+                        }}
+                      >
+                        {nicknameEditing ? "취소" : "수정"}
+                      </button>
                     </div>
                   </div>
 
-                  <Button
-                    type="button"
-                    onClick={onLogout}
-                    className="pick-cta h-10 px-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    로그아웃
-                  </Button>
-                </div>
-
-                <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-white">
-                        최근 찜/플레이리스트
+                  <div className="rounded-xl border border-white/10 bg-black/25 px-2 md:px-4 py-2.5 md:py-3">
+                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-center gap-1.5 md:gap-3">
+                      <div className="text-white text-xs md:text-sm font-semibold">이메일 주소</div>
+                      <div className="text-xs md:text-sm text-white truncate flex items-center gap-1.5 md:gap-2">
+                        <Mail className="h-3.5 w-3.5 md:h-4 md:w-4 text-white" />
+                        {me.email ?? "이메일 미등록"}
                       </div>
-                      <div className="mt-1 text-xs text-white/55">
-                        최근에 저장한 찜 목록 일부를 보여줍니다.
-                      </div>
+                      <span className="text-[11px] md:text-xs text-purple-200">변경(예정)</span>
                     </div>
+                    <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/50">
+                      회원 인증 및 픽무비의 이메일을 수신하는 주소입니다.
+                    </p>
+                  </div>
 
-                    <Button
-                      type="button"
-                      onClick={() => navigate("/favorites")}
-                      className="pick-cta h-10 px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                  {profileError ? (
+                    <div className="text-xs md:text-sm text-rose-300">{profileError}</div>
+                  ) : null}
+                  {profileMessage ? (
+                    <div className="text-xs md:text-sm text-emerald-300">{profileMessage}</div>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl md:rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
+              <div className="flex items-center gap-1.5 md:gap-2 text-white">
+                <Shield className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
+                <h2 className="text-sm md:text-base font-bold">로그인 기기 및 세션</h2>
+              </div>
+              <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55">
+                현재 로그인된 기기를 확인하고, 다른 기기 또는 전체 세션을 종료할 수 있습니다.
+              </p>
+
+              <div className="mt-3 md:mt-4 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={onLogoutOthers}
+                  disabled={logoutOthersLoading || sessionsLoading}
+                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                >
+                  <Laptop className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                  {logoutOthersLoading ? "처리 중..." : "다른 기기 로그아웃"}
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={onLogoutAll}
+                  disabled={logoutAllLoading}
+                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/80 hover:bg-rose-600 text-white border-none rounded-xl"
+                >
+                  <LogOut className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                  {logoutAllLoading ? "처리 중..." : "전체 로그아웃"}
+                </Button>
+              </div>
+
+              {sessionsError ? (
+                <div className="mt-2.5 md:mt-3 text-xs md:text-sm text-rose-300">{sessionsError}</div>
+              ) : null}
+
+              <div className="mt-3 md:mt-4 space-y-2">
+                {sessionsLoading ? (
+                  <div className="text-xs md:text-sm text-white/50">세션 정보를 불러오는 중...</div>
+                ) : sessions.length === 0 ? (
+                  <div className="text-xs md:text-sm text-white/45">활성 세션이 없습니다.</div>
+                ) : (
+                  sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className="rounded-xl border border-white/10 bg-black/25 p-2.5 md:p-3"
                     >
-                      전체보기
-                    </Button>
-                  </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs md:text-sm font-semibold text-white">
+                          {parseDeviceLabel(s.userAgent)}
+                        </div>
+                        {s.isCurrent ? (
+                          <span className="rounded-full border border-purple-300/60 bg-purple-400/20 px-2 py-0.5 text-[11px] md:text-xs text-purple-100">
+                            현재 기기
+                          </span>
+                        ) : null}
+                      </div>
 
-                  {favCount === 0 ? (
-                    <div className="mt-4 text-sm text-white/45">
-                      아직 찜한 콘텐츠가 없어요. 마음에 드는 작품을 찜해보세요!
+                      <div className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55 space-y-1">
+                        <div>
+                          IP: <span className="text-white/75">{s.ip ?? "미확인"}</span>
+                        </div>
+                        <div>
+                          로그인: <span className="text-white/75">{formatDateTime(s.createdAt)}</span>
+                        </div>
+                        <div>
+                          만료: <span className="text-white/75">{formatDateTime(s.expiresAt)}</span>
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {favoritesPreview.map((x) => (
-                        <span
-                          key={x.key}
-                          className="max-w-full truncate rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/75"
-                          title={x.label}
-                        >
-                          {x.label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mt-3 text-xs text-white/35">
-                    * 찜/플레이리스트는 서버 계정에 저장됩니다.
-                  </div>
-                </div>
+                  ))
+                )}
               </div>
-            </div>
+            </section>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)]">
-              <div className="p-6">
-                <div className="text-sm font-semibold text-white">
-                  내 활동 요약
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-white/80">
-                      <Heart className="h-4 w-4 text-pink-300" />
-                      찜
-                    </div>
-                    <div className="text-lg font-extrabold text-white">
-                      {favCount}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="text-white/80 text-sm">플레이리스트</div>
-                    <div className="text-lg font-extrabold text-white">
-                      {playlistCount}
-                    </div>
-                  </div>
-
-                  <Button
-                    type="button"
-                    onClick={() => navigate("/favorites")}
-                    className="pick-cta mt-4 w-full h-10 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
-                  >
-                    찜/플레이리스트로 이동
-                  </Button>
-                </div>
+            <section className="rounded-xl md:rounded-2xl border border-rose-400/20 bg-rose-500/[0.06] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
+              <div className="flex items-center gap-1.5 md:gap-2 text-rose-200">
+                <AlertTriangle className="h-4 w-4 md:h-5 md:w-5" />
+                <h2 className="text-sm md:text-base font-bold">계정 탈퇴</h2>
               </div>
-            </div>
-          </div>
+              <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-rose-100/75 leading-relaxed">
+                탈퇴 시 계정, 찜, 플레이리스트 등 모든 계정 데이터가 삭제되며 복구할 수 없습니다.
+              </p>
 
-          <div className="mt-10 text-center text-xs text-white/25">
-            © 2025 PickMovie. All rights reserved.
+              <div className="mt-3 md:mt-4">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(true);
+                    setDeleteError(null);
+                  }}
+                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white border-none rounded-xl"
+                >
+                  <Trash2 className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                  계정 탈퇴 진행
+                </Button>
+              </div>
+            </section>
           </div>
         </div>
-      </div>
+      </main>
+
+      <PageFooter />
+
+      {deleteOpen ? (
+        <div className="fixed inset-0 z-[80] px-4 py-6 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="w-full max-w-[460px] rounded-xl md:rounded-2xl border border-white/10 bg-[#12121b] p-4 md:p-5">
+            <div className="text-base md:text-lg font-bold text-white">계정 탈퇴 확인</div>
+            <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/65">
+              계속하려면 확인 문구 <span className="font-semibold text-rose-300">회원탈퇴</span> 를 입력하고,
+              현재 비밀번호를 다시 입력하세요.
+            </p>
+
+            <div className="mt-3 md:mt-4 space-y-2.5 md:space-y-3">
+              <div>
+                <label className="text-[11px] md:text-xs text-white/55">확인 문구</label>
+                <input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="회원탈퇴"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] md:text-xs text-white/55 flex items-center gap-1">
+                  <KeyRound className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                  현재 비밀번호
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="비밀번호를 입력하세요"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
+                />
+              </div>
+            </div>
+
+            {deleteError ? (
+              <div className="mt-2.5 md:mt-3 text-xs md:text-sm text-rose-300">{deleteError}</div>
+            ) : null}
+
+            <div className="mt-4 md:mt-5 flex gap-2 justify-end">
+              <Button
+                type="button"
+                onClick={() => {
+                  if (deleteLoading) return;
+                  setDeleteOpen(false);
+                  setDeletePassword("");
+                  setDeleteConfirmText("");
+                  setDeleteError(null);
+                }}
+                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                disabled={deleteLoading}
+              >
+                취소
+              </Button>
+
+              <Button
+                type="button"
+                onClick={onDeleteAccount}
+                disabled={deleteLoading}
+                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white border-none rounded-xl"
+              >
+                {deleteLoading ? "처리 중..." : "탈퇴 확정"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

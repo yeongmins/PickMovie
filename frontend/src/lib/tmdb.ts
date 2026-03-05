@@ -471,6 +471,7 @@ export async function discoverMovies(options: {
   providers?: number[];
   sort_by?: string;
   region?: string;
+  originalLanguage?: string;
 }): Promise<TMDBMovie[]> {
   const page = safeInt(options.page, 1);
 
@@ -487,6 +488,8 @@ export async function discoverMovies(options: {
   if (options.year) params.year = options.year;
   if (options.providers && options.providers.length > 0)
     params.providers = options.providers.join("|");
+  if (options.originalLanguage)
+    params.with_original_language = options.originalLanguage;
 
   const data = await fetchFromBackend<{ results: TMDBMovie[] }>(
     "/movies/discover",

@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Button } from "../../../components/ui/button";
 import { PreferencesPreview } from "./PreferencesPreview";
-import { UserPreferences } from "../Onboarding";
+import { UserPreferences } from "../Analyze";
 
 interface PreferencesStepProps {
   onNext: () => void; // 다음 단계로 이동
@@ -87,29 +87,23 @@ export function PreferencesStep({
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
-      {/* 필요 시 켜서 중앙 스포트라이트 효과 줄 수 있는 코드 (현재는 주석 처리) */}
-      {/* <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-blue-600/20 rounded-full blur-3xl pointer-events-none" /> */}
+    <div className="flex justify-center px-6 pt-6 pb-20 relative bg-[#10131b] overflow-hidden max-[900px]:pb-16">
+      <div className="pointer-events-none absolute -top-20 left-1/3 h-72 w-72 rounded-full bg-blue-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 right-1/4 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
 
-      <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
-        {/* 왼쪽: 세부 선호 선택 UI */}
-        <div className="flex-1 flex flex-col max-w-2xl">
-          {/* 타이틀 & 안내 문구 */}
-          <div className="mb-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-base font-medium">
-                3
-              </div>
-              <h2 className="text-white text-2xl font-medium">
-                세부 선호사항을 알려주세요
-              </h2>
+      <div className="max-w-6xl mx-auto w-full relative z-10 flex gap-6">
+        <div className="flex-1 max-w-3xl rounded-3xl border border-white/10 bg-[#0f1420]/85 p-6 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+          <div className="mb-5">
+            <div className="inline-flex items-center rounded-full border border-blue-300/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
+              STEP 3/4
             </div>
-            <p className="text-gray-400 text-sm">모든 항목을 선택해주세요</p>
+            <h2 className="mt-3 text-white text-2xl font-semibold">
+              세부 선호사항을 알려주세요
+            </h2>
+            <p className="mt-2 text-gray-300 text-sm">모든 항목을 선택해 주세요.</p>
           </div>
 
-          {/* 러닝타임 / 개봉연도 / 국가 3가지 선택 섹션 */}
-          <div className="flex-1 space-y-4 mb-3">
-            {/* 러닝타임 선택 */}
+          <div className="space-y-4">
             <div>
               <label className="text-white mb-2 block text-sm">러닝타임</label>
               <div className="grid grid-cols-4 gap-2">
@@ -117,10 +111,10 @@ export function PreferencesStep({
                   <button
                     key={option.id}
                     onClick={() => handleRuntimeChange(option.label)}
-                    className={`p-2.5 rounded-lg border-2 transition-all ${
+                    className={`rounded-xl border p-2.5 transition-all ${
                       localRuntime === option.label
-                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
-                        : "bg-white/5 border-white/10 hover:bg-white/10 "
+                        ? "bg-blue-500/20 border-blue-400/80 shadow-[0_0_0_1px_rgba(96,165,250,0.35)_inset]"
+                        : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
                     <div className="text-white text-xs font-medium">
@@ -139,9 +133,9 @@ export function PreferencesStep({
                   <button
                     key={option.id}
                     onClick={() => handleYearChange(option.label)}
-                    className={`p-2.5 rounded-lg border-2 transition-all ${
+                    className={`rounded-xl border p-2.5 transition-all ${
                       localYear === option.label
-                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
+                        ? "bg-blue-500/20 border-blue-400/80 shadow-[0_0_0_1px_rgba(96,165,250,0.35)_inset]"
                         : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
@@ -161,9 +155,9 @@ export function PreferencesStep({
                   <button
                     key={option.id}
                     onClick={() => handleCountryChange(option.label)}
-                    className={`p-2.5 rounded-lg border-2 transition-all ${
+                    className={`rounded-xl border p-2.5 transition-all ${
                       localCountry === option.label
-                        ? "bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20"
+                        ? "bg-blue-500/20 border-blue-400/80 shadow-[0_0_0_1px_rgba(96,165,250,0.35)_inset]"
                         : "bg-white/5 border-white/10 hover:bg-white/10"
                     }`}
                   >
@@ -183,8 +177,7 @@ export function PreferencesStep({
             </div>
           </div>
 
-          {/* 하단 이전/다음 버튼 */}
-          <div className="flex gap-3">
+          <div className="mt-4 flex gap-3">
             <Button
               onClick={onBack}
               variant="outline"
@@ -199,12 +192,11 @@ export function PreferencesStep({
               size="lg"
               className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed border-none transition-opacity"
             >
-              다음
+              다음 단계
             </Button>
           </div>
         </div>
 
-        {/* 오른쪽: 지금까지 선택한 취향 프리뷰 카드 */}
         <div className="w-80 flex-shrink-0 preview-hide-mobile">
           <PreferencesPreview
             genres={currentPreferences.genres}

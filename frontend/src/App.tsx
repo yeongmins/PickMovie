@@ -8,7 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import type { UserPreferences } from "./features/onboarding/Onboarding";
+import { Analyze, type UserPreferences } from "./features/analyze/Analyze";
 import { MainScreen } from "./pages/MainScreen";
 import FavoritesPlaylistPage from "./pages/favorites/FavoritesPlaylistPage";
 import Search from "./pages/Search";
@@ -538,6 +538,43 @@ export default function App() {
 
   const isAuthed = !!me;
 
+  const analyzeInitialFavorites = useMemo(
+    () =>
+      favorites
+        .filter((item) => item.mediaType === "movie")
+        .map((item) => item.id),
+    [favorites],
+  );
+
+  const openAnalyzeDetail = useCallback(
+    (id: number, mediaType: "movie" | "tv" = "movie") => {
+      navigate(`/title/${mediaType}/${id}`, {
+        state: { backgroundLocation: location },
+      });
+    },
+    [navigate, location],
+  );
+
+  const handleAnalyzeComplete = useCallback(
+    (preferences: UserPreferences, favoriteMovieIds: number[]) => {
+      setUserPreferences(preferences);
+
+      const preservedTv = favorites.filter((item) => item.mediaType === "tv");
+      const movieItems = favoriteMovieIds.map(
+        (id): FavoriteItem => ({ id, mediaType: "movie" }),
+      );
+      const merged = uniqFavoriteItems([...preservedTv, ...movieItems]);
+
+      setFavorites(merged);
+      if (me) {
+        void postJson("/auth/favorites/sync", { items: merged }).catch(() => {});
+      }
+
+      navigate("/", { replace: true });
+    },
+    [favorites, me, navigate, postJson],
+  );
+
   const detailModalElement = (
     <ContentDetailModal
       favorites={favorites}
@@ -558,9 +595,25 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route path="/info" element={<Info />} />
+        <Route
+          path="/analyze"
+          element={
+            <Analyze
+              onComplete={handleAnalyzeComplete}
+              initialFavorites={analyzeInitialFavorites}
+              isAuthed={isAuthed}
+              favoriteMovieIds={analyzeInitialFavorites}
+              onToggleFavorite={handleToggleFavorite}
+              onCreatePlaylist={createPlaylist}
+              onOpenDetail={openAnalyzeDetail}
+            />
+          }
+        />
+        <Route path="/onboarding" element={<Navigate to="/analyze" replace />} />
         <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
 
-        <Route path="/mypage" element={<MyPage />} />
+        <Route path="/settings" element={<MyPage />} />
+        <Route path="/mypage" element={<Navigate to="/settings" replace />} />
 
         <Route path="/title/:mediaType/:id" element={detailModalElement} />
         <Route path="/person/:id" element={<PersonDetail />} />

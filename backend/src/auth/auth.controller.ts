@@ -31,6 +31,8 @@ type CreatePlaylistBody = { name: string; items: FavoriteItem[] };
 type DeletePlaylistBody = { playlistId: number };
 type RenamePlaylistBody = { playlistId: number; name: string };
 type SetPlaylistItemsBody = { playlistId: number; items: FavoriteItem[] };
+type UpdateProfileBody = { nickname?: string; profileImageUrl?: string };
+type DeleteAccountBody = { password?: string; confirmText?: string };
 type ForYouRequestBody = {
   limit?: number;
   region?: string;
@@ -282,6 +284,63 @@ export class AuthController {
     return { user: me };
   }
 
+  @UseGuards(JwtAccessGuard)
+  @Post('profile')
+  async updateProfile(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: UpdateProfileBody,
+  ) {
+    const updated = await this.auth.updateProfile(user.sub, {
+      nickname: body?.nickname,
+      profileImageUrl: body?.profileImageUrl,
+    });
+    return { user: updated };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Get('sessions')
+  async sessions(@CurrentUser() user: JwtAccessPayload, @Req() req: Request) {
+    const refresh = this.getRefreshFromCookie(req);
+    const sessions = await this.auth.getActiveSessions(user.sub, refresh);
+    return { sessions };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('sessions/logout-others')
+  async logoutOthers(
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ) {
+    const refresh = this.getRefreshFromCookie(req);
+    const revokedCount = await this.auth.revokeOtherSessions(user.sub, refresh);
+    return { ok: true, revokedCount };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('sessions/logout-all')
+  async logoutAllSessions(
+    @CurrentUser() user: JwtAccessPayload,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.auth.revokeAllUserRefreshTokens(user.sub);
+    this.clearRefreshCookie(res);
+    return { ok: true };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('account/delete')
+  async deleteAccount(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() body: DeleteAccountBody,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const password = body?.password ?? '';
+    const confirmText = body?.confirmText ?? '';
+    await this.auth.deleteAccount(user.sub, { password, confirmText });
+    this.clearRefreshCookie(res);
+    return { ok: true };
+  }
+
   // =========================
   // ✅ Favorites (DB)
   // =========================
@@ -437,5 +496,15 @@ export class AuthController {
       generatedAt: new Date().toISOString(),
       items,
     };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Get('personalization/genre-insights')
+  async genreInsights(@CurrentUser() user: JwtAccessPayload) {
+    const insights = await this.forYou.getGenreInsightsForUser({
+      userId: user.sub,
+      language: 'ko-KR',
+    });
+    return insights;
   }
 }

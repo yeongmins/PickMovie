@@ -57,6 +57,26 @@ type ForYouResultItem = CandidateItem & {
   media_type: CandidateMediaType;
 };
 
+type GenreInsightBadge = 'most_data' | 'frequent' | 'growing' | null;
+
+type GenreInsightItem = {
+  genreId: number;
+  label: string;
+  count: number;
+  share: number;
+  badge: GenreInsightBadge;
+  badgeText: string | null;
+};
+
+type GenreInsightsResult = {
+  generatedAt: string;
+  totalSignals: number;
+  analysisCount: number;
+  onboardingWeight: number;
+  behaviorWeight: number;
+  items: GenreInsightItem[];
+};
+
 type FavoriteProfile = {
   genreHist: Map<number, number>;
   genreWeight: Map<number, number>;
@@ -102,6 +122,92 @@ export class ForYouRecommendationService {
     private readonly tmdb: TmdbService,
     private readonly trends: TrendsService,
   ) {}
+
+  async getGenreInsightsForUser(args: {
+    userId: number;
+    language?: string;
+  }): Promise<GenreInsightsResult> {
+    const userId = Number(args.userId);
+    const language = String(args.language ?? 'ko-KR').trim() || 'ko-KR';
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return this.emptyGenreInsights();
+    }
+
+    const [favorites, playlists] = await Promise.all([
+      this.library.getFavorites(userId),
+      this.library.getPlaylists(userId),
+    ]);
+
+    const sourceItems = this.buildSourceItems(favorites, playlists).slice(0, 40);
+    if (sourceItems.length === 0) {
+      return this.emptyGenreInsights();
+    }
+
+    const details = await this.loadProfileDetails(sourceItems, language);
+    if (details.length === 0) {
+      return this.emptyGenreInsights();
+    }
+
+    const profile = this.buildFavoriteProfile(details);
+    const totalSignals = Array.from(profile.genreHist.values()).reduce(
+      (sum, v) => sum + v,
+      0,
+    );
+
+    const ranked = Array.from(profile.genreHist.entries()).sort(
+      (a, b) => b[1] - a[1],
+    );
+    const topGenreId = ranked[0]?.[0] ?? null;
+    const topCount = ranked[0]?.[1] ?? 0;
+    const secondCount = ranked[1]?.[1] ?? 0;
+    const topGapRate = topCount > 0 ? (topCount - secondCount) / topCount : 0;
+
+    const items = Object.entries(GENRE_IDS)
+      .map(([label, genreId]) => {
+        const count = profile.genreHist.get(genreId) || 0;
+        const share = totalSignals > 0 ? count / totalSignals : 0;
+
+        let badge: GenreInsightBadge = null;
+        let badgeText: string | null = null;
+
+        if (
+          genreId === topGenreId &&
+          count >= 8 &&
+          topGapRate >= 0.2 &&
+          totalSignals >= 8
+        ) {
+          badge = 'most_data';
+          badgeText = '가장 많은 데이터가 있어요';
+        } else if (count >= 5) {
+          badge = 'frequent';
+          badgeText = '자주 담은 장르예요';
+        } else if (count >= 1) {
+          badge = 'growing';
+          badgeText = '데이터가 쌓이는 중이에요';
+        }
+
+        return {
+          genreId,
+          label,
+          count,
+          share,
+          badge,
+          badgeText,
+        };
+      })
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+    const behaviorWeight = this.getBehaviorWeight(details.length);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalSignals,
+      analysisCount: details.length,
+      onboardingWeight: 1 - behaviorWeight,
+      behaviorWeight,
+      items,
+    };
+  }
 
   async recommendForUser(args: {
     userId: number;
@@ -427,6 +533,24 @@ export class ForYouRecommendationService {
     if (x < min) return min;
     if (x > max) return max;
     return x;
+  }
+
+  private emptyGenreInsights(): GenreInsightsResult {
+    return {
+      generatedAt: new Date().toISOString(),
+      totalSignals: 0,
+      analysisCount: 0,
+      onboardingWeight: 1,
+      behaviorWeight: 0,
+      items: [],
+    };
+  }
+
+  private getBehaviorWeight(analysisCount: number): number {
+    if (analysisCount >= 20) return 0.8;
+    if (analysisCount >= 6) return 0.6;
+    if (analysisCount >= 1) return 0.3;
+    return 0;
   }
 
   private isRecord(v: unknown): v is Record<string, unknown> {

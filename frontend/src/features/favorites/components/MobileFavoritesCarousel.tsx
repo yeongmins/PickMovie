@@ -99,7 +99,7 @@ export function MobileFavoritesCarousel({
   if (activeMovies.length === 0) {
     if (!loggedIn) {
       return (
-        <div className="relative h-[100svh] min-h-[100svh] bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center">
+        <div className="relative h-[100svh] min-h-[100svh] bg-[#10131b] flex items-center justify-center">
           <div className="text-center">
             <Sparkles className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">
@@ -118,7 +118,7 @@ export function MobileFavoritesCarousel({
     }
 
     return (
-      <div className="relative h-[100svh] min-h-[100svh] bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center">
+      <div className="relative h-[100svh] min-h-[100svh] bg-[#10131b] flex items-center justify-center">
         <div className="text-center">
           <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400 text-lg">아직 찜한 영화가 없습니다</p>
@@ -132,7 +132,7 @@ export function MobileFavoritesCarousel({
 
   if (!currentMovie) {
     return (
-      <div className="relative h-[100svh] min-h-[100svh] bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center">
+      <div className="relative h-[100svh] min-h-[100svh] bg-[#10131b] flex items-center justify-center">
         <div className="text-center">
           <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400 text-lg">영화 정보를 불러오는 중...</p>

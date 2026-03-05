@@ -19,6 +19,7 @@ model User {
   username     String  @unique
   email        String? @unique
   nickname     String?
+  profileImageUrl String?
   passwordHash String
 
   createdAt DateTime @default(now())

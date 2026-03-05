@@ -154,7 +154,7 @@ export function LoginPage() {
         rememberMe: remember,
       });
 
-      // ✅ 로그인 상태 저장(헤더 닉네임 표시/마이페이지 접근 등에 사용)
+      // ✅ 로그인 상태 저장(헤더 닉네임 표시/설정 접근 등에 사용)
       localStorage.setItem(AUTH_STORAGE.ACCESS, data.accessToken);
       localStorage.setItem(AUTH_STORAGE.USER, JSON.stringify(data.user));
 

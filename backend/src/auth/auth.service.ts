@@ -21,6 +21,7 @@ type SafeUser = {
   username: string;
   email: string | null;
   nickname: string | null;
+  profileImageUrl: string | null;
 };
 
 type LoginResult = {
@@ -112,12 +113,14 @@ export class AuthService {
     username: string;
     email: string | null;
     nickname: string | null;
+    profileImageUrl: string | null;
   }): SafeUser {
     return {
       id: u.id,
       username: u.username,
       email: u.email,
       nickname: u.nickname,
+      profileImageUrl: u.profileImageUrl,
     };
   }
 
@@ -241,10 +244,17 @@ export class AuthService {
         username,
         email: email ?? null,
         nickname: nickname ?? null,
+        profileImageUrl: null,
         passwordHash,
         emailVerifiedAt: null,
       },
-      select: { id: true, username: true, email: true, nickname: true },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        nickname: true,
+        profileImageUrl: true,
+      },
     });
 
     if (user.email) {
@@ -289,6 +299,7 @@ export class AuthService {
         username: true,
         email: true,
         nickname: true,
+        profileImageUrl: true,
         passwordHash: true,
         emailVerifiedAt: true,
       },
@@ -614,9 +625,177 @@ export class AuthService {
   async me(userId: number): Promise<SafeUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, email: true, nickname: true },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        nickname: true,
+        profileImageUrl: true,
+      },
     });
     if (!user) throw new UnauthorizedException();
     return this.safeUser(user);
+  }
+
+  private parseProfileImageUrl(value: string | undefined): string | null {
+    const raw = (value ?? '').trim();
+    if (!raw) return null;
+
+    if (raw.startsWith('data:image/')) {
+      if (raw.length > 2_000_000) {
+        throw new ConflictException('이미지 크기가 너무 큽니다. 1MB 이하로 업로드해주세요.');
+      }
+      return raw;
+    }
+
+    if (raw.length > 500) {
+      throw new ConflictException('프로필 이미지 주소가 너무 깁니다.');
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new ConflictException('올바른 이미지 주소를 입력해주세요.');
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new ConflictException('이미지 주소는 http/https만 지원합니다.');
+    }
+
+    return parsed.toString();
+  }
+
+  async updateProfile(
+    userId: number,
+    input: { nickname?: string; profileImageUrl?: string },
+  ): Promise<SafeUser> {
+    const nicknameRaw = (input.nickname ?? '').trim();
+    const nickname = nicknameRaw ? nicknameRaw : null;
+    const profileImageUrl = this.parseProfileImageUrl(input.profileImageUrl);
+
+    if (nickname && nickname.length > 20) {
+      throw new ConflictException('닉네임은 최대 20자까지 가능합니다.');
+    }
+
+    if (nickname) {
+      const existing = await this.prisma.user.findFirst({
+        where: {
+          id: { not: userId },
+          OR: [{ username: nickname }, { nickname }],
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new ConflictException('이미 사용 중인 닉네임입니다.');
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        nickname,
+        profileImageUrl,
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        nickname: true,
+        profileImageUrl: true,
+      },
+    });
+
+    return this.safeUser(updated);
+  }
+
+  async getActiveSessions(
+    userId: number,
+    currentRefreshToken: string | null,
+  ): Promise<
+    Array<{
+      id: number;
+      ip: string | null;
+      userAgent: string | null;
+      createdAt: Date;
+      expiresAt: Date;
+      isCurrent: boolean;
+    }>
+  > {
+    const now = new Date();
+    const currentHash = currentRefreshToken
+      ? this.sha256(currentRefreshToken)
+      : null;
+
+    const rows = await this.prisma.refreshToken.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        ip: true,
+        userAgent: true,
+        createdAt: true,
+        expiresAt: true,
+        tokenHash: true,
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      ip: row.ip,
+      userAgent: row.userAgent,
+      createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
+      isCurrent: !!currentHash && row.tokenHash === currentHash,
+    }));
+  }
+
+  async revokeOtherSessions(
+    userId: number,
+    currentRefreshToken: string | null,
+  ): Promise<number> {
+    const now = new Date();
+    const currentHash = currentRefreshToken
+      ? this.sha256(currentRefreshToken)
+      : null;
+
+    const res = await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+        ...(currentHash ? { tokenHash: { not: currentHash } } : {}),
+      },
+      data: { revokedAt: now },
+    });
+
+    return res.count;
+  }
+
+  async deleteAccount(
+    userId: number,
+    input: { password: string; confirmText: string },
+  ): Promise<void> {
+    const confirmText = (input.confirmText ?? '').trim();
+    if (confirmText !== '회원탈퇴') {
+      throw new ConflictException('확인 문구를 정확히 입력해주세요.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user) throw new UnauthorizedException();
+
+    const ok = await argon2.verify(user.passwordHash, input.password ?? '');
+    if (!ok) {
+      throw new UnauthorizedException('비밀번호가 올바르지 않습니다.');
+    }
+
+    await this.prisma.user.delete({ where: { id: userId } });
   }
 }

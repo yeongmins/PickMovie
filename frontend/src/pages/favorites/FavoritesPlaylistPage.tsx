@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 
-import type { UserPreferences } from "../../features/onboarding/Onboarding";
+import type { UserPreferences } from "../../features/analyze/Analyze";
 import type { FavoriteItem, PlaylistDto } from "../../App";
 
 import { Header } from "../../components/layout/Header";

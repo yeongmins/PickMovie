@@ -1,4 +1,4 @@
-// frontend/src/features/search/storage/searchStorage.ts
+// frontend/src/features/picky/storage/pickyStorage.ts
 import type { UserPreferences } from "../../analyze/Analyze";
 
 export const PLAYLIST_STORAGE_KEY = "pickmovie_playlists_v1";

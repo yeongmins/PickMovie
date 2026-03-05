@@ -438,7 +438,7 @@ function FavoritesCarouselInner(
           className={[
             "relative w-full overflow-hidden",
             heightClass,
-            "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+            "bg-[#10131b] flex items-center justify-center",
           ].join(" ")}
         >
           <div className="text-center">
@@ -463,7 +463,7 @@ function FavoritesCarouselInner(
         className={[
           "relative w-full overflow-hidden",
           heightClass,
-          "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+          "bg-[#10131b] flex items-center justify-center",
         ].join(" ")}
       >
         <div className="text-center">
@@ -483,7 +483,7 @@ function FavoritesCarouselInner(
         className={[
           "relative w-full overflow-hidden",
           heightClass,
-          "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+          "bg-[#10131b] flex items-center justify-center",
         ].join(" ")}
       >
         <div className="text-center">
@@ -536,14 +536,14 @@ function FavoritesCarouselInner(
                 {loggedIn ? (
                   <>
                     <Heart className="w-5 h-5 fill-current text-red-500" />
-                    <span className="text-purple-300 text-sm font-semibold">
+                    <span className="text-purple-200 text-sm font-semibold">
                       내 찜 목록
                     </span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-5 h-5 text-purple-300" />
-                    <span className="text-purple-300 text-sm font-semibold">
+                    <Sparkles className="w-5 h-5 text-purple-200" />
+                    <span className="text-purple-200 text-sm font-semibold">
                       PickMovie 인기 차트
                     </span>
                     {typeof (currentMovie as any).trendRank === "number" && (
@@ -739,7 +739,7 @@ export function FavoritesCarousel(
           className={[
             "relative w-full overflow-hidden",
             heightClass,
-            "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+            "bg-[#10131b] flex items-center justify-center",
           ].join(" ")}
         >
           <div className="text-center">
@@ -764,7 +764,7 @@ export function FavoritesCarousel(
         className={[
           "relative w-full overflow-hidden",
           heightClass,
-          "bg-gradient-to-b from-purple-900/20 to-transparent flex items-center justify-center",
+          "bg-[#10131b] flex items-center justify-center",
         ].join(" ")}
       >
         <div className="text-center">

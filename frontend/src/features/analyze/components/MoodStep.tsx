@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 
 import { Button } from "../../../components/ui/button";
 import { PreferencesPreview } from "./PreferencesPreview";
-import { type UserPreferences } from "../Onboarding";
+import { type UserPreferences } from "../Analyze";
 
 interface MoodStepProps {
   onNext: () => void;
@@ -75,54 +75,40 @@ export function MoodStep({
     localMoods.length === 0 || localMoods.length > MAX_SELECTION;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative bg-[#10131b]">
-      <div className="max-w-5xl mx-auto w-full relative z-10 flex gap-6">
-        {/* 왼쪽: 분위기 선택 UI */}
-        <div className="flex-1 flex flex-col max-w-2xl">
-          <div className="mb-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-pink-500 rounded-full flex items-center justify-center text-white text-base font-medium">
-                2
-              </div>
-              <h2 className="text-white text-2xl font-medium">
-                어떤 분위기를 원하시나요?
-              </h2>
+    <div className="flex justify-center px-6 pt-6 pb-20 relative bg-[#10131b] overflow-hidden max-[900px]:pb-16">
+      <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-pink-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 -left-20 h-72 w-72 rounded-full bg-purple-600/15 blur-3xl" />
+      <div className="max-w-6xl mx-auto w-full relative z-10 flex gap-6">
+        <div className="flex-1 max-w-3xl rounded-3xl border border-white/10 bg-[#0f1420]/85 p-6 backdrop-blur-xl shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+          <div className="mb-5">
+            <div className="inline-flex items-center rounded-full border border-pink-300/30 bg-pink-500/10 px-3 py-1 text-xs text-pink-200">
+              STEP 2/4
             </div>
-            <div className="flex items-center justify-between">
-              <p className="text-gray-400 text-sm">
-                최소 1개,{" "}
-                <span className="text-pink-300">최대 3개까지</span> 선택할 수
-                있어요.
+            <h2 className="mt-3 text-white text-2xl font-semibold">
+              어떤 분위기를 원하시나요?
+            </h2>
+            <div className="mt-2 flex items-center justify-between">
+              <p className="text-gray-300 text-sm">
+                지금 보고 싶은 톤을 최대 3개까지 골라주세요.
               </p>
               <p className="text-xs text-gray-400">
-                선택 {localMoods.length} / {MAX_SELECTION}개
+                선택 {localMoods.length}/{MAX_SELECTION}
               </p>
             </div>
-            {isOverLimit && (
-              <p className="mt-1 text-xs text-red-400">
-                정확한 분위기 분석을 위해{" "}
-                <span className="font-semibold">최대 3개까지만</span> 선택해 주세요.
+            {isOverLimit ? (
+              <p className="mt-2 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                최대 3개까지만 선택할 수 있어요.
               </p>
-            )}
+            ) : null}
           </div>
 
-          {/* 무드 카드 그리드 */}
           <motion.div
-            className="flex-1 grid grid-cols-3 gap-2 mb-3"
-            animate={
-              isOverLimit
-                ? { x: [-4, 4, -4, 4, 0] } // 3개 초과 시 흔들림
-                : { x: 0 }
-            }
+            className="grid grid-cols-2 md:grid-cols-3 gap-2.5"
+            animate={isOverLimit ? { x: [-4, 4, -4, 4, 0] } : { x: 0 }}
             transition={{ duration: 0.3 }}
           >
             {moodOptions.map((mood) => {
               const isSelected = localMoods.includes(mood.label);
-              const baseSelected =
-                "bg-pink-500/20 border-pink-500 shadow-lg shadow-pink-500/20";
-              const baseUnselected =
-                "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20";
-
               const overLimitStyle = isOverLimit
                 ? isSelected
                   ? "border-red-400/80 bg-red-500/20"
@@ -133,12 +119,14 @@ export function MoodStep({
                 <button
                   key={mood.id}
                   onClick={() => toggleMood(mood.label)}
-                  className={`p-4 rounded-xl border-2 transition-all text-left ${
-                    isSelected ? baseSelected : baseUnselected
+                  className={`min-h-24 rounded-2xl border px-3 py-3 text-left transition-all ${
+                    isSelected
+                      ? "border-pink-400/80 bg-pink-500/20 shadow-[0_0_0_1px_rgba(244,114,182,0.35)_inset]"
+                      : "border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20"
                   } ${overLimitStyle}`}
                 >
-                  <div className="text-xl mb-2">{mood.icon}</div>
-                  <div className="text-sm text-white font-medium">
+                  <div className="text-xl">{mood.icon}</div>
+                  <div className="mt-1 text-sm text-white font-medium">
                     {mood.label}
                   </div>
                 </button>
@@ -146,8 +134,7 @@ export function MoodStep({
             })}
           </motion.div>
 
-          {/* 하단 이전/다음 버튼 */}
-          <div className="flex gap-3">
+          <div className="mt-4 flex gap-3">
             <Button
               onClick={onBack}
               variant="outline"
@@ -162,12 +149,11 @@ export function MoodStep({
               size="lg"
               className="pick-cta flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed border-none transition-opacity"
             >
-              다음
+              다음 단계
             </Button>
           </div>
         </div>
 
-        {/* 오른쪽: 지금까지 선택한 취향 요약 프리뷰 */}
         <div className="w-80 flex-shrink-0 preview-hide-mobile">
           <PreferencesPreview
             genres={currentPreferences.genres}

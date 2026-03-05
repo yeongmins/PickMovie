@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { PageFooter } from "../components/layout/Footer";
 
-import type { UserPreferences } from "../features/onboarding/Onboarding";
+import type { UserPreferences } from "../features/analyze/Analyze";
 import type { FavoriteItem } from "../App";
 
 import { apiGet, apiPost } from "../lib/apiClient";
@@ -126,7 +126,8 @@ function unwrapList<T = any>(v: any): T[] {
 }
 
 const NEW_USER_FLAG = "pickmovie_new_signup";
-const ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
+const ANALYZE_PROMPT_SEEN = "pickmovie_analyze_prompt_seen";
+const LEGACY_ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
 const KR = { region: "KR", language: "ko-KR" } as const;
 const PICK_REASON_TREND = "PickMovie 트렌드를 반영한 추천";
 
@@ -238,7 +239,7 @@ function RowHeader({
   );
 }
 
-function OnboardingPromptModal({
+function AnalyzePromptModal({
   open,
   onStart,
   onLater,
@@ -308,7 +309,7 @@ function OnboardingPromptModal({
                 <button
                   type="button"
                   onClick={onStart}
-                  className="h-10 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-sm font-semibold text-white transition shadow-sm"
+                  className="h-10 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-sm font-semibold text-white transition border-none"
                 >
                   정밀 분석 시작
                 </button>
@@ -373,7 +374,7 @@ export function MainScreen({
     {},
   );
 
-  const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
+  const [showAnalyzePrompt, setShowAnalyzePrompt] = useState(false);
 
   const [trailerTarget, setTrailerTarget] = useState<{
     id: number;
@@ -778,32 +779,35 @@ export function MainScreen({
 
   useEffect(() => {
     if (!loggedIn || currentSection !== "home") {
-      setShowOnboardingPrompt(false);
+      setShowAnalyzePrompt(false);
       return;
     }
 
     try {
       const isNew = localStorage.getItem(NEW_USER_FLAG) === "1";
-      const seen = localStorage.getItem(ONBOARDING_PROMPT_SEEN) === "1";
-      setShowOnboardingPrompt(isNew && !seen);
+      const seen =
+        localStorage.getItem(ANALYZE_PROMPT_SEEN) === "1" ||
+        localStorage.getItem(LEGACY_ONBOARDING_PROMPT_SEEN) === "1";
+      setShowAnalyzePrompt(isNew && !seen);
     } catch {
-      setShowOnboardingPrompt(false);
+      setShowAnalyzePrompt(false);
     }
   }, [loggedIn, currentSection]);
 
-  const dismissOnboardingPrompt = useCallback(() => {
-    setShowOnboardingPrompt(false);
+  const dismissAnalyzePrompt = useCallback(() => {
+    setShowAnalyzePrompt(false);
     try {
-      localStorage.setItem(ONBOARDING_PROMPT_SEEN, "1");
+      localStorage.setItem(ANALYZE_PROMPT_SEEN, "1");
+      localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "1");
       localStorage.setItem(NEW_USER_FLAG, "0");
     } catch {}
   }, []);
 
-  const startOnboarding = useCallback(() => {
-    dismissOnboardingPrompt();
+  const startAnalyze = useCallback(() => {
+    dismissAnalyzePrompt();
     if (onReanalyze) onReanalyze();
-    else navigate("/onboarding");
-  }, [dismissOnboardingPrompt, onReanalyze, navigate]);
+    else navigate("/analyze");
+  }, [dismissAnalyzePrompt, onReanalyze, navigate]);
 
   const loadFavoriteMoviesDetails = useCallback(async () => {
     if (!favorites.length) {
@@ -1141,23 +1145,10 @@ export function MainScreen({
         <Header currentSection={currentSection} />
       </Suspense>
 
-      <OnboardingPromptModal
-        open={showOnboardingPrompt}
-        onStart={() => {
-          try {
-            localStorage.setItem(ONBOARDING_PROMPT_SEEN, "1");
-            localStorage.setItem(NEW_USER_FLAG, "0");
-          } catch {}
-          if (onReanalyze) onReanalyze();
-          else navigate("/onboarding");
-        }}
-        onLater={() => {
-          setShowOnboardingPrompt(false);
-          try {
-            localStorage.setItem(ONBOARDING_PROMPT_SEEN, "1");
-            localStorage.setItem(NEW_USER_FLAG, "0");
-          } catch {}
-        }}
+      <AnalyzePromptModal
+        open={showAnalyzePrompt}
+        onStart={startAnalyze}
+        onLater={dismissAnalyzePrompt}
       />
 
       <Suspense fallback={null}>

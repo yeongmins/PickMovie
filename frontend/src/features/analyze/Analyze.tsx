@@ -1,18 +1,27 @@
-// src/features/onboarding/Onboarding.tsx
+// src/features/analyze/Analyze.tsx
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Header } from "../../components/layout/Header";
+import { PageFooter } from "../../components/layout/Footer";
 
-import { WelcomeStep } from "./components/WelcomeStep";
 import { GenreStep } from "./components/GenreStep";
 import { MoodStep } from "./components/MoodStep";
 import { PreferencesStep } from "./components/PreferencesStep";
 import { ExcludeStep } from "./components/ExcludeStep";
 import { RecommendationStep } from "./components/RecommendationStep";
 
-interface OnboardingProps {
+interface AnalyzeProps {
   onComplete: (preferences: UserPreferences, favorites: number[]) => void;
   initialStep?: number;
   initialFavorites?: number[]; // 기존 찜 목록
+  isAuthed?: boolean;
+  favoriteMovieIds?: number[];
+  onToggleFavorite?: (id: number, mediaType?: "movie" | "tv") => void;
+  onCreatePlaylist?: (
+    name: string,
+    items: Array<{ id: number; mediaType: "movie" | "tv" }>,
+  ) => Promise<void> | void;
+  onOpenDetail?: (id: number, mediaType?: "movie" | "tv") => void;
 }
 
 export interface UserPreferences {
@@ -24,15 +33,18 @@ export interface UserPreferences {
   excludes: string[];
 }
 
-export function Onboarding({
+export function Analyze({
   onComplete,
   initialStep = 0,
   initialFavorites = [],
-}: OnboardingProps) {
+  isAuthed = false,
+  favoriteMovieIds = [],
+  onToggleFavorite,
+  onCreatePlaylist,
+  onOpenDetail,
+}: AnalyzeProps) {
   // 현재 온보딩 단계
   const [step, setStep] = useState(initialStep);
-  // 앞으로/뒤로 이동 방향 (애니메이션용, 지금은 페이드만 쓰지만 확장 가능)
-  const [direction, setDirection] = useState<"forward" | "back">("forward");
 
   // 온보딩에서 수집하는 모든 취향 정보
   const [preferences, setPreferences] = useState<UserPreferences>({
@@ -49,8 +61,7 @@ export function Onboarding({
     setPreferences((prev) => ({ ...prev, ...updates }));
   };
 
-  const goToStep = (newStep: number, dir: "forward" | "back") => {
-    setDirection(dir);
+  const goToStep = (newStep: number) => {
     setStep(newStep);
   };
 
@@ -76,7 +87,7 @@ export function Onboarding({
 
   // 추천 다시 시작 (취향 초기화 + 1단계로 이동)
   const handleRestart = () => {
-    goToStep(1, "forward");
+    goToStep(0);
     setPreferences({
       genres: [],
       moods: [],
@@ -89,27 +100,27 @@ export function Onboarding({
 
   // 각 step 인덱스에 대응하는 JSX 구성
   const steps = [
-    <WelcomeStep key="welcome" onNext={() => goToStep(1, "forward")} />,
     <GenreStep
       key="genre"
-      onNext={() => goToStep(2, "forward")}
-      onBack={() => goToStep(0, "back")}
+      onNext={() => goToStep(1)}
+      onBack={() => {}}
       selectedGenres={preferences.genres}
       onGenresChange={handleGenreSelection}
       currentPreferences={preferences}
+      isAuthed={isAuthed}
     />,
     <MoodStep
       key="mood"
-      onNext={() => goToStep(3, "forward")}
-      onBack={() => goToStep(1, "back")}
+      onNext={() => goToStep(2)}
+      onBack={() => goToStep(0)}
       selectedMoods={preferences.moods}
       onMoodsChange={handleMoodSelection}
       currentPreferences={preferences}
     />,
     <PreferencesStep
       key="preferences"
-      onNext={() => goToStep(4, "forward")}
-      onBack={() => goToStep(2, "back")}
+      onNext={() => goToStep(3)}
+      onBack={() => goToStep(1)}
       selectedRuntime={preferences.runtime}
       selectedYear={preferences.releaseYear}
       selectedCountry={preferences.country}
@@ -118,8 +129,8 @@ export function Onboarding({
     />,
     <ExcludeStep
       key="exclude"
-      onNext={() => goToStep(5, "forward")}
-      onBack={() => goToStep(3, "back")}
+      onNext={() => goToStep(4)}
+      onBack={() => goToStep(2)}
       selectedExcludes={preferences.excludes}
       onExcludesChange={handleExcludeSelection}
       currentPreferences={preferences}
@@ -130,23 +141,40 @@ export function Onboarding({
       onComplete={onComplete}
       onRestart={handleRestart}
       initialFavorites={initialFavorites}
+      isAuthed={isAuthed}
+      favoriteMovieIds={favoriteMovieIds}
+      onToggleFavorite={onToggleFavorite}
+      onCreatePlaylist={onCreatePlaylist}
+      onOpenDetail={onOpenDetail}
     />,
   ];
 
   return (
-    <div className="relative">
-      {/* 단계 전환 시 페이드 애니메이션 */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={step}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
-        >
-          {steps[step]}
-        </motion.div>
-      </AnimatePresence>
+    <div className="min-h-screen bg-[#10131b] text-white">
+      <Header currentSection="home" />
+      <div
+        className={[
+          "pt-16",
+          "pb-0",
+        ].join(" ")}
+      >
+        {/* 단계 전환 시 페이드 애니메이션 */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+          >
+            {steps[step]}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      <PageFooter className="mt-0" />
     </div>
   );
 }
+
+// 레거시 호환: 기존 import 경로/심볼을 당장 바꾸지 못한 호출부를 위한 alias
+export const Onboarding = Analyze;

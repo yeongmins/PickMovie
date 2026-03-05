@@ -1,5 +1,5 @@
 // 온보딩 진입 전 인트로 랜딩 화면 (서비스 소개 + 스크롤 유도)
-// /welcome 라우트에서만 사용, 실제 온보딩은 /onboarding에서 시작
+// /welcome 라우트에서만 사용, 실제 분석 플로우는 /analyze에서 시작
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../components/ui/button";
