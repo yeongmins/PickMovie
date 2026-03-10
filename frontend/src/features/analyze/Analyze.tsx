@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "../../components/layout/Header";
 import { PageFooter } from "../../components/layout/Footer";
+import type { AddItemsToPlaylistResult } from "../../App";
 
 import { GenreStep } from "./components/GenreStep";
 import { MoodStep } from "./components/MoodStep";
@@ -15,12 +16,18 @@ interface AnalyzeProps {
   initialStep?: number;
   initialFavorites?: number[]; // 기존 찜 목록
   isAuthed?: boolean;
+  analyticsUserId?: number | null;
   favoriteMovieIds?: number[];
   onToggleFavorite?: (id: number, mediaType?: "movie" | "tv") => void;
   onCreatePlaylist?: (
     name: string,
     items: Array<{ id: number; mediaType: "movie" | "tv" }>,
   ) => Promise<void> | void;
+  playlists?: Array<{ id: number | string; name: string }>;
+  onAddItemsToPlaylist?: (
+    playlistId: number,
+    items: Array<{ id: number; mediaType: "movie" | "tv" }>,
+  ) => Promise<AddItemsToPlaylistResult | void> | AddItemsToPlaylistResult | void;
   onOpenDetail?: (id: number, mediaType?: "movie" | "tv") => void;
 }
 
@@ -38,9 +45,12 @@ export function Analyze({
   initialStep = 0,
   initialFavorites = [],
   isAuthed = false,
+  analyticsUserId = null,
   favoriteMovieIds = [],
   onToggleFavorite,
   onCreatePlaylist,
+  playlists = [],
+  onAddItemsToPlaylist,
   onOpenDetail,
 }: AnalyzeProps) {
   // 현재 온보딩 단계
@@ -142,9 +152,12 @@ export function Analyze({
       onRestart={handleRestart}
       initialFavorites={initialFavorites}
       isAuthed={isAuthed}
+      analyticsUserId={analyticsUserId}
       favoriteMovieIds={favoriteMovieIds}
       onToggleFavorite={onToggleFavorite}
       onCreatePlaylist={onCreatePlaylist}
+      playlists={playlists}
+      onAddItemsToPlaylist={onAddItemsToPlaylist}
       onOpenDetail={onOpenDetail}
     />,
   ];

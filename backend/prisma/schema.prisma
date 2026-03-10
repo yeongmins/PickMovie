@@ -14,6 +14,11 @@ enum MediaType {
   tv
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 model User {
   id           Int     @id @default(autoincrement())
   username     String  @unique
@@ -21,6 +26,7 @@ model User {
   nickname     String?
   profileImageUrl String?
   passwordHash String
+  role         UserRole @default(USER)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -30,9 +36,72 @@ model User {
 
   emailVerifiedAt         DateTime?
   emailVerificationTokens EmailVerificationToken[]
+  emailAuthTokens         EmailAuthToken[]
 
   favorites Favorite[]
   playlists Playlist[]
+  analyzeEvents AnalyzeEvent[]
+  contentIssueReports ContentIssueReport[]
+}
+
+model AnalyzeEvent {
+  id        Int    @id @default(autoincrement())
+  visitorId String
+  userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  isAuthed  Boolean @default(false)
+
+  genres    Json
+  moods     Json
+  runtime   String?
+  releaseYear String?
+  country   String?
+  excludes  Json
+
+  favoriteMovieIds Json
+  favoriteCount    Int @default(0)
+
+  source    String  @default("analyze")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([isAuthed])
+  @@index([visitorId, createdAt])
+}
+
+model ContentIssueReport {
+  id Int @id @default(autoincrement())
+
+  mediaType MediaType
+  tmdbId Int
+  contentTitle String?
+
+  issueMessage String
+  issueDetail String?
+
+  reporterUserId Int?
+  reporterUser User? @relation(fields: [reporterUserId], references: [id], onDelete: SetNull)
+  reporterName String?
+  reporterEmail String?
+  visitorId String?
+
+  source String @default("detail")
+  status String @default("received")
+  adminReply String?
+  adminRepliedAt DateTime?
+  adminRepliedBy String?
+  userReadAt DateTime?
+  userDeletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([reporterUserId, userReadAt, adminRepliedAt])
+  @@index([reporterUserId, userDeletedAt, adminRepliedAt])
+  @@index([mediaType, tmdbId, createdAt])
+  @@index([reporterUserId])
 }
 
 model Favorite {
@@ -122,6 +191,21 @@ model EmailVerificationToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+}
+
+model EmailAuthToken {
+  id     Int  @id @default(autoincrement())
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  email     String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
 }
 
 enum TrendSource {
@@ -378,6 +462,7 @@ model ContentMetaOverride {
   releaseStatus ReleaseStatus?
   ageRating     AgeRating?
   releaseYear   Int?
+  contentInfoReleaseYear Int?
 
   // ✅ (신규) 운영/수정 override 지원
   statusKind            StatusKind?
@@ -387,8 +472,16 @@ model ContentMetaOverride {
   kobisMovieCd          String?
   rerunKobisMovieCd     String?
   hasMultipleTheatrical Boolean?
+  forceHidden           Boolean?
 
   watchProviders Json?
+
+  // 관리자 상세 수정 오버라이드
+  overrideTitle         String?
+  overrideOriginalTitle String?
+  overrideOverview      String?
+  overrideRuntime       Int?
+  overrideReleaseDate   String?
 
   updatedBy    String?
   updatedAt    DateTime      @default(now())
@@ -396,6 +489,46 @@ model ContentMetaOverride {
   createdAt    DateTime      @default(now())
 
   @@unique([mediaType, tmdbId])
+}
+
+model ContentMetaOverrideHistory {
+  id           String       @id @default(cuid())
+  mediaType    MetaMediaType
+  tmdbId       Int
+  action       String
+  changedFields Json?
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  beforeTitle  String?
+  afterTitle   String?
+  createdBy    String?
+  createdAt    DateTime     @default(now())
+
+  @@index([mediaType, tmdbId, createdAt])
+  @@index([createdAt])
+}
+
+model SearchPolicyConfig {
+  key             String   @id
+  blockedKeywords Json
+  updatedBy       String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
+
+model SearchPopularContent {
+  id             Int       @id @default(autoincrement())
+  tmdbId         Int
+  mediaType      MediaType
+  title          String
+  searchCount    Int       @default(0)
+  lastSearchedAt DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tmdbId, mediaType], name: "tmdbId_mediaType")
+  @@index([searchCount, lastSearchedAt])
+  @@index([updatedAt])
 }
 
 model HomeCollectionSnapshot {

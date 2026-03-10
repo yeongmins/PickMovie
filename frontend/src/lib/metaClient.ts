@@ -60,9 +60,24 @@ export type ResolvedMeta = {
 
   // ✅ 백엔드가 "아예 숨김" 판정 내려줌
   hidden?: boolean;
+  // ✅ 관리자 수동 비노출 토글 상태
+  adminHidden?: boolean;
 
   // ✅ TV 상세 시즌 메타(프론트 계산 X)
   seasons?: SeasonMeta[] | null;
+
+  contentInfoReleaseYear?: number | string | null;
+  contentInfoReleaseYmd?: string | null;
+  contentInfoLatestReleaseYmd?: string | null;
+  contentInfoRerunYmd?: string | null;
+
+  detailOverride?: {
+    title: string | null;
+    originalTitle: string | null;
+    overview: string | null;
+    runtime: number | null;
+    releaseDate: string | null;
+  } | null;
 
   metaVersion: number;
   resolvedAt: string;
@@ -115,6 +130,19 @@ export function peekResolvedMeta(mediaType: MediaType, tmdbId: number) {
   return cached;
 }
 
+export function setResolvedMetaCache(
+  mediaType: MediaType,
+  tmdbId: number,
+  value: ResolvedMeta | null,
+) {
+  const k = keyOf(mediaType, tmdbId);
+  if (!value) {
+    memCache.delete(k);
+    return;
+  }
+  memCache.set(k, value);
+}
+
 async function postBatch(
   items: Array<{ mediaType: MediaType; tmdbId: number }>,
 ): Promise<ResolvedMeta[]> {
@@ -164,6 +192,22 @@ export async function requestResolvedMeta(
 
   inflight.set(k, p);
   return p;
+}
+
+export async function refreshResolvedMeta(
+  mediaType: MediaType,
+  tmdbId: number,
+): Promise<ResolvedMeta | null> {
+  if (mediaType !== "movie" && mediaType !== "tv") return null;
+  if (!Number.isFinite(tmdbId) || tmdbId <= 0) return null;
+  try {
+    const items = await postBatch([{ mediaType, tmdbId }]);
+    const got = items[0] ?? null;
+    setResolvedMetaCache(mediaType, tmdbId, got);
+    return got;
+  } catch {
+    return null;
+  }
 }
 
 export async function requestResolvedMetaBatch(

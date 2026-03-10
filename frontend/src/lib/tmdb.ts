@@ -192,8 +192,15 @@ async function fetchFromBackend<T>(
     url.searchParams.set(key, normalized);
   });
 
+  const headers: Record<string, string> = {};
+  try {
+    const token = localStorage.getItem("pickmovie_access_token");
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {}
+
   const res = await fetch(url.toString(), {
     credentials: "include",
+    headers,
   });
 
   if (!res.ok) {

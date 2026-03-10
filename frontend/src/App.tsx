@@ -12,12 +12,15 @@ import { Analyze, type UserPreferences } from "./features/analyze/Analyze";
 import { MainScreen } from "./pages/MainScreen";
 import FavoritesPlaylistPage from "./pages/favorites/FavoritesPlaylistPage";
 import Search from "./pages/Search";
-import { LoginPage } from "./pages/auth/LoginPage";
-import { SignupPage } from "./pages/auth/SignupPage";
-import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import { MyPage } from "./pages/MyPage";
+import AdminSettingsPage from "./pages/AdminSettingsPage";
 import { Info } from "./pages/support/Info";
+import { AuthEmailModal } from "./components/auth/AuthEmailModal";
+import {
+  AUTH_MODAL_OPEN_EVENT,
+  type AuthModalMode,
+} from "./lib/auth";
 
 import ContentDetailModal from "./pages/detail/ContentDetailModal";
 import PersonDetail from "./pages/person/PersonDetail";
@@ -26,6 +29,11 @@ export interface FavoriteItem {
   id: number;
   mediaType: "movie" | "tv";
 }
+
+export type AddItemsToPlaylistResult = {
+  addedCount: number;
+  duplicateCount: number;
+};
 
 type PlaylistItemDto = {
   id: number;
@@ -45,6 +53,7 @@ const STORAGE_KEYS = {
   PREFERENCES: "pickmovie_preferences",
   ACCESS: "pickmovie_access_token",
   USER: "pickmovie_user",
+  ANALYZE_VISITOR: "pickmovie_analyze_visitor_id",
 } as const;
 
 const AUTH_EVENT = "pickmovie-auth-changed" as const;
@@ -59,11 +68,27 @@ const createEmptyPreferences = (): UserPreferences => ({
   excludes: [],
 });
 
+function getOrCreateAnalyzeVisitorId(): string {
+  try {
+    const existing = localStorage.getItem(STORAGE_KEYS.ANALYZE_VISITOR);
+    if (existing && existing.trim()) return existing.trim();
+    const next =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `pmv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(STORAGE_KEYS.ANALYZE_VISITOR, next);
+    return next;
+  } catch {
+    return `pmv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 type MeUser = {
   id: number;
   username: string;
   email: string | null;
   nickname: string | null;
+  role?: string | null;
 };
 
 type ApiError = Error & { status?: number; data?: any };
@@ -125,6 +150,8 @@ export default function App() {
   const [me, setMe] = useState<MeUser | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>("login");
 
   const bootingRef = useRef(false);
 
@@ -360,7 +387,8 @@ export default function App() {
   const handleToggleFavorite = useCallback(
     (id: number, mediaType: "movie" | "tv" = "movie") => {
       if (!me) {
-        navigate("/login");
+        setAuthModalMode("login");
+        setAuthModalOpen(true);
         return;
       }
 
@@ -384,7 +412,7 @@ export default function App() {
         return next;
       });
     },
-    [me, navigate, postJson],
+    [me, postJson],
   );
 
   // =========================
@@ -526,17 +554,69 @@ export default function App() {
 
       const target = playlists.find((p) => p.id === pid);
       const existing = Array.isArray(target?.items) ? target!.items : [];
-      const merged = uniqFavoriteItems([
-        ...existing.map((it) => ({ id: it.id, mediaType: it.mediaType })),
-        ...items,
-      ]);
+      const incoming = uniqFavoriteItems(items);
+      const existingKeys = new Set(
+        existing.map((it) => `${it.mediaType}:${Number(it.id)}`),
+      );
 
-      await setPlaylistItems(pid, merged);
+      const toAdd = incoming.filter(
+        (it) => !existingKeys.has(`${it.mediaType}:${Number(it.id)}`),
+      );
+
+      const duplicateCount = Math.max(0, incoming.length - toAdd.length);
+      const addedCount = toAdd.length;
+
+      if (addedCount > 0) {
+        const merged = uniqFavoriteItems([
+          ...existing.map((it) => ({ id: it.id, mediaType: it.mediaType })),
+          ...toAdd,
+        ]);
+        await setPlaylistItems(pid, merged);
+      }
+
+      return { addedCount, duplicateCount } as AddItemsToPlaylistResult;
     },
     [playlists, setPlaylistItems],
   );
 
   const isAuthed = !!me;
+  const isAdmin = String(me?.role ?? "").toUpperCase() === "ADMIN";
+
+  useEffect(() => {
+    const onOpenAuthModal = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: AuthModalMode }>).detail;
+      const mode: AuthModalMode = detail?.mode === "signup" ? "signup" : "login";
+      setAuthModalMode(mode);
+      setAuthModalOpen(true);
+    };
+
+    window.addEventListener(AUTH_MODAL_OPEN_EVENT, onOpenAuthModal as EventListener);
+    return () => {
+      window.removeEventListener(
+        AUTH_MODAL_OPEN_EVENT,
+        onOpenAuthModal as EventListener,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const auth = params.get("auth");
+    if (auth !== "login" && auth !== "signup") return;
+
+    setAuthModalMode(auth);
+    setAuthModalOpen(true);
+
+    params.delete("auth");
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : "",
+        hash: location.hash,
+      },
+      { replace: true, state: location.state },
+    );
+  }, [location.hash, location.pathname, location.search, location.state, navigate]);
 
   const analyzeInitialFavorites = useMemo(
     () =>
@@ -570,6 +650,21 @@ export default function App() {
         void postJson("/auth/favorites/sync", { items: merged }).catch(() => {});
       }
 
+      void postJson("/analytics/analyze-events", {
+        visitorId: getOrCreateAnalyzeVisitorId(),
+        userId: me?.id ?? null,
+        isAuthed: !!me,
+        preferences: {
+          genres: Array.isArray(preferences.genres) ? preferences.genres : [],
+          moods: Array.isArray(preferences.moods) ? preferences.moods : [],
+          runtime: String(preferences.runtime ?? ""),
+          releaseYear: String(preferences.releaseYear ?? ""),
+          country: String(preferences.country ?? ""),
+          excludes: Array.isArray(preferences.excludes) ? preferences.excludes : [],
+        },
+        favoriteMovieIds: Array.isArray(favoriteMovieIds) ? favoriteMovieIds : [],
+      }).catch(() => {});
+
       navigate("/", { replace: true });
     },
     [favorites, me, navigate, postJson],
@@ -580,6 +675,7 @@ export default function App() {
       favorites={favorites}
       onToggleFavorite={handleToggleFavorite}
       isAuthed={isAuthed}
+      isAdmin={isAdmin}
     />
   );
 
@@ -588,10 +684,47 @@ export default function App() {
   return (
     <>
       <Routes location={effectiveBaseLocation}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/verify-email/sent" element={<VerifyEmailPage />} />
+        <Route path="/login" element={<Navigate to="/?auth=login" replace />} />
+        <Route path="/signup" element={<Navigate to="/?auth=signup" replace />} />
+        <Route
+          path="/email-auth"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/analyze")}
+              initialSection="home"
+              isAuthed={isAuthed}
+            />
+          }
+        />
+        <Route
+          path="/verify-email"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/analyze")}
+              initialSection="home"
+              isAuthed={isAuthed}
+            />
+          }
+        />
+        <Route
+          path="/verify-email/sent"
+          element={
+            <MainScreen
+              userPreferences={userPreferences}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onReanalyze={() => navigate("/analyze")}
+              initialSection="home"
+              isAuthed={isAuthed}
+            />
+          }
+        />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route path="/info" element={<Info />} />
@@ -602,9 +735,12 @@ export default function App() {
               onComplete={handleAnalyzeComplete}
               initialFavorites={analyzeInitialFavorites}
               isAuthed={isAuthed}
+              analyticsUserId={me?.id ?? null}
               favoriteMovieIds={analyzeInitialFavorites}
               onToggleFavorite={handleToggleFavorite}
               onCreatePlaylist={createPlaylist}
+              playlists={playlists}
+              onAddItemsToPlaylist={addItemsToPlaylist}
               onOpenDetail={openAnalyzeDetail}
             />
           }
@@ -614,6 +750,7 @@ export default function App() {
 
         <Route path="/settings" element={<MyPage />} />
         <Route path="/mypage" element={<Navigate to="/settings" replace />} />
+        <Route path="/admin/settings" element={<AdminSettingsPage />} />
 
         <Route path="/title/:mediaType/:id" element={detailModalElement} />
         <Route path="/person/:id" element={<PersonDetail />} />
@@ -638,7 +775,7 @@ export default function App() {
               userPreferences={userPreferences}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
-              onReanalyze={() => navigate("/")}
+              onReanalyze={() => navigate("/analyze")}
               initialSection="home"
               isAuthed={isAuthed}
             />
@@ -652,6 +789,7 @@ export default function App() {
               userPreferences={userPreferences}
               favorites={favorites}
               playlists={playlists}
+              isAuthed={isAuthed}
               onToggleFavorite={handleToggleFavorite}
               onResetFavorites={handleResetFavorites}
               onCreatePlaylist={createPlaylist}
@@ -670,7 +808,7 @@ export default function App() {
               userPreferences={userPreferences}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
-              onReanalyze={() => navigate("/")}
+              onReanalyze={() => navigate("/analyze")}
               initialSection="popular-movies"
               isAuthed={isAuthed}
             />
@@ -684,7 +822,7 @@ export default function App() {
               userPreferences={userPreferences}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
-              onReanalyze={() => navigate("/")}
+              onReanalyze={() => navigate("/analyze")}
               initialSection="popular-tv"
               isAuthed={isAuthed}
             />
@@ -709,7 +847,14 @@ export default function App() {
             }
           />
         </Routes>
-      ) : null}
+  ) : null}
+
+      <AuthEmailModal
+        open={authModalOpen}
+        mode={authModalMode}
+        onModeChange={setAuthModalMode}
+        onClose={() => setAuthModalOpen(false)}
+      />
 
       {backgroundLocation ? (
         <>

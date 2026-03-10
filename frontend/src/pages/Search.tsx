@@ -18,9 +18,9 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { ApiError, apiPost } from "../lib/apiClient";
-import { AUTH_KEYS, dispatchAuthChanged } from "../lib/auth";
-import { getKrTrends, type KrTrendItem } from "../lib/trends";
+import { ApiError, apiGet, apiPost } from "../lib/apiClient";
+import { AUTH_KEYS, dispatchAuthChanged, openAuthModal } from "../lib/auth";
+import { requestResolvedMetaBatch } from "../lib/metaClient";
 
 // 서버가 추론/확장/랭킹 전담 -> 프론트는 검색 호출 + 결과 렌더
 import { useSearch } from "../features/search/hooks/useSearch";
@@ -41,6 +41,13 @@ export type SearchPageProps = {
 
 type ViewMode = "start" | "results";
 type PlaylistItemPayload = { id: number; mediaType: "movie" | "tv" };
+type PopularSearchContentItem = {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  count: number;
+  updatedAt: string;
+};
 
 const EXIT_MS = 260;
 
@@ -86,6 +93,45 @@ function isAuthedLocal() {
   }
 }
 
+function isAdminLocal() {
+  try {
+    const raw = localStorage.getItem(AUTH_KEYS.USER);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { role?: string | null };
+    return String(parsed?.role ?? "").toUpperCase() === "ADMIN";
+  } catch {
+    return false;
+  }
+}
+
+const DEFAULT_SENSITIVE_QUERY_KEYWORDS = [
+  "성인물",
+  "성인 영상",
+  "음란",
+  "노출",
+  "섹스",
+  "야동",
+  "포르노",
+  "자위",
+  "강간",
+  "씨발",
+  "시발",
+  "병신",
+  "좆",
+  "fuck",
+  "bitch",
+  "asshole",
+  "porn",
+  "sex",
+  "nsfw",
+];
+
+function hasSensitiveQuery(raw: string, keywords: string[]): boolean {
+  const q = String(raw || "").toLowerCase().trim();
+  if (!q) return false;
+  return keywords.some((keyword) => q.includes(String(keyword).toLowerCase()));
+}
+
 function toPlaylistPayload(items: ResultItem[]): PlaylistItemPayload[] {
   const uniq = new Map<string, PlaylistItemPayload>();
 
@@ -108,6 +154,20 @@ function toPlaylistPayload(items: ResultItem[]): PlaylistItemPayload[] {
   return Array.from(uniq.values());
 }
 
+function getResultMediaType(item: ResultItem): "movie" | "tv" {
+  return item?.media_type === "tv"
+    ? "tv"
+    : item?.media_type === "movie"
+      ? "movie"
+      : item?.first_air_date
+        ? "tv"
+        : "movie";
+}
+
+function getResultTitle(item: ResultItem): string {
+  return String(item?.title ?? item?.name ?? "").trim();
+}
+
 export default function Search({
   searchQuery,
   onSearchChange,
@@ -127,9 +187,8 @@ export default function Search({
   const [mode, setMode] = useState<ViewMode>("start");
 
   // 실시간 검색 차트
-  const [liveChartItems, setLiveChartItems] = useState<KrTrendItem[]>([]);
+  const [liveChartItems, setLiveChartItems] = useState<PopularSearchContentItem[]>([]);
   const [liveChartLoading, setLiveChartLoading] = useState(false);
-  const [trendDate, setTrendDate] = useState<string>("");
   const [trendFetchedAt, setTrendFetchedAt] = useState<Date | null>(null);
 
   const {
@@ -151,6 +210,15 @@ export default function Search({
   const [playlistError, setPlaylistError] = useState<string | null>(null);
   const [playlistNotice, setPlaylistNotice] = useState<string | null>(null);
   const [isRefreshingChart, setIsRefreshingChart] = useState(false);
+  const [sensitiveKeywords, setSensitiveKeywords] = useState<string[]>(
+    DEFAULT_SENSITIVE_QUERY_KEYWORDS,
+  );
+  const isAuthed = isAuthedLocal();
+  const isAdmin = isAdminLocal();
+  const showSensitiveWarning = useMemo(
+    () => !isAdmin && hasSensitiveQuery(searchQuery, sensitiveKeywords),
+    [isAdmin, searchQuery, sensitiveKeywords],
+  );
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -179,23 +247,40 @@ export default function Search({
   const loadLiveChart = useCallback(async () => {
     setLiveChartLoading(true);
     try {
-      const r = await getKrTrends(10);
-      const date = String(r?.date || "").trim();
-      setTrendDate(date);
+      const res = await apiGet<{
+        items?: Array<{
+          tmdbId: number;
+          mediaType: string;
+          title: string;
+          count: number;
+          updatedAt: string;
+        }>;
+      }>("/search/popular-contents", { limit: 10 });
 
-      const raw = Array.isArray(r?.items) ? r.items : [];
-      const normalized = raw
+      const normalized = (Array.isArray(res?.items) ? res.items : [])
         .map((it) => ({
-          ...it,
-          rank: Number.isFinite(Number(it?.rank)) ? Number(it.rank) : 0,
-          score: Number.isFinite(Number(it?.score)) ? Number(it.score) : 0,
-          keyword: String(it?.keyword || "").trim(),
+          tmdbId: Number(it?.tmdbId),
+          mediaType:
+            String(it?.mediaType ?? "").toLowerCase() === "tv"
+              ? ("tv" as const)
+              : ("movie" as const),
+          title: String(it?.title ?? "").trim(),
+          count: Number(it?.count ?? 0),
+          updatedAt: String(it?.updatedAt ?? ""),
         }))
-        .filter((it) => it.keyword)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10)
-        .map((it, idx) => ({ ...it, rank: idx + 1 }));
-
+        .filter(
+          (it) =>
+            Number.isFinite(it.tmdbId) &&
+            it.tmdbId > 0 &&
+            !!it.title &&
+            Number.isFinite(it.count) &&
+            it.count > 0,
+        )
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+        })
+        .slice(0, 10);
       setLiveChartItems(normalized);
       setTrendFetchedAt(new Date());
     } catch {
@@ -209,6 +294,26 @@ export default function Search({
   useEffect(() => {
     void loadLiveChart();
   }, [loadLiveChart]);
+
+  useEffect(() => {
+    let alive = true;
+    void apiGet<{ keywords?: string[] }>("/search/policy")
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res?.keywords)
+          ? res.keywords
+              .map((x) => String(x ?? "").trim().toLowerCase())
+              .filter(Boolean)
+          : [];
+        if (list.length > 0) setSensitiveKeywords(list);
+      })
+      .catch(() => {
+        // keep default policy when API is unavailable
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -344,31 +449,31 @@ export default function Search({
     (item: ResultItem) => {
       const id = Number(item?.id);
       if (!Number.isFinite(id) || id <= 0) return;
-
-      const mt: "movie" | "tv" =
-        item?.media_type === "tv"
-          ? "tv"
-          : item?.media_type === "movie"
-            ? "movie"
-            : item?.first_air_date
-              ? "tv"
-              : "movie";
+      const mt = getResultMediaType(item);
+      const title = getResultTitle(item);
+      if (title)
+        void apiPost<{ ok: true }>("/search/popular-contents/hit", {
+          tmdbId: id,
+          mediaType: mt,
+          title,
+        })
+          .then(() => loadLiveChart())
+          .catch(() => {});
 
       navigate(`/title/${mt}/${id}`, {
         state: { backgroundLocation: location },
       });
     },
-    [navigate, location],
+    [navigate, location, loadLiveChart],
   );
 
-  const onPickChartKeyword = useCallback(
-    (keyword: string) => {
-      const q = String(keyword || "").trim();
-      if (!q) return;
-      onSearchChange(q);
-      void executeSearch(q);
+  const onPickChartContent = useCallback(
+    (item: PopularSearchContentItem) => {
+      navigate(`/title/${item.mediaType}/${item.tmdbId}`, {
+        state: { backgroundLocation: location },
+      });
     },
-    [onSearchChange, executeSearch],
+    [navigate, location],
   );
 
   const favoritesKeySet = useMemo(() => {
@@ -410,10 +515,11 @@ export default function Search({
   }, []);
 
   const enterSelectionMode = useCallback(() => {
+    if (!isAuthed) return;
     setSelectionMode(true);
     setPlaylistNotice(null);
     setPlaylistError(null);
-  }, []);
+  }, [isAuthed]);
 
   const cancelSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -425,7 +531,7 @@ export default function Search({
 
   const openPlaylistModal = useCallback(() => {
     if (!isAuthedLocal()) {
-      navigate("/login", { state: { backgroundLocation: location } });
+      openAuthModal("login");
       return;
     }
 
@@ -436,7 +542,7 @@ export default function Search({
 
     setPlaylistError(null);
     setPlaylistModalOpen(true);
-  }, [navigate, location, selectedCount]);
+  }, [selectedCount]);
 
   const createPlaylistFromSelected = useCallback(async () => {
     const trimmed = playlistName.trim();
@@ -588,7 +694,7 @@ export default function Search({
                   enterKeyHint="search"
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="작품명, 키워드, 분위기를 검색해보세요"
+                  placeholder="작품명을 검색해보세요"
                   className="flex-1 bg-transparent outline-none text-white placeholder-white/50 text-sm"
                 />
 
@@ -639,15 +745,16 @@ export default function Search({
                     items={liveChartItems}
                     loading={liveChartLoading}
                     refreshing={isRefreshingChart}
-                    trendDate={trendDate}
                     trendFetchedAt={trendFetchedAt}
                     onRefresh={refreshLiveChart}
-                    onPickKeyword={onPickChartKeyword}
+                    onPickContent={onPickChartContent}
                   />
                 ) : (
                   <ResultsPanel
                     title="검색 결과"
                     query={(searchQuery || "").trim()}
+                    isAuthed={isAuthed}
+                    isAdmin={isAdmin}
                     loading={searchLoading}
                     error={searchError}
                     tags={tags}
@@ -675,6 +782,7 @@ export default function Search({
                     }}
                     onCreatePlaylist={createPlaylistFromSelected}
                     onGoPlaylists={goPlaylists}
+                    showSensitiveWarning={showSensitiveWarning}
                   />
                 )}
               </motion.div>
@@ -690,23 +798,17 @@ function StartPanel({
   items,
   loading,
   refreshing,
-  trendDate,
   trendFetchedAt,
   onRefresh,
-  onPickKeyword,
+  onPickContent,
 }: {
-  items: KrTrendItem[];
+  items: PopularSearchContentItem[];
   loading: boolean;
   refreshing: boolean;
-  trendDate: string;
   trendFetchedAt: Date | null;
   onRefresh: () => void;
-  onPickKeyword: (keyword: string) => void;
+  onPickContent: (item: PopularSearchContentItem) => void;
 }) {
-  const datePart =
-    trendDate && trendDate.length === 8
-      ? `${trendDate.slice(0, 4)}.${trendDate.slice(4, 6)}.${trendDate.slice(6, 8)}`
-      : "";
   const timePart = trendFetchedAt
     ? trendFetchedAt.toLocaleTimeString("ko-KR", {
         hour: "2-digit",
@@ -714,15 +816,16 @@ function StartPanel({
         hour12: true,
       })
     : "";
+  const isCollecting = items.length < 10;
 
   return (
     <div className="p-3 mb-1">
       <div className="flex items-center justify-between px-1">
         <div>
-          <div className="text-sm font-semibold text-white/90">실시간 검색어</div>
-          {datePart || timePart ? (
+          <div className="text-sm font-semibold text-white/90">실시간 인기 검색 컨텐츠</div>
+          {timePart ? (
             <div className="mt-1 text-xs text-white/45">
-              {[datePart, timePart].filter(Boolean).join(" ")} 기준
+              {timePart} 기준
             </div>
           ) : null}
         </div>
@@ -748,23 +851,30 @@ function StartPanel({
             <RefreshCcw className="h-6 w-6 text-white/60 animate-spin" />
             <div className="mt-3">로딩중입니다</div>
           </div>
-        ) : items.length === 0 ? (
-          <div className="flex items-center justify-center py-16 text-sm text-white/55">
-            실시간 검색어를 불러오지 못했어요.
+        ) : isCollecting ? (
+          <div className="py-14 px-3">
+            <div className="mx-auto max-w-[560px] rounded-2xl border border-sky-300/35 bg-[linear-gradient(180deg,rgba(22,28,40,0.94),rgba(12,16,24,0.96))] px-6 py-7 text-center shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur">
+              <p className="text-base font-semibold text-sky-100">
+                실시간 검색 데이터를 수집중입니다
+              </p>
+              <p className="mt-2 text-sm text-sky-100/70">
+                인기 컨텐츠 Top 10이 집계되면 순위를 보여드릴게요.
+              </p>
+            </div>
           </div>
         ) : (
           <ol className="px-2 mt-1 space-y-2">
             {items.map((item, idx) => (
-              <li key={`chart-${item.rank}-${item.keyword}`}>
+              <li key={`chart-${item.mediaType}-${item.tmdbId}`}>
                 <button
                   type="button"
-                  onClick={() => onPickKeyword(item.keyword)}
+                  onClick={() => onPickContent(item)}
                   className="w-full text-left flex items-center gap-2 text-base font-semibold leading-snug text-white/90 hover:text-white transition-colors"
                 >
                   <span className="shrink-0 tabular-nums text-center min-w-[2ch]">
                     {idx + 1}
                   </span>
-                  <span className="truncate">{item.keyword}</span>
+                  <span className="truncate">{item.title}</span>
                 </button>
               </li>
             ))}
@@ -778,6 +888,8 @@ function StartPanel({
 function ResultsPanel({
   title,
   query,
+  isAuthed,
+  isAdmin,
   loading,
   error,
   tags,
@@ -802,9 +914,12 @@ function ResultsPanel({
   onClosePlaylistModal,
   onCreatePlaylist,
   onGoPlaylists,
+  showSensitiveWarning,
 }: {
   title: string;
   query: string;
+  isAuthed: boolean;
+  isAdmin: boolean;
   loading: boolean;
   error: string | null;
   tags: string[];
@@ -829,9 +944,79 @@ function ResultsPanel({
   onClosePlaylistModal: () => void;
   onCreatePlaylist: () => void;
   onGoPlaylists: () => void;
+  showSensitiveWarning: boolean;
 }) {
   const cardsGridClass =
     "grid justify-center gap-x-6 gap-y-8 [grid-template-columns:repeat(auto-fill,minmax(200px,200px))]";
+  const [adminHiddenKeys, setAdminHiddenKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let alive = true;
+    if (isAdmin) {
+      setAdminHiddenKeys(new Set());
+      return;
+    }
+
+    const load = async () => {
+      const reqs = results
+        .map((item) => {
+          const mt: "movie" | "tv" =
+            item?.media_type === "tv"
+              ? "tv"
+              : item?.media_type === "movie"
+                ? "movie"
+                : item?.first_air_date
+                  ? "tv"
+                  : "movie";
+          const id = Number(item?.id);
+          if (!Number.isFinite(id) || id <= 0) return null;
+          return { mediaType: mt, tmdbId: id };
+        })
+        .filter(Boolean) as Array<{ mediaType: "movie" | "tv"; tmdbId: number }>;
+
+      if (reqs.length === 0) {
+        if (alive) setAdminHiddenKeys(new Set());
+        return;
+      }
+
+      try {
+        const metas = await requestResolvedMetaBatch(reqs);
+        if (!alive) return;
+        const hidden = new Set<string>();
+        for (const m of metas) {
+          if (!m?.adminHidden) continue;
+          hidden.add(`${m.mediaType}:${m.tmdbId}`);
+        }
+        setAdminHiddenKeys(hidden);
+      } catch {
+        if (!alive) return;
+        setAdminHiddenKeys(new Set());
+      }
+    };
+
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [results, isAdmin]);
+
+  const visibleResults = useMemo(() => {
+    if (showSensitiveWarning) return [];
+    if (isAdmin) return results;
+    return results.filter((item) => {
+      const mt: "movie" | "tv" =
+        item?.media_type === "tv"
+          ? "tv"
+          : item?.media_type === "movie"
+            ? "movie"
+            : item?.first_air_date
+              ? "tv"
+              : "movie";
+      const id = Number(item?.id);
+      if (!Number.isFinite(id) || id <= 0) return false;
+      return !adminHiddenKeys.has(`${mt}:${id}`);
+    });
+  }, [results, adminHiddenKeys, showSensitiveWarning, isAdmin]);
 
   return (
     <div className="p-3 relative">
@@ -854,11 +1039,22 @@ function ResultsPanel({
             <button
               type="button"
               onClick={onEnterSelectionMode}
-              className="h-9 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-white/90 transition inline-flex items-center gap-2"
+              disabled={!isAuthed}
+              className={[
+                "h-9 px-3 rounded-xl text-xs transition inline-flex items-center gap-2",
+                isAuthed
+                  ? "bg-white/10 hover:bg-white/15 text-white/90"
+                  : "bg-white/5 text-white/45 cursor-not-allowed",
+              ].join(" ")}
               aria-label="플레이리스트 추가 모드 시작"
+              title={
+                isAuthed
+                  ? "플레이리스트 추가 모드 시작"
+                  : "플레이리스트 추가는 로그인 후 가능합니다"
+              }
             >
               <Plus className="h-4 w-4" />
-              플레이리스트 추가
+              {isAuthed ? "플레이리스트 추가" : "로그인 후 플레이리스트 추가"}
             </button>
           ) : (
             <button
@@ -924,7 +1120,7 @@ function ResultsPanel({
 
       <div
         className={[
-          "mt-6 pb-6",
+          "relative mt-6 pb-6",
           isTablet ? "max-h-[62vh]" : "max-h-[68vh]",
           "overflow-y-auto pr-1",
         ].join(" ")}
@@ -939,15 +1135,28 @@ function ResultsPanel({
             검색 중 문제가 발생했어요.
             <div className="mt-2 text-xs text-white/40">{error}</div>
           </div>
-        ) : results.length === 0 ? (
-          <div className="py-10 text-center text-sm text-white/55">
-            검색 결과를 찾지 못했어요.
-            <br />
-            검색어를 조금 더 구체적으로 입력해보세요.
-          </div>
+        ) : visibleResults.length === 0 ? (
+          showSensitiveWarning ? (
+            <div className="py-10 px-4">
+              <div className="mx-auto max-w-[560px] rounded-2xl border border-amber-300/45 bg-[linear-gradient(180deg,rgba(18,18,24,0.94),rgba(11,11,16,0.96))] px-5 py-4 text-center shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur">
+                <p className="text-base font-semibold text-amber-200">
+                  검색할 수 없는 검색어입니다.
+                </p>
+                <p className="mt-1 text-sm text-amber-100/90">
+                  다른 검색어를 입력해 주세요.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="py-10 text-center text-sm text-white/55">
+              검색 결과를 찾지 못했어요.
+              <br />
+              검색어를 조금 더 구체적으로 입력해보세요.
+            </div>
+          )
         ) : (
           <div className={`${cardsGridClass} mb-4`}>
-            {results.map((item) => {
+            {visibleResults.map((item) => {
               const mt: "movie" | "tv" =
                 item?.media_type === "tv"
                   ? "tv"
@@ -973,7 +1182,8 @@ function ResultsPanel({
                       onOpenDetail(item);
                     }}
                     context="search"
-                    canFavorite={!selectionMode}
+                    canFavorite={isAuthed && !selectionMode}
+                    ignoreAdminHidden={isAdmin}
                   />
 
                   {selectionMode ? (
@@ -995,6 +1205,7 @@ function ResultsPanel({
             })}
           </div>
         )}
+
       </div>
 
       <AnimatePresence>
@@ -1015,27 +1226,27 @@ function ResultsPanel({
               exit={{ opacity: 0, y: 16, scale: 0.99 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="fixed left-0 right-0 z-[80] px-4"
-              style={{ bottom: 84 }}
+              style={{ bottom: 72 }}
             >
-              <div className="mx-auto w-full max-w-[560px] rounded-2xl bg-[#0b0b10]/95 shadow-2xl backdrop-blur p-4">
+              <div className="mx-auto w-full max-w-[380px] rounded-2xl bg-[#0b0b10]/95 shadow-2xl backdrop-blur p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-white/90">플레이리스트 생성</div>
-                    <div className="mt-1 text-xs text-white/60">
+                    <div className="text-xs font-semibold text-white/90">플레이리스트 생성</div>
+                    <div className="mt-1 text-[11px] text-white/60">
                       선택한 콘텐츠를 새 플레이리스트로 저장합니다.
                     </div>
                   </div>
                   <button
                     type="button"
-                    className="h-8 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white/80 text-xs"
+                    className="h-7 px-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white/80 text-[11px]"
                     onClick={onClosePlaylistModal}
                   >
                     닫기
                   </button>
                 </div>
 
-                <div className="mt-4">
-                  <label htmlFor="playlist-name" className="text-xs text-white/60">
+                <div className="mt-3">
+                  <label htmlFor="playlist-name" className="text-[11px] text-white/60">
                     플레이리스트명
                   </label>
                   <input
@@ -1049,7 +1260,7 @@ function ResultsPanel({
                       onCreatePlaylist();
                     }}
                     placeholder="예: 오늘 볼 작품"
-                    className="mt-2 w-full h-11 rounded-xl bg-black/35 px-3 text-base font-semibold text-white/95 placeholder:text-white/35 outline-none caret-white"
+                    className="mt-1.5 w-full h-10 rounded-lg bg-black/35 px-3 text-sm font-semibold text-white/95 placeholder:text-white/35 outline-none caret-white"
                     maxLength={40}
                     autoFocus
                   />
@@ -1059,11 +1270,11 @@ function ResultsPanel({
                   <div className="mt-3 text-xs text-rose-300">{playlistError}</div>
                 ) : null}
 
-                <div className="mt-4 flex items-center justify-end gap-2">
+                <div className="mt-3 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={onClosePlaylistModal}
-                    className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-xs text-white/85"
+                    className="h-8 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] text-white/85"
                     disabled={playlistSubmitting}
                   >
                     취소
@@ -1071,7 +1282,7 @@ function ResultsPanel({
                   <button
                     type="button"
                     onClick={onCreatePlaylist}
-                    className="h-9 px-3 rounded-lg bg-white text-black hover:bg-white/90 text-xs font-semibold inline-flex items-center gap-2"
+                    className="h-8 px-3 rounded-lg bg-white text-black hover:bg-white/90 text-[11px] font-semibold inline-flex items-center gap-2"
                     disabled={playlistSubmitting}
                   >
                     {playlistSubmitting ? (

@@ -8,11 +8,13 @@ export function ContentDetailBody({
   detail,
   mediaType,
   loading,
+  isAuthed,
   statusKindOverride,
 }: {
   detail: DetailBase | null;
   mediaType: MediaType;
   loading?: boolean;
+  isAuthed?: boolean;
   statusKindOverride?: ReleaseStatusKind | null;
 }) {
   // ✅ 중복 제거:
@@ -23,6 +25,7 @@ export function ContentDetailBody({
       detail={detail}
       mediaType={mediaType}
       loading={loading}
+      isAuthed={isAuthed}
       statusKindOverride={statusKindOverride ?? null}
     />
   );

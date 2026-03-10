@@ -22,6 +22,8 @@ export const NOTICE_ITEMS: FooterNoticeItem[] = [
 ];
 
 export const DEVELOPER_NOTE_ITEMS: FooterDeveloperNoteItem[] = [
+  { hash: "4e0b833", date: "2026-03-10", title: "기능 업데이트: 분석하기 개선 및 관리자 페이지 생성, 여러가지 오류 해결 및 기능 추가", body: "분석하기 개선 및 관리자 페이지 생성, 여러가지 오류 해결 및 기능 추가 관련 업데이트를 반영했습니다." },
+  { hash: "b6dad78", date: "2026-03-06", title: "기능 업데이트: 분석하기 기능 활성 / header/footer ux ui 수정 / 설정 페이지 활성", body: "분석하기 기능 활성 / header/footer ux ui 수정 / 설정 페이지 활성 관련 업데이트를 반영했습니다." },
   { hash: "88eb30c", date: "2026-02-09", title: "문서 업데이트: README 업데이트", body: "README 업데이트 내용을 최신 기준에 맞게 정리했습니다." },
   { hash: "00496f9", date: "2026-02-09", title: "디자인 개선: footer 구조 개선 및 픽무비 공통 색상 변경", body: "footer 구조 개선 및 픽무비 공통 색상 변경 관련 업데이트를 반영했습니다." },
   { hash: "2e360fb", date: "2026-02-08", title: "기능 업데이트: 추천 관련 코드 검색 코드로 이관 및 속도 개선 진행", body: "추천 관련 코드 검색 코드로 이관 및 속도 개선 진행 관련 업데이트를 반영했습니다." },

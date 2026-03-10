@@ -9,6 +9,7 @@ import type { FavoriteItem, PlaylistDto } from "../../App";
 
 import { Header } from "../../components/layout/Header";
 import { PageFooter } from "../../components/layout/Footer";
+import { openAuthModal } from "../../lib/auth";
 
 import {
   ContentCard,
@@ -23,6 +24,7 @@ type FavoritesPlaylistPageProps = {
   userPreferences: UserPreferences;
   favorites: FavoriteItem[];
   playlists: PlaylistDto[];
+  isAuthed?: boolean;
 
   onToggleFavorite: (id: number, mediaType?: "movie" | "tv") => void;
   onResetFavorites: () => void;
@@ -102,6 +104,19 @@ function SharedBottomConfirmSheet(props: {
     onClose,
   } = props;
 
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   return (
     <AnimatePresence>
       {open ? (
@@ -145,7 +160,7 @@ function SharedBottomConfirmSheet(props: {
               </div>
 
               <div className="mt-5 flex items-center justify-between gap-3">
-                <div className="min-w-0 text-sm text-white/80">
+                <div className="min-w-0 text-sm font-bold text-white/80">
                   {footerLeft ?? null}
                 </div>
 
@@ -540,6 +555,7 @@ export default function FavoritesPlaylistPage({
   userPreferences,
   favorites,
   playlists,
+  isAuthed = false,
   onToggleFavorite,
   onResetFavorites,
   onCreatePlaylist,
@@ -552,6 +568,12 @@ export default function FavoritesPlaylistPage({
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    if (isAuthed) return;
+    openAuthModal("login");
+    navigate("/", { replace: true });
+  }, [isAuthed, navigate]);
 
   const initialViewMode = useMemo<ViewMode>(() => {
     const st = (location.state as any) ?? {};

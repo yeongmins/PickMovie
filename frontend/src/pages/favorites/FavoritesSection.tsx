@@ -502,9 +502,12 @@ export function FavoritesSection({
 
           {/* ✅ 찜이 없을 때 */}
           {favoritesKeySet.size === 0 ? (
-            <div className={`${pad} py-16`}>
-              <div className="w-full flex items-center justify-center text-sm text-white/60">
-                현재 찜을 한 컨텐츠가 없습니다.
+            <div className={`${pad} min-h-[300px] flex items-center justify-center`}>
+              <div className="w-full text-center">
+                <p className="text-sm text-white/60">찜을 한 컨텐츠가 없습니다</p>
+                <p className="mt-2 text-sm text-white/45">
+                  분석하기를 통해 찜과 플레이리스트를 생성해보세요!
+                </p>
               </div>
             </div>
           ) : allUnique.length === 0 ? (

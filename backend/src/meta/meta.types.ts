@@ -37,6 +37,14 @@ export type TheatricalInfo = {
 
 export type ResolveRequest = { mediaType: MediaType; tmdbId: number };
 
+export type DetailOverride = {
+  title: string | null;
+  originalTitle: string | null;
+  overview: string | null;
+  runtime: number | null;
+  releaseDate: string | null;
+};
+
 export type SeasonMeta = {
   seasonNumber: number;
   name: string | null;
@@ -67,6 +75,8 @@ export type ResolvedMeta = {
 
   // ✅ 백엔드가 “아예 숨김” 판정 내려줌
   hidden?: boolean;
+  // ✅ 관리자 수동 비노출 토글 상태
+  adminHidden?: boolean;
 
   // ✅ TV/Ani 상세 시즌 메타(프론트 계산 X)
   seasons?: SeasonMeta[] | null;
@@ -89,6 +99,8 @@ export type ResolvedMeta = {
   contentInfoReleaseYmd?: string | null; // “처음”의 날짜(YYYY-MM-DD)
   contentInfoLatestReleaseYmd?: string | null; // “가장 최근” 개봉일(YYYY-MM-DD)
   contentInfoRerunYmd?: string | null; // 재개봉일(YYYY-MM-DD)
+
+  detailOverride?: DetailOverride | null;
 
   metaVersion: number;
   resolvedAt: string;

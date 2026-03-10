@@ -5,15 +5,21 @@ import {
   Search,
   User,
   LogOut,
-  UserRound,
   ChevronDown,
   Settings,
+  Bell,
+  Trash2,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
-import { apiPost } from "../../lib/apiClient";
-import { AUTH_EVENT, AUTH_KEYS, dispatchAuthChanged } from "../../lib/auth";
+import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/apiClient";
+import {
+  AUTH_EVENT,
+  AUTH_KEYS,
+  openAuthModal,
+  reloadAfterAuth,
+} from "../../lib/auth";
 
 export interface HeaderProps {
   onNavigate?: (section: string) => void;
@@ -26,6 +32,18 @@ type SafeUser = {
   username: string;
   email: string | null;
   nickname: string | null;
+  role?: string | null;
+};
+
+type IssueReplyNotification = {
+  id: number;
+  mediaType: "movie" | "tv";
+  tmdbId: number;
+  contentTitle: string | null;
+  issueMessage: string;
+  adminReply: string;
+  adminRepliedAt: string;
+  isRead: boolean;
 };
 
 function readStoredUser(): SafeUser | null {
@@ -71,6 +89,11 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
   const [profileOpen, setProfileOpen] = useState(false);
+  const [issueNoticeOpen, setIssueNoticeOpen] = useState(false);
+  const [issueUnreadCount, setIssueUnreadCount] = useState(0);
+  const [issueNotifications, setIssueNotifications] = useState<IssueReplyNotification[]>([]);
+  const [issueLoading, setIssueLoading] = useState(false);
+  const [dismissingIssueIds, setDismissingIssueIds] = useState<Set<number>>(new Set());
 
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -127,11 +150,15 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
       if (!el) return;
       if (e.target instanceof Node && !el.contains(e.target)) {
         setProfileOpen(false);
+        setIssueNoticeOpen(false);
       }
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setProfileOpen(false);
+      if (e.key === "Escape") {
+        setProfileOpen(false);
+        setIssueNoticeOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", onDown);
@@ -141,6 +168,47 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
       document.removeEventListener("keydown", onKey);
     };
   }, [profileOpen]);
+
+  const loadIssueNotifications = async () => {
+    if (!me) {
+      setIssueUnreadCount(0);
+      setIssueNotifications([]);
+      return;
+    }
+    setIssueLoading(true);
+    try {
+      const res = await apiGet<{
+        unreadCount: number;
+        items: IssueReplyNotification[];
+      }>("/analytics/content-issues/my-notifications", { limit: 20 });
+      setIssueUnreadCount(Number(res?.unreadCount ?? 0));
+      setIssueNotifications(Array.isArray(res?.items) ? res.items : []);
+      setDismissingIssueIds(new Set());
+    } catch {
+      setIssueUnreadCount(0);
+      setIssueNotifications([]);
+      setDismissingIssueIds(new Set());
+    } finally {
+      setIssueLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!me) {
+      setIssueUnreadCount(0);
+      setIssueNotifications([]);
+      setIssueNoticeOpen(false);
+      return;
+    }
+    void loadIssueNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id]);
+
+  useEffect(() => {
+    if (!profileOpen || !me) return;
+    void loadIssueNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileOpen, me?.id]);
 
   const openSearchOverlay = () => {
     setProfileOpen(false);
@@ -160,13 +228,33 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
 
   const go = (section: string) => {
     if (section === "home") return navigate("/");
-    if (section === "favorites") return navigate("/favorites");
-    if (section === "settings") return navigate("/settings");
+    if (section === "favorites") {
+      if (!me) {
+        openAuthModal("login");
+        return;
+      }
+      return navigate("/favorites");
+    }
+    if (section === "settings") {
+      navigate("/settings");
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      });
+      return;
+    }
     onNavigate?.(section);
   };
 
   const active = currentSection ?? activeSection;
   const displayName = (me?.nickname?.trim() || me?.username || "").trim();
+  const isAdmin = String(me?.role ?? "").toUpperCase() === "ADMIN";
+  const displayEmail = (() => {
+    const email = (me?.email ?? "").trim();
+    if (!email) return "이메일 미등록";
+    const at = email.indexOf("@");
+    if (at <= 0) return email;
+    return email.slice(0, at);
+  })();
 
   const onLogout = async () => {
     try {
@@ -176,10 +264,60 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
     } finally {
       localStorage.removeItem(AUTH_KEYS.ACCESS);
       localStorage.removeItem(AUTH_KEYS.USER);
-      dispatchAuthChanged();
       setProfileOpen(false);
-      navigate("/", { replace: true });
+      setIssueNoticeOpen(false);
+      reloadAfterAuth("/");
     }
+  };
+
+  const markIssueAsRead = async (id: number) => {
+    if (!Number.isFinite(id) || id <= 0) return;
+    try {
+      await apiPatch<{ ok: true }>(`/analytics/content-issues/my-notifications/${id}/read`, {});
+    } catch {
+      // ignore
+    }
+    await loadIssueNotifications();
+  };
+
+  const deleteIssueNotification = async (id: number) => {
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (dismissingIssueIds.has(id)) return;
+    const target = issueNotifications.find((x) => x.id === id);
+    if (!target) return;
+
+    setDismissingIssueIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    if (!target.isRead) {
+      setIssueUnreadCount((prev) => Math.max(0, prev - 1));
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 260));
+
+    try {
+      await apiDelete<{ ok: true }>(`/analytics/content-issues/my-notifications/${id}`);
+      setIssueNotifications((prev) => prev.filter((x) => x.id !== id));
+    } catch {
+      if (!target.isRead) {
+        setIssueUnreadCount((prev) => prev + 1);
+      }
+      setDismissingIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      await loadIssueNotifications();
+      return;
+    }
+    setDismissingIssueIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    void loadIssueNotifications();
   };
 
   const menuMotion = {
@@ -264,6 +402,18 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                     isActive={active === "favorites"}
                     onClick={() => go("favorites")}
                   />
+                  {isAdmin ? (
+                    <NavItem
+                      label="관리자 설정"
+                      isActive={location.pathname.startsWith("/admin/settings")}
+                      onClick={() => {
+                        navigate("/admin/settings");
+                        requestAnimationFrame(() => {
+                          window.scrollTo({ top: 0, behavior: "auto" });
+                        });
+                      }}
+                    />
+                  ) : null}
                 </motion.nav>
               ) : null}
             </AnimatePresence>
@@ -339,7 +489,7 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                 variant="ghost"
                 size="sm"
                 className="text-gray-300 hover:text-white hover:bg-white/10 gap-2 h-9 px-3 rounded-full"
-                onClick={() => navigate("/login")}
+                onClick={() => openAuthModal("login")}
               >
                 <User className="w-4 h-4" />
                 <span className="hidden md:inline font-bold">로그인</span>
@@ -370,19 +520,129 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                       className="absolute right-0 mt-3 w-[220px] rounded-2xl border border-white/10 bg-black/70 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] overflow-hidden"
                     >
                       <div className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
-                            <UserRound className="h-5 w-5 text-white/80" />
-                          </div>
-                          <div className="min-w-0">
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="text-sm font-bold text-white truncate">
                               {displayName}
                             </div>
-                            <div className="text-xs text-white/50 truncate">
-                              {me.username ?? "이메일 미등록"}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIssueNoticeOpen((v) => !v)}
+                              className="relative h-7 w-7 rounded-full bg-white/10 hover:bg-white/15 inline-flex items-center justify-center"
+                              aria-label="오류 제보 답변 알림"
+                              title="오류 제보 답변 알림"
+                            >
+                              <Bell className="h-4 w-4 text-white/85" />
+                              {issueUnreadCount > 0 ? (
+                                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500" />
+                              ) : null}
+                            </button>
+                          </div>
+                          <div className="mt-0.5 text-xs text-white/50 truncate">
+                            {displayEmail}
                           </div>
                         </div>
+
+                        <AnimatePresence initial={false}>
+                          {issueNoticeOpen ? (
+                            <motion.div
+                              initial={{ opacity: 0, y: -4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.15, ease: "easeOut" }}
+                              className="mt-3 rounded-xl bg-white/5 p-2"
+                            >
+                              <div className="px-1 pb-1 text-xs font-semibold text-white/80">
+                                답변 알림
+                              </div>
+                              {issueLoading ? (
+                                <div className="px-2 py-3 text-xs text-white/60">불러오는 중...</div>
+                              ) : issueNotifications.length === 0 ? (
+                                <div className="px-2 py-3 text-xs text-white/55">
+                                  새로운 답변이 없습니다.
+                                </div>
+                              ) : (
+                                <div className="max-h-[220px] overflow-y-auto space-y-1">
+                                  <AnimatePresence initial={false}>
+                                    {issueNotifications
+                                      .filter((item) => !dismissingIssueIds.has(item.id))
+                                      .map((item) => (
+                                    <motion.div
+                                      key={`issue-noti:${item.id}`}
+                                      layout
+                                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{
+                                        opacity: 0,
+                                        x: 64,
+                                        y: -2,
+                                        scale: 0.9,
+                                        rotate: 4,
+                                        filter: "blur(2px)",
+                                      }}
+                                      transition={{
+                                        layout: { type: "spring", stiffness: 480, damping: 34 },
+                                        default: { type: "spring", stiffness: 520, damping: 30, mass: 0.75 },
+                                      }}
+                                      className="rounded-lg bg-white/5 hover:bg-white/10 px-2 py-2"
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            await markIssueAsRead(item.id);
+                                            setIssueNoticeOpen(false);
+                                            setProfileOpen(false);
+                                            navigate(`/title/${item.mediaType}/${item.tmdbId}`, {
+                                              state: { backgroundLocation: location },
+                                            });
+                                          }}
+                                          className="min-w-0 text-left flex-1"
+                                        >
+                                          <div className="text-xs font-semibold text-white/90 truncate">
+                                            {item.contentTitle?.trim() ||
+                                              `${item.mediaType.toUpperCase()} #${item.tmdbId}`}
+                                          </div>
+                                          <div className="mt-0.5 text-[11px] text-white/65 line-clamp-2">
+                                            {item.adminReply}
+                                          </div>
+                                        </button>
+                                        <div className="flex items-center gap-1">
+                                          {!item.isRead ? (
+                                            <span className="h-2 w-2 rounded-full bg-rose-500 flex-shrink-0" />
+                                          ) : null}
+                                          <button
+                                            type="button"
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              await deleteIssueNotification(item.id);
+                                            }}
+                                            className="h-6 w-6 rounded-md bg-white/10 hover:bg-white/15 inline-flex items-center justify-center"
+                                            title="알림 삭제"
+                                            aria-label="알림 삭제"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5 text-white/75" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="mt-1 text-[10px] text-white/45">
+                                        {new Date(item.adminRepliedAt).toLocaleString("ko-KR", {
+                                          hour12: false,
+                                          year: "numeric",
+                                          month: "2-digit",
+                                          day: "2-digit",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </div>
+                                    </motion.div>
+                                  ))}
+                                  </AnimatePresence>
+                                </div>
+                              )}
+                            </motion.div>
+                          ) : null}
+                        </AnimatePresence>
 
                         <div className="mt-4 grid gap-2">
                           <AnimatePresence initial={false}>
@@ -407,6 +667,18 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                                     navigate("/favorites");
                                   }}
                                 />
+                                {isAdmin ? (
+                                  <MenuButton
+                                    label="관리자 설정"
+                                    onClick={() => {
+                                      setProfileOpen(false);
+                                      navigate("/admin/settings");
+                                      requestAnimationFrame(() => {
+                                        window.scrollTo({ top: 0, behavior: "auto" });
+                                      });
+                                    }}
+                                  />
+                                ) : null}
                               </motion.div>
                             ) : null}
                           </AnimatePresence>
@@ -419,6 +691,9 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                             onClick={() => {
                               setProfileOpen(false);
                               navigate("/settings");
+                              requestAnimationFrame(() => {
+                                window.scrollTo({ top: 0, behavior: "auto" });
+                              });
                             }}
                           />
                           <MenuButton

@@ -1,16 +1,22 @@
 // backend/src/home-charts/home-charts.controller.ts
-import { Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { HomeChartsService } from './home-charts.service';
 import type { HomeChartsResponse } from './home-charts.types';
 import { AdminTokenGuard } from '../common/guards/admin-token.guard';
+import { getViewerAccessFromAuthHeader } from '../common/viewer-access';
 
 @Controller('/home/charts')
 export class HomeChartsController {
   constructor(private readonly service: HomeChartsService) {}
 
+  private viewerIsAdmin(req: Request): boolean {
+    return getViewerAccessFromAuthHeader(req.headers?.authorization).isAdmin;
+  }
+
   @Get()
-  getCharts(): Promise<HomeChartsResponse> {
-    return this.service.getCharts();
+  getCharts(@Req() req: Request): Promise<HomeChartsResponse> {
+    return this.service.getCharts({ viewerIsAdmin: this.viewerIsAdmin(req) });
   }
 
   // ✅ 운영에서 공개되면 위험(무한 호출로 TMDB rate-limit)

@@ -74,6 +74,13 @@ function toPrismaJson(v: unknown): Prisma.InputJsonValue {
   return v as Prisma.InputJsonValue;
 }
 
+function isMissingColumnError(err: unknown): boolean {
+  const code = String((err as any)?.code ?? '').trim();
+  if (code === 'P2022') return true;
+  const msg = String((err as any)?.message ?? '').toLowerCase();
+  return msg.includes('does not exist') || msg.includes('unknown column');
+}
+
 function pickComputedObj(sourcesUsed: Record<string, unknown> | null) {
   if (!sourcesUsed) return null;
   const computed = sourcesUsed['computed'];
@@ -223,6 +230,107 @@ function extractKrTheatricalDatesYmd(payload: unknown): string[] {
   return Array.from(out).sort((a, b) => a.localeCompare(b));
 }
 
+type OverrideSnapshot = {
+  contentKind: string | null;
+  releaseStatus: string | null;
+  ageRating: string | null;
+  releaseYear: number | null;
+  contentInfoReleaseYear: number | null;
+  watchProviders: unknown;
+  statusKind: string | null;
+  unifiedYearLabel: string | null;
+  originalTheatricalDate: string | null;
+  rerunTheatricalDate: string | null;
+  hasMultipleTheatrical: boolean | null;
+  forceHidden: boolean | null;
+  title: string | null;
+  originalTitle: string | null;
+  overview: string | null;
+  runtime: number | null;
+  releaseDate: string | null;
+};
+
+function toOverrideSnapshot(row: any): OverrideSnapshot {
+  return {
+    contentKind: row?.contentKind ? String(row.contentKind) : null,
+    releaseStatus: row?.releaseStatus ? String(row.releaseStatus) : null,
+    ageRating: row?.ageRating ? String(row.ageRating) : null,
+    releaseYear:
+      typeof row?.releaseYear === 'number' ? Math.trunc(row.releaseYear) : null,
+    contentInfoReleaseYear:
+      typeof row?.contentInfoReleaseYear === 'number'
+        ? Math.trunc(row.contentInfoReleaseYear)
+        : null,
+    watchProviders: row?.watchProviders ?? null,
+    statusKind: row?.statusKind ? String(row.statusKind) : null,
+    unifiedYearLabel:
+      typeof row?.unifiedYearLabel === 'string' ? row.unifiedYearLabel : null,
+    originalTheatricalDate:
+      typeof row?.originalTheatricalDate === 'string'
+        ? row.originalTheatricalDate
+        : null,
+    rerunTheatricalDate:
+      typeof row?.rerunTheatricalDate === 'string' ? row.rerunTheatricalDate : null,
+    hasMultipleTheatrical:
+      typeof row?.hasMultipleTheatrical === 'boolean'
+        ? row.hasMultipleTheatrical
+        : null,
+    forceHidden: typeof row?.forceHidden === 'boolean' ? row.forceHidden : null,
+    title: typeof row?.overrideTitle === 'string' ? row.overrideTitle : null,
+    originalTitle:
+      typeof row?.overrideOriginalTitle === 'string'
+        ? row.overrideOriginalTitle
+        : null,
+    overview: typeof row?.overrideOverview === 'string' ? row.overrideOverview : null,
+    runtime:
+      typeof row?.overrideRuntime === 'number' ? Math.trunc(row.overrideRuntime) : null,
+    releaseDate:
+      typeof row?.overrideReleaseDate === 'string' ? row.overrideReleaseDate : null,
+  };
+}
+
+function equalJson(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+function diffOverrideSnapshot(
+  before: OverrideSnapshot | null,
+  after: OverrideSnapshot | null,
+): string[] {
+  const keys = [
+    'contentKind',
+    'releaseStatus',
+    'ageRating',
+    'releaseYear',
+    'contentInfoReleaseYear',
+    'watchProviders',
+    'statusKind',
+    'unifiedYearLabel',
+    'originalTheatricalDate',
+    'rerunTheatricalDate',
+    'hasMultipleTheatrical',
+    'forceHidden',
+    'title',
+    'originalTitle',
+    'overview',
+    'runtime',
+    'releaseDate',
+  ] as const;
+
+  const changed: string[] = [];
+  for (const key of keys) {
+    const a = before ? (before as any)[key] : null;
+    const b = after ? (after as any)[key] : null;
+    const isSame = key === 'watchProviders' ? equalJson(a, b) : a === b;
+    if (!isSame) changed.push(key);
+  }
+  return changed;
+}
+
 @Injectable()
 export class MetaService {
   private readonly logger = new Logger(MetaService.name);
@@ -294,14 +402,54 @@ export class MetaService {
   async resolveBatch(reqs: ResolveRequest[]): Promise<ResolvedMeta[]> {
     if (reqs.length === 0) return [];
 
-    const overrides = await this.prisma.contentMetaOverride.findMany({
-      where: {
-        OR: reqs.map((r) => ({
-          mediaType: dbMediaType(r.mediaType),
-          tmdbId: r.tmdbId,
-        })),
-      },
-    });
+    const overrideWhere = {
+      OR: reqs.map((r) => ({
+        mediaType: dbMediaType(r.mediaType),
+        tmdbId: r.tmdbId,
+      })),
+    } as const;
+
+    const overrideSelectBase = {
+      mediaType: true,
+      tmdbId: true,
+      contentKind: true,
+      releaseStatus: true,
+      ageRating: true,
+      releaseYear: true,
+      contentInfoReleaseYear: true,
+      watchProviders: true,
+      statusKind: true,
+      unifiedYearLabel: true,
+      originalTheatricalDate: true,
+      rerunTheatricalDate: true,
+      hasMultipleTheatrical: true,
+      overrideTitle: true,
+      overrideOriginalTitle: true,
+      overrideOverview: true,
+      overrideRuntime: true,
+      overrideReleaseDate: true,
+    } as const;
+
+    const overrides = await (async () => {
+      try {
+        return await this.prisma.contentMetaOverride.findMany({
+          where: overrideWhere,
+          select: {
+            ...overrideSelectBase,
+            forceHidden: true,
+          },
+        });
+      } catch (e) {
+        if (!isMissingColumnError(e)) throw e;
+        this.logger.warn(
+          '[meta] ContentMetaOverride.forceHidden column is missing. Running without forceHidden override.',
+        );
+        return await this.prisma.contentMetaOverride.findMany({
+          where: overrideWhere,
+          select: overrideSelectBase,
+        });
+      }
+    })();
 
     const overrideMap = new Map<string, (typeof overrides)[number]>();
     for (const o of overrides) overrideMap.set(`${o.mediaType}:${o.tmdbId}`, o);
@@ -389,6 +537,7 @@ export class MetaService {
           contentCardPosterPath: null,
 
           hidden: false,
+          adminHidden: false,
           seasons: null,
 
           heroSeasonYear: null,
@@ -397,6 +546,7 @@ export class MetaService {
           contentInfoReleaseYmd: null,
           contentInfoLatestReleaseYmd: null,
           contentInfoRerunYmd: null,
+          detailOverride: null,
 
           metaVersion: TARGET_META_VERSION,
           resolvedAt: isoNow(),
@@ -417,10 +567,15 @@ export class MetaService {
       const wpSafe = safeWatchProviders(mergedWatchProviders);
       const providersFlat = flattenProviders(wpSafe);
 
-      const mergedStatusKindDb = (o?.statusKind ?? base.statusKind) as
-        | DbStatusKind
-        | null
-        | undefined;
+      const mergedStatusKindDb = (() => {
+        if (o?.statusKind !== undefined && o?.statusKind !== null) {
+          return o.statusKind as DbStatusKind;
+        }
+        if (o?.releaseStatus !== undefined && o?.releaseStatus !== null) {
+          return statusKindFromReleaseStatus(mergedReleaseStatus);
+        }
+        return (base.statusKind ?? null) as DbStatusKind | null;
+      })();
 
       const statusKind = apiStatusKindFromDb(
         mergedStatusKindDb ?? statusKindFromReleaseStatus(mergedReleaseStatus),
@@ -428,6 +583,9 @@ export class MetaService {
 
       const mergedUnified =
         o?.unifiedYearLabel ??
+        (o?.releaseYear !== undefined && o?.releaseYear !== null
+          ? String(o.releaseYear)
+          : null) ??
         base.unifiedYearLabel ??
         (mergedReleaseYear ? String(mergedReleaseYear) : null);
 
@@ -440,21 +598,26 @@ export class MetaService {
         'contentCardPosterPath',
       );
 
-      const hidden = pickComputedBoolean(sourcesUsed, 'hidden');
+      const computedHidden = pickComputedBoolean(sourcesUsed, 'hidden');
+      const forceHidden = (o as { forceHidden?: boolean | null } | undefined)
+        ?.forceHidden;
+      const hidden =
+        typeof forceHidden === 'boolean' ? forceHidden : computedHidden;
+      const adminHidden = forceHidden === true;
       const seasons = pickComputedSeasons(sourcesUsed);
 
       const heroSeasonYear = pickComputedNumber(sourcesUsed, 'heroSeasonYear');
       const heroPosterPath = pickComputedString(sourcesUsed, 'heroPosterPath');
 
-      const contentInfoReleaseYear = pickComputedNumber(
+      const contentInfoReleaseYearBase = pickComputedNumber(
         sourcesUsed,
         'contentInfoReleaseYear',
       );
-      const contentInfoReleaseYmd = pickComputedString(
+      const contentInfoReleaseYmdBase = pickComputedString(
         sourcesUsed,
         'contentInfoReleaseYmd',
       );
-      const contentInfoLatestReleaseYmd = pickComputedString(
+      const contentInfoLatestReleaseYmdBase = pickComputedString(
         sourcesUsed,
         'contentInfoLatestReleaseYmd',
       );
@@ -462,8 +625,22 @@ export class MetaService {
         sourcesUsed,
         'contentInfoRerunYmd',
       );
+      const overrideReleaseDate = String(o?.overrideReleaseDate ?? '').trim();
+      const contentInfoReleaseYear =
+        o?.contentInfoReleaseYear ?? contentInfoReleaseYearBase ?? null;
+      const contentInfoReleaseYmd =
+        overrideReleaseDate || contentInfoReleaseYmdBase || null;
+      const contentInfoLatestReleaseYmd =
+        overrideReleaseDate || contentInfoLatestReleaseYmdBase || null;
 
       const computedTheatrical = pickComputedTheatrical(sourcesUsed);
+      const detailOverride = {
+        title: o?.overrideTitle ?? null,
+        originalTitle: o?.overrideOriginalTitle ?? null,
+        overview: o?.overrideOverview ?? null,
+        runtime: o?.overrideRuntime ?? null,
+        releaseDate: o?.overrideReleaseDate ?? null,
+      };
 
       const oAny = o as unknown as {
         originalTheatricalDate?: string | null;
@@ -473,6 +650,7 @@ export class MetaService {
 
       const theatrical: TheatricalInfo | null = (() => {
         const originalTheatricalDate =
+          (overrideReleaseDate || null) ??
           oAny?.originalTheatricalDate ??
           computedTheatrical?.originalTheatricalDate ??
           null;
@@ -520,6 +698,7 @@ export class MetaService {
         contentCardPosterPath: contentCardPosterPath ?? null,
 
         hidden,
+        adminHidden,
         seasons,
 
         heroSeasonYear,
@@ -529,6 +708,7 @@ export class MetaService {
         contentInfoReleaseYmd,
         contentInfoLatestReleaseYmd,
         contentInfoRerunYmd,
+        detailOverride,
 
         metaVersion: base.metaVersion ?? TARGET_META_VERSION,
         resolvedAt: base.resolvedAt.toISOString(),
@@ -536,6 +716,230 @@ export class MetaService {
         sourcesUsed,
       };
     });
+  }
+
+  private async getOverrideRow(args: {
+    mediaType: MediaType;
+    tmdbId: number;
+  }): Promise<any | null> {
+    const baseWhere = {
+      mediaType_tmdbId: {
+        mediaType: dbMediaType(args.mediaType),
+        tmdbId: args.tmdbId,
+      },
+    };
+
+    try {
+      return await this.prisma.contentMetaOverride.findUnique({
+        where: baseWhere,
+        select: {
+          contentKind: true,
+          releaseStatus: true,
+          ageRating: true,
+          releaseYear: true,
+          contentInfoReleaseYear: true,
+          watchProviders: true,
+          statusKind: true,
+          unifiedYearLabel: true,
+          originalTheatricalDate: true,
+          rerunTheatricalDate: true,
+          hasMultipleTheatrical: true,
+          forceHidden: true,
+          overrideTitle: true,
+          overrideOriginalTitle: true,
+          overrideOverview: true,
+          overrideRuntime: true,
+          overrideReleaseDate: true,
+        },
+      });
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+      return await this.prisma.contentMetaOverride.findUnique({
+        where: baseWhere,
+        select: {
+          contentKind: true,
+          releaseStatus: true,
+          ageRating: true,
+          releaseYear: true,
+          contentInfoReleaseYear: true,
+          watchProviders: true,
+          statusKind: true,
+          unifiedYearLabel: true,
+          originalTheatricalDate: true,
+          rerunTheatricalDate: true,
+          hasMultipleTheatrical: true,
+          overrideTitle: true,
+          overrideOriginalTitle: true,
+          overrideOverview: true,
+          overrideRuntime: true,
+          overrideReleaseDate: true,
+        },
+      });
+    }
+  }
+
+  private async appendOverrideHistory(args: {
+    mediaType: MediaType;
+    tmdbId: number;
+    action: string;
+    changedFields: string[];
+    beforeSnapshot: OverrideSnapshot | null;
+    afterSnapshot: OverrideSnapshot | null;
+    updatedBy?: string;
+  }): Promise<void> {
+    try {
+      await (this.prisma as any).contentMetaOverrideHistory.create({
+        data: {
+          mediaType: dbMediaType(args.mediaType),
+          tmdbId: args.tmdbId,
+          action: args.action,
+          changedFields: args.changedFields as Prisma.InputJsonValue,
+          beforeSnapshot: args.beforeSnapshot
+            ? (args.beforeSnapshot as Prisma.InputJsonValue)
+            : Prisma.DbNull,
+          afterSnapshot: args.afterSnapshot
+            ? (args.afterSnapshot as Prisma.InputJsonValue)
+            : Prisma.DbNull,
+          beforeTitle:
+            args.beforeSnapshot?.title ??
+            args.beforeSnapshot?.originalTitle ??
+            null,
+          afterTitle:
+            args.afterSnapshot?.title ??
+            args.afterSnapshot?.originalTitle ??
+            null,
+          createdBy: args.updatedBy ?? null,
+          createdAt: new Date(),
+        },
+      });
+    } catch {
+      // ignore when history table is not migrated yet
+    }
+  }
+
+  async listOverrideHistory(args?: {
+    limit?: number;
+    query?: string;
+    mediaType?: MediaType;
+    tmdbId?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      mediaType: MediaType;
+      tmdbId: number;
+      title: string | null;
+      action: string;
+      changedFields: string[];
+      beforeSnapshot: OverrideSnapshot | null;
+      afterSnapshot: OverrideSnapshot | null;
+      createdBy: string | null;
+      createdAt: string;
+    }>
+  > {
+    const limit = (() => {
+      const n = Number(args?.limit ?? 20);
+      if (!Number.isFinite(n) || n <= 0) return 20;
+      return Math.min(200, Math.trunc(n));
+    })();
+    const q = String(args?.query ?? '').trim();
+
+    try {
+      const rows = await (this.prisma as any).contentMetaOverrideHistory.findMany({
+        where: {
+          mediaType: args?.mediaType ? dbMediaType(args.mediaType) : undefined,
+          tmdbId:
+            typeof args?.tmdbId === 'number' && Number.isFinite(args.tmdbId)
+              ? Math.trunc(args.tmdbId)
+              : undefined,
+          OR: q
+            ? [
+                { beforeTitle: { contains: q, mode: 'insensitive' } },
+                { afterTitle: { contains: q, mode: 'insensitive' } },
+                Number.isFinite(Number(q))
+                  ? { tmdbId: Math.trunc(Number(q)) }
+                  : undefined,
+              ].filter(Boolean) as any
+            : undefined,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+
+      return rows.map((r: any) => ({
+        id: r.id,
+        mediaType: r.mediaType as MediaType,
+        tmdbId: r.tmdbId,
+        title: r.afterTitle ?? r.beforeTitle ?? null,
+        action: r.action,
+        changedFields: Array.isArray(r.changedFields)
+          ? r.changedFields.map((x: unknown) => String(x))
+          : [],
+        beforeSnapshot: (r.beforeSnapshot ?? null) as OverrideSnapshot | null,
+        afterSnapshot: (r.afterSnapshot ?? null) as OverrideSnapshot | null,
+        createdBy: r.createdBy ?? null,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async restoreOverrideFromHistory(args: {
+    mediaType: MediaType;
+    tmdbId: number;
+    historyId: string;
+    updatedBy?: string;
+  }): Promise<boolean> {
+    const historyId = String(args.historyId ?? '').trim();
+    if (!historyId) return false;
+
+    const row = await (this.prisma as any).contentMetaOverrideHistory.findFirst({
+      where: {
+        id: historyId,
+        mediaType: dbMediaType(args.mediaType),
+        tmdbId: args.tmdbId,
+      },
+    });
+    if (!row) return false;
+
+    const snapshot =
+      (row.afterSnapshot as OverrideSnapshot | null) ??
+      (row.beforeSnapshot as OverrideSnapshot | null);
+
+    if (!snapshot) {
+      await this.clearOverride({
+        mediaType: args.mediaType,
+        tmdbId: args.tmdbId,
+      });
+      return true;
+    }
+
+    await this.upsertOverride({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+      patch: {
+        contentKind: snapshot.contentKind ?? undefined,
+        releaseStatus: snapshot.releaseStatus ?? undefined,
+        ageRating: snapshot.ageRating ?? undefined,
+        releaseYear: snapshot.releaseYear,
+        contentInfoReleaseYear: snapshot.contentInfoReleaseYear,
+        watchProviders: snapshot.watchProviders,
+        statusKind: snapshot.statusKind ?? undefined,
+        unifiedYearLabel: snapshot.unifiedYearLabel,
+        originalTheatricalDate: snapshot.originalTheatricalDate,
+        rerunTheatricalDate: snapshot.rerunTheatricalDate,
+        hasMultipleTheatrical: snapshot.hasMultipleTheatrical,
+        forceHidden: snapshot.forceHidden,
+        title: snapshot.title,
+        originalTitle: snapshot.originalTitle,
+        overview: snapshot.overview,
+        runtime: snapshot.runtime,
+        releaseDate: snapshot.releaseDate,
+      },
+      updatedBy: args.updatedBy ?? 'admin-token:restore',
+    });
+
+    return true;
   }
 
   async upsertOverride(args: {
@@ -546,6 +950,7 @@ export class MetaService {
       releaseStatus?: string;
       ageRating?: string;
       releaseYear?: number | null;
+      contentInfoReleaseYear?: number | null;
       watchProviders?: unknown;
 
       statusKind?: string;
@@ -553,11 +958,23 @@ export class MetaService {
       originalTheatricalDate?: string | null;
       rerunTheatricalDate?: string | null;
       hasMultipleTheatrical?: boolean | null;
+      forceHidden?: boolean | null;
+      title?: string | null;
+      originalTitle?: string | null;
+      overview?: string | null;
+      runtime?: number | null;
+      releaseDate?: string | null;
 
       [key: string]: unknown;
     };
     updatedBy?: string;
   }): Promise<void> {
+    const beforeRow = await this.getOverrideRow({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+    });
+    const beforeSnapshot = beforeRow ? toOverrideSnapshot(beforeRow) : null;
+
     const dbMt = dbMediaType(args.mediaType);
 
     const contentKind = dbContentKindFromApi(args.patch.contentKind);
@@ -581,6 +998,9 @@ export class MetaService {
 
     if (Object.prototype.hasOwnProperty.call(args.patch, 'releaseYear'))
       updateData.releaseYear = args.patch.releaseYear;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'contentInfoReleaseYear'))
+      updateData.contentInfoReleaseYear = args.patch.contentInfoReleaseYear;
 
     if (Object.prototype.hasOwnProperty.call(args.patch, 'watchProviders')) {
       const wpPatch = args.patch.watchProviders;
@@ -606,6 +1026,24 @@ export class MetaService {
     )
       updateData.hasMultipleTheatrical = args.patch.hasMultipleTheatrical;
 
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'forceHidden'))
+      updateData.forceHidden = args.patch.forceHidden;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'title'))
+      updateData.overrideTitle = args.patch.title;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'originalTitle'))
+      updateData.overrideOriginalTitle = args.patch.originalTitle;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'overview'))
+      updateData.overrideOverview = args.patch.overview;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'runtime'))
+      updateData.overrideRuntime = args.patch.runtime;
+
+    if (Object.prototype.hasOwnProperty.call(args.patch, 'releaseDate'))
+      updateData.overrideReleaseDate = args.patch.releaseDate;
+
     const createData: Prisma.ContentMetaOverrideCreateInput = {
       mediaType: dbMt,
       tmdbId: args.tmdbId,
@@ -620,6 +1058,12 @@ export class MetaService {
         'releaseYear',
       )
         ? args.patch.releaseYear
+        : undefined,
+      contentInfoReleaseYear: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'contentInfoReleaseYear',
+      )
+        ? args.patch.contentInfoReleaseYear
         : undefined,
       statusKind: args.patch.statusKind !== undefined ? statusKind : undefined,
       unifiedYearLabel: Object.prototype.hasOwnProperty.call(
@@ -646,6 +1090,39 @@ export class MetaService {
       )
         ? (args.patch.hasMultipleTheatrical ?? undefined)
         : undefined,
+      forceHidden: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'forceHidden',
+      )
+        ? (args.patch.forceHidden ?? undefined)
+        : undefined,
+      overrideTitle: Object.prototype.hasOwnProperty.call(args.patch, 'title')
+        ? args.patch.title
+        : undefined,
+      overrideOriginalTitle: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'originalTitle',
+      )
+        ? args.patch.originalTitle
+        : undefined,
+      overrideOverview: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'overview',
+      )
+        ? args.patch.overview
+        : undefined,
+      overrideRuntime: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'runtime',
+      )
+        ? args.patch.runtime
+        : undefined,
+      overrideReleaseDate: Object.prototype.hasOwnProperty.call(
+        args.patch,
+        'releaseDate',
+      )
+        ? args.patch.releaseDate
+        : undefined,
       watchProviders: Object.prototype.hasOwnProperty.call(
         args.patch,
         'watchProviders',
@@ -656,10 +1133,99 @@ export class MetaService {
         : undefined,
     };
 
-    await this.prisma.contentMetaOverride.upsert({
-      where: { mediaType_tmdbId: { mediaType: dbMt, tmdbId: args.tmdbId } },
-      update: updateData,
-      create: createData,
+    try {
+      await this.prisma.contentMetaOverride.upsert({
+        where: { mediaType_tmdbId: { mediaType: dbMt, tmdbId: args.tmdbId } },
+        update: updateData,
+        create: createData,
+      });
+    } catch (e) {
+      if (
+        !isMissingColumnError(e) ||
+        !Object.prototype.hasOwnProperty.call(args.patch, 'forceHidden')
+      ) {
+        throw e;
+      }
+
+      this.logger.warn(
+        '[meta] forceHidden column is missing; saving override without forceHidden.',
+      );
+
+      const fallbackUpdate = {
+        ...updateData,
+        forceHidden: undefined,
+      } as Prisma.ContentMetaOverrideUpdateInput;
+
+      const fallbackCreate = {
+        ...createData,
+        forceHidden: undefined,
+      } as Prisma.ContentMetaOverrideCreateInput;
+
+      await this.prisma.contentMetaOverride.upsert({
+        where: { mediaType_tmdbId: { mediaType: dbMt, tmdbId: args.tmdbId } },
+        update: fallbackUpdate,
+        create: fallbackCreate,
+      });
+    }
+
+    const afterRow = await this.getOverrideRow({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+    });
+    const afterSnapshot = afterRow ? toOverrideSnapshot(afterRow) : null;
+    const changedFields = diffOverrideSnapshot(beforeSnapshot, afterSnapshot);
+    const action = beforeSnapshot ? 'update' : 'create';
+
+    // override 변경 직후 기존 resolved 캐시는 더 이상 신뢰할 수 없으므로 제거
+    await this.prisma.contentMetaResolved.deleteMany({
+      where: {
+        mediaType: dbMt,
+        tmdbId: args.tmdbId,
+      },
+    });
+
+    await this.appendOverrideHistory({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+      action,
+      changedFields,
+      beforeSnapshot,
+      afterSnapshot,
+      updatedBy: args.updatedBy,
+    });
+  }
+
+  async clearOverride(args: { mediaType: MediaType; tmdbId: number }) {
+    const beforeRow = await this.getOverrideRow({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+    });
+    const beforeSnapshot = beforeRow ? toOverrideSnapshot(beforeRow) : null;
+
+    const dbMt = dbMediaType(args.mediaType);
+    await this.prisma.contentMetaOverride.deleteMany({
+      where: {
+        mediaType: dbMt,
+        tmdbId: args.tmdbId,
+      },
+    });
+
+    // reset 이후엔 override 반영된 resolved가 남지 않도록 즉시 무효화
+    await this.prisma.contentMetaResolved.deleteMany({
+      where: {
+        mediaType: dbMt,
+        tmdbId: args.tmdbId,
+      },
+    });
+
+    await this.appendOverrideHistory({
+      mediaType: args.mediaType,
+      tmdbId: args.tmdbId,
+      action: 'reset',
+      changedFields: diffOverrideSnapshot(beforeSnapshot, null),
+      beforeSnapshot,
+      afterSnapshot: null,
+      updatedBy: 'admin-token',
     });
   }
 

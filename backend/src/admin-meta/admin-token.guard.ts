@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { IncomingHttpHeaders } from 'http';
+import { getViewerAccessFromAuthHeader } from '../common/viewer-access';
 
 type ReqLike = { headers: IncomingHttpHeaders };
 
@@ -31,7 +32,10 @@ export class AdminTokenGuard implements CanActivate {
     const token = typeof got === 'string' ? got.trim() : '';
 
     if (token && token === expected) return true;
+    if (getViewerAccessFromAuthHeader(req.headers['authorization']).isAdmin) {
+      return true;
+    }
 
-    throw new UnauthorizedException('Missing or invalid admin token');
+    throw new UnauthorizedException('Missing or invalid admin access');
   }
 }

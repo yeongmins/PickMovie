@@ -8,7 +8,11 @@ import {
   type JwtFromRequestFunction,
 } from 'passport-jwt';
 
-export type JwtAccessPayload = { sub: number; username: string };
+export type JwtAccessPayload = {
+  sub: number;
+  username: string;
+  role?: string;
+};
 
 @Injectable()
 export class JwtAccessStrategy extends PassportStrategy(

@@ -15,6 +15,9 @@ import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailAuthRequestDto } from './dto/email-auth-request.dto';
+import { EmailAuthCompleteDto } from './dto/email-auth-complete.dto';
+import { EmailChangeRequestDto } from './dto/email-change-request.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UsernameLookupDto } from './dto/username-lookup.dto';
@@ -32,7 +35,7 @@ type DeletePlaylistBody = { playlistId: number };
 type RenamePlaylistBody = { playlistId: number; name: string };
 type SetPlaylistItemsBody = { playlistId: number; items: FavoriteItem[] };
 type UpdateProfileBody = { nickname?: string; profileImageUrl?: string };
-type DeleteAccountBody = { password?: string; confirmText?: string };
+type DeleteAccountBody = { email?: string; confirmText?: string };
 type ForYouRequestBody = {
   limit?: number;
   region?: string;
@@ -41,6 +44,12 @@ type ForYouRequestBody = {
     genres?: string[];
     releaseYear?: string;
   };
+};
+type EmailAuthRequestResponse = {
+  ok: true;
+  directLogin?: boolean;
+  user?: unknown;
+  accessToken?: string;
 };
 
 @Controller('auth')
@@ -200,6 +209,43 @@ export class AuthController {
     };
   }
 
+  @Post('email-auth/request')
+  async requestEmailAuth(
+    @Body() dto: EmailAuthRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<EmailAuthRequestResponse> {
+    const direct = await this.auth.requestEmailAuth(dto.email, {
+      resend: !!dto.resend,
+    });
+    if (direct) {
+      this.setRefreshCookie(res, direct.refreshToken, direct.refreshExpiresAt);
+      return {
+        ok: true,
+        directLogin: true,
+        user: direct.user,
+        accessToken: direct.accessToken,
+      };
+    }
+    return { ok: true };
+  }
+
+  @Post('email-auth/complete')
+  async completeEmailAuth(
+    @Body() dto: EmailAuthCompleteDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const meta = this.getClientMeta(req);
+    const result = await this.auth.completeEmailAuth(dto.token, meta);
+    this.setRefreshCookie(res, result.refreshToken, result.refreshExpiresAt);
+
+    return {
+      user: result.user,
+      accessToken: result.accessToken,
+      isNewUser: !!result.isNewUser,
+    };
+  }
+
   @Post('refresh')
   async refresh(
     @Req() req: Request,
@@ -232,6 +278,30 @@ export class AuthController {
   async requestEmailVerification(@Body('email') email: string): Promise<ApiOk> {
     await this.auth.requestEmailVerification(email);
     return { ok: true };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('email-change/request')
+  async requestEmailChange(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() dto: EmailChangeRequestDto,
+  ): Promise<ApiOk> {
+    await this.auth.requestEmailChange(user.sub, dto.email);
+    return { ok: true };
+  }
+
+  @Get('email-change/verify')
+  async verifyEmailChangeByLink(
+    @Query('token') token: string,
+    @Res() res: Response,
+  ) {
+    const fe = this.frontendUrl();
+    try {
+      await this.auth.confirmEmailChange(token);
+      return res.redirect(302, `${fe}/settings?emailChange=success`);
+    } catch {
+      return res.redirect(302, `${fe}/settings?emailChange=error`);
+    }
   }
 
   @Get('email/verify')
@@ -334,9 +404,20 @@ export class AuthController {
     @Body() body: DeleteAccountBody,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const password = body?.password ?? '';
+    const email = body?.email ?? '';
     const confirmText = body?.confirmText ?? '';
-    await this.auth.deleteAccount(user.sub, { password, confirmText });
+    await this.auth.deleteAccount(user.sub, { email, confirmText });
+    this.clearRefreshCookie(res);
+    return { ok: true };
+  }
+
+  @UseGuards(JwtAccessGuard)
+  @Post('email-auth/cancel-signup')
+  async cancelEmailAuthSignup(
+    @CurrentUser() user: JwtAccessPayload,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ApiOk> {
+    await this.auth.cancelEmailAuthSignup(user.sub);
     this.clearRefreshCookie(res);
     return { ok: true };
   }

@@ -22,6 +22,7 @@ type SafeUser = {
   email: string | null;
   nickname: string | null;
   profileImageUrl: string | null;
+  role: string;
 };
 
 type LoginResult = {
@@ -29,6 +30,7 @@ type LoginResult = {
   accessToken: string;
   refreshToken: string;
   refreshExpiresAt: Date;
+  isNewUser?: boolean;
 };
 
 type RefreshResult = {
@@ -41,12 +43,27 @@ type RefreshResult = {
 type DailyCounter = { count: number; resetAt: number };
 const DAILY_LIMIT = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const EMAIL_AUTH_RESEND_LIMIT_PER_DAY = 5;
+const EMAIL_AUTH_RESEND_INTERVAL_MS = 5 * 60 * 1000;
+type EmailAuthResendCounter = {
+  dayKey: string;
+  count: number;
+  lastAt: number;
+};
+type EmailChangeTicket = {
+  userId: number;
+  newEmail: string;
+  expiresAt: number;
+  usedAt?: number;
+};
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   private readonly recoveryLimitMap = new Map<string, DailyCounter>();
+  private readonly emailAuthResendMap = new Map<string, EmailAuthResendCounter>();
+  private readonly emailChangeTokenMap = new Map<string, EmailChangeTicket>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,8 +104,8 @@ export class AuthService {
     return randomBytes(bytes).toString('base64url');
   }
 
-  private accessTokenFor(userId: number, username: string): string {
-    return this.jwt.sign({ sub: userId, username });
+  private accessTokenFor(userId: number, username: string, role?: string): string {
+    return this.jwt.sign({ sub: userId, username, role: role ?? 'USER' });
   }
 
   private refreshDays(): number {
@@ -108,12 +125,98 @@ export class AuthService {
     return Number.isFinite(n) && n > 0 ? n : 24;
   }
 
+  private emailAuthMinutes(): number {
+    const n = Number(
+      this.config.get<string>('EMAIL_AUTH_TTL_MINUTES') ?? '20',
+    );
+    return Number.isFinite(n) && n > 0 ? n : 20;
+  }
+
+  private emailChangeMinutes(): number {
+    const n = Number(
+      this.config.get<string>('EMAIL_CHANGE_TTL_MINUTES') ?? '30',
+    );
+    return Number.isFinite(n) && n > 0 ? n : 30;
+  }
+
+  private normalizeEmail(value: string): string {
+    return (value ?? '').trim().toLowerCase();
+  }
+
+  private validateNicknameFormat(nickname: string): void {
+    const v = (nickname ?? '').trim();
+    if (!v) return;
+
+    if (v.length < 2) {
+      throw new ConflictException('닉네임은 최소 2자 이상이어야 합니다.');
+    }
+    if (!/^[A-Za-z0-9가-힣]+$/.test(v)) {
+      throw new ConflictException(
+        '닉네임은 한글, 영문, 숫자만 사용할 수 있습니다.',
+      );
+    }
+    const hasHangul = /[가-힣]/.test(v);
+    const maxLen = hasHangul ? 10 : 15;
+    if (v.length > maxLen) {
+      throw new ConflictException(
+        '한글 닉네임은 최대 10자, 영문/숫자 닉네임은 최대 15자까지 가능합니다.',
+      );
+    }
+  }
+
+  private seoulDayKey(ts = Date.now()): string {
+    const d = new Date(ts);
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '00';
+    const day = parts.find((p) => p.type === 'day')?.value ?? '00';
+    return `${y}-${m}-${day}`;
+  }
+
+  private enforceEmailAuthResendLimit(email: string): void {
+    const now = Date.now();
+    const dayKey = this.seoulDayKey(now);
+    const key = email.toLowerCase();
+    const cur = this.emailAuthResendMap.get(key);
+    const state: EmailAuthResendCounter =
+      !cur || cur.dayKey !== dayKey
+        ? { dayKey, count: 0, lastAt: 0 }
+        : { ...cur };
+
+    if (state.count >= EMAIL_AUTH_RESEND_LIMIT_PER_DAY) {
+      throw new ConflictException(
+        '재전송은 하루 5회까지 가능합니다. 내일 다시 시도해주세요.',
+      );
+    }
+
+    if (state.count >= 1) {
+      const diff = now - state.lastAt;
+      if (diff < EMAIL_AUTH_RESEND_INTERVAL_MS) {
+        const remainMs = EMAIL_AUTH_RESEND_INTERVAL_MS - diff;
+        const remainMin = Math.ceil(remainMs / 60000);
+        throw new ConflictException(
+          `재전송은 5분 간격으로 가능합니다. 약 ${remainMin}분 후 다시 시도해주세요.`,
+        );
+      }
+    }
+
+    state.count += 1;
+    state.lastAt = now;
+    this.emailAuthResendMap.set(key, state);
+  }
+
   private safeUser(u: {
     id: number;
     username: string;
     email: string | null;
     nickname: string | null;
     profileImageUrl: string | null;
+    role?: string | null;
   }): SafeUser {
     return {
       id: u.id,
@@ -121,6 +224,7 @@ export class AuthService {
       email: u.email,
       nickname: u.nickname,
       profileImageUrl: u.profileImageUrl,
+      role: String(u.role ?? 'USER'),
     };
   }
 
@@ -177,6 +281,10 @@ export class AuthService {
   async isNicknameAvailable(value: string): Promise<boolean> {
     const v = (value ?? '').trim();
     if (!v) return false;
+    if (v.length < 2) return false;
+    if (!/^[A-Za-z0-9가-힣]+$/.test(v)) return false;
+    const hasHangul = /[가-힣]/.test(v);
+    if (v.length > (hasHangul ? 10 : 15)) return false;
 
     const exists = await this.prisma.user.findFirst({
       where: { OR: [{ username: v }, { nickname: v }] },
@@ -205,6 +313,77 @@ export class AuthService {
     return rawToken;
   }
 
+  private async issueEmailAuthToken(
+    email: string,
+    userId?: number,
+  ): Promise<string> {
+    const rawToken = this.newOpaqueToken(48);
+    const tokenHash = this.sha256(rawToken);
+    const expiresAt = new Date(Date.now() + this.emailAuthMinutes() * 60_000);
+
+    await this.prisma.emailAuthToken.deleteMany({
+      where: { email, usedAt: null },
+    });
+
+    await this.prisma.emailAuthToken.create({
+      data: {
+        email,
+        userId: userId ?? null,
+        tokenHash,
+        expiresAt,
+      },
+      select: { id: true },
+    });
+
+    return rawToken;
+  }
+
+  private async makeUniqueUsernameByEmail(
+    tx: { user: PrismaService['user'] },
+    email: string,
+  ): Promise<string> {
+    const localRaw = email.split('@')[0] ?? 'user';
+    const base = localRaw
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+      .slice(0, 12);
+
+    const prefix = (base.length >= 3 ? base : 'user').slice(0, 12);
+
+    for (let i = 0; i < 20; i += 1) {
+      const suffix = randomBytes(3).toString('hex');
+      const cand = `${prefix}_${suffix}`.slice(0, 20);
+      const exists = await tx.user.findUnique({
+        where: { username: cand },
+        select: { id: true },
+      });
+      if (!exists) return cand;
+    }
+
+    throw new ConflictException('계정 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
+  }
+
+  private async makeUniqueUnknownNickname(
+    tx: { user: PrismaService['user'] },
+    excludeUserId?: number,
+  ): Promise<string> {
+    const base = 'Unknown';
+
+    for (let i = 0; i < 5000; i += 1) {
+      const cand = i === 0 ? base : `${base}${i + 1}`;
+      const exists = await tx.user.findFirst({
+        where: {
+          ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+          OR: [{ username: cand }, { nickname: cand }],
+        },
+        select: { id: true },
+      });
+      if (!exists) return cand;
+    }
+
+    throw new ConflictException('닉네임 자동 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
+  }
+
   async signup(input: {
     username: string;
     password: string;
@@ -227,6 +406,7 @@ export class AuthService {
     }
 
     if (nickname) {
+      this.validateNicknameFormat(nickname);
       const nickExists = await this.prisma.user.findFirst({
         where: { nickname },
         select: { id: true },
@@ -254,6 +434,7 @@ export class AuthService {
         email: true,
         nickname: true,
         profileImageUrl: true,
+        role: true,
       },
     });
 
@@ -300,6 +481,7 @@ export class AuthService {
         email: true,
         nickname: true,
         profileImageUrl: true,
+        role: true,
         passwordHash: true,
         emailVerifiedAt: true,
       },
@@ -322,7 +504,7 @@ export class AuthService {
       throw new ForbiddenException('이메일 인증이 필요합니다.');
     }
 
-    const accessToken = this.accessTokenFor(user.id, user.username);
+    const accessToken = this.accessTokenFor(user.id, user.username, user.role);
     const { refreshToken, expiresAt } = await this.issueRefreshToken(
       user.id,
       meta,
@@ -371,7 +553,7 @@ export class AuthService {
 
     const current = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
-      include: { user: { select: { id: true, username: true } } },
+      include: { user: { select: { id: true, username: true, role: true } } },
     });
 
     if (!current) throw new UnauthorizedException('유효하지 않은 토큰입니다.');
@@ -412,10 +594,11 @@ export class AuthService {
         expiresAt: created.expiresAt,
         userId: current.userId,
         username: current.user.username,
+        role: current.user.role,
       };
     });
 
-    const accessToken = this.accessTokenFor(next.userId, next.username);
+    const accessToken = this.accessTokenFor(next.userId, next.username, next.role);
     return {
       accessToken,
       refreshToken: next.raw,
@@ -473,6 +656,267 @@ export class AuthService {
         );
       }
     }
+  }
+
+  async requestEmailChange(userId: number, nextEmail: string): Promise<void> {
+    const newEmail = this.normalizeEmail(nextEmail);
+    if (!newEmail) throw new ConflictException('변경할 이메일을 입력해주세요.');
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, email: true },
+    });
+    if (!user) throw new UnauthorizedException();
+
+    const currentEmail = this.normalizeEmail(user.email ?? '');
+    if (currentEmail && currentEmail === newEmail) {
+      throw new ConflictException('현재 이메일과 동일합니다.');
+    }
+
+    const exists = await this.prisma.user.findUnique({
+      where: { email: newEmail },
+      select: { id: true },
+    });
+    if (exists) {
+      throw new ConflictException('이미 사용 중인 이메일입니다.');
+    }
+
+    for (const [k, v] of this.emailChangeTokenMap.entries()) {
+      if (v.userId === userId && !v.usedAt) this.emailChangeTokenMap.delete(k);
+    }
+
+    const rawToken = this.newOpaqueToken(48);
+    const tokenHash = this.sha256(rawToken);
+    const expiresAt = Date.now() + this.emailChangeMinutes() * 60_000;
+    this.emailChangeTokenMap.set(tokenHash, { userId, newEmail, expiresAt });
+
+    const verifyUrl = `${this.backendUrl()}/auth/email-change/verify?token=${encodeURIComponent(rawToken)}`;
+
+    try {
+      await this.mailer.sendEmailChangeVerify(newEmail, verifyUrl);
+    } catch (err: unknown) {
+      this.logger.error('requestEmailChange send failed', this.errToString(err));
+
+      if ((process.env.NODE_ENV ?? 'development') !== 'production') {
+        this.logger.warn(
+          `[DEV] Email change link for user=${userId}, email=${newEmail}: ${verifyUrl}`,
+        );
+      }
+
+      if (this.mailRequired()) {
+        throw new ServiceUnavailableException(
+          '이메일 발송 설정이 올바르지 않습니다. 서버 MAIL 설정을 확인해주세요.',
+        );
+      }
+    }
+  }
+
+  async confirmEmailChange(token: string): Promise<void> {
+    const raw = (token ?? '').trim();
+    if (!raw) throw new ForbiddenException('유효하지 않은 토큰입니다.');
+
+    const tokenHash = this.sha256(raw);
+    const ticket = this.emailChangeTokenMap.get(tokenHash);
+    if (!ticket) throw new ForbiddenException('유효하지 않은 토큰입니다.');
+    if (ticket.usedAt) throw new ForbiddenException('이미 사용된 토큰입니다.');
+    if (ticket.expiresAt <= Date.now()) {
+      this.emailChangeTokenMap.delete(tokenHash);
+      throw new ForbiddenException('만료된 토큰입니다.');
+    }
+
+    const exists = await this.prisma.user.findUnique({
+      where: { email: ticket.newEmail },
+      select: { id: true },
+    });
+    if (exists && exists.id !== ticket.userId) {
+      throw new ConflictException('이미 사용 중인 이메일입니다.');
+    }
+
+    await this.prisma.user.update({
+      where: { id: ticket.userId },
+      data: {
+        email: ticket.newEmail,
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    this.emailChangeTokenMap.set(tokenHash, {
+      ...ticket,
+      usedAt: Date.now(),
+    });
+  }
+
+  async requestEmailAuth(
+    email: string,
+    opts?: { resend?: boolean },
+  ): Promise<LoginResult | null> {
+    const normalized = this.normalizeEmail(email);
+    if (!normalized) return null;
+    if (opts?.resend) this.enforceEmailAuthResendLimit(normalized);
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalized },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        nickname: true,
+        profileImageUrl: true,
+        role: true,
+        emailVerifiedAt: true,
+      },
+    });
+
+    // 관리자 계정은 링크 발송 없이 즉시 로그인 허용
+    if (existing && String(existing.role ?? '').toUpperCase() === 'ADMIN') {
+      const accessToken = this.accessTokenFor(
+        existing.id,
+        existing.username,
+        existing.role,
+      );
+      const { refreshToken, expiresAt } = await this.issueRefreshToken(
+        existing.id,
+        {},
+      );
+
+      return {
+        user: this.safeUser(existing),
+        accessToken,
+        refreshToken,
+        refreshExpiresAt: expiresAt,
+      };
+    }
+
+    const raw = await this.issueEmailAuthToken(normalized, existing?.id);
+    const authUrl = `${this.frontendUrl()}/email-auth?token=${encodeURIComponent(raw)}`;
+
+    try {
+      await this.mailer.sendEmailAuthLink(
+        normalized,
+        authUrl,
+        existing?.id ? 'login' : 'signup',
+      );
+    } catch (err: unknown) {
+      this.logger.error('requestEmailAuth send failed', this.errToString(err));
+
+      if ((process.env.NODE_ENV ?? 'development') !== 'production') {
+        this.logger.warn(
+          `[DEV] Email auth link for ${normalized}: ${authUrl}`,
+        );
+      }
+
+      if (this.mailRequired()) {
+        throw new ServiceUnavailableException(
+          '이메일 발송 설정이 올바르지 않습니다. 서버 MAIL 설정을 확인해주세요.',
+        );
+      }
+    }
+    return null;
+  }
+
+  async completeEmailAuth(
+    token: string,
+    meta: { ip?: string; userAgent?: string },
+  ): Promise<LoginResult> {
+    const raw = (token ?? '').trim();
+    if (!raw) throw new ForbiddenException('유효하지 않은 토큰입니다.');
+
+    const tokenHash = this.sha256(raw);
+
+    const sessionUser = await this.prisma.$transaction(async (tx) => {
+      const record = await tx.emailAuthToken.findUnique({
+        where: { tokenHash },
+      });
+
+      if (!record) throw new ForbiddenException('유효하지 않은 토큰입니다.');
+      if (record.usedAt) throw new ForbiddenException('이미 사용된 토큰입니다.');
+      if (record.expiresAt.getTime() <= Date.now()) {
+        throw new ForbiddenException('만료된 토큰입니다.');
+      }
+
+      await tx.emailAuthToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      });
+
+      const email = this.normalizeEmail(record.email);
+      let isNewUser = false;
+
+      let user = await tx.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          nickname: true,
+          profileImageUrl: true,
+          role: true,
+          emailVerifiedAt: true,
+        },
+      });
+
+      if (!user) {
+        const username = await this.makeUniqueUsernameByEmail(tx, email);
+        const passwordHash = await argon2.hash(this.newOpaqueToken(32), {
+          type: argon2.argon2id,
+        });
+
+        user = await tx.user.create({
+          data: {
+            username,
+            email,
+            nickname: null,
+            profileImageUrl: null,
+            passwordHash,
+            emailVerifiedAt: new Date(),
+          },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            nickname: true,
+            profileImageUrl: true,
+            role: true,
+            emailVerifiedAt: true,
+          },
+        });
+        isNewUser = true;
+      } else if (!user.emailVerifiedAt) {
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: { emailVerifiedAt: new Date() },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            nickname: true,
+            profileImageUrl: true,
+            role: true,
+            emailVerifiedAt: true,
+          },
+        });
+      }
+
+      return { user, isNewUser };
+    });
+
+    const accessToken = this.accessTokenFor(
+      sessionUser.user.id,
+      sessionUser.user.username,
+      sessionUser.user.role,
+    );
+    const { refreshToken, expiresAt } = await this.issueRefreshToken(
+      sessionUser.user.id,
+      meta,
+    );
+
+    return {
+      user: this.safeUser(sessionUser.user),
+      accessToken,
+      refreshToken,
+      refreshExpiresAt: expiresAt,
+      isNewUser: sessionUser.isNewUser,
+    };
   }
 
   async verifyEmail(token: string): Promise<void> {
@@ -631,6 +1075,7 @@ export class AuthService {
         email: true,
         nickname: true,
         profileImageUrl: true,
+        role: true,
       },
     });
     if (!user) throw new UnauthorizedException();
@@ -671,12 +1116,12 @@ export class AuthService {
     input: { nickname?: string; profileImageUrl?: string },
   ): Promise<SafeUser> {
     const nicknameRaw = (input.nickname ?? '').trim();
-    const nickname = nicknameRaw ? nicknameRaw : null;
+    const nickname = nicknameRaw
+      ? nicknameRaw
+      : await this.makeUniqueUnknownNickname({ user: this.prisma.user }, userId);
     const profileImageUrl = this.parseProfileImageUrl(input.profileImageUrl);
 
-    if (nickname && nickname.length > 20) {
-      throw new ConflictException('닉네임은 최대 20자까지 가능합니다.');
-    }
+    if (nickname) this.validateNicknameFormat(nickname);
 
     if (nickname) {
       const existing = await this.prisma.user.findFirst({
@@ -703,6 +1148,7 @@ export class AuthService {
         email: true,
         nickname: true,
         profileImageUrl: true,
+        role: true,
       },
     });
 
@@ -778,22 +1224,45 @@ export class AuthService {
 
   async deleteAccount(
     userId: number,
-    input: { password: string; confirmText: string },
+    input: { email: string; confirmText: string },
   ): Promise<void> {
     const confirmText = (input.confirmText ?? '').trim();
-    if (confirmText !== '회원탈퇴') {
+    if (confirmText !== '계정 탈퇴') {
       throw new ConflictException('확인 문구를 정확히 입력해주세요.');
+    }
+
+    const inputEmail = this.normalizeEmail(input.email ?? '');
+    if (!inputEmail) {
+      throw new ConflictException('가입한 이메일을 입력해주세요.');
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, passwordHash: true },
+      select: { id: true, email: true },
     });
     if (!user) throw new UnauthorizedException();
 
-    const ok = await argon2.verify(user.passwordHash, input.password ?? '');
-    if (!ok) {
-      throw new UnauthorizedException('비밀번호가 올바르지 않습니다.');
+    const userEmail = this.normalizeEmail(user.email ?? '');
+    if (!userEmail) {
+      throw new ConflictException('이 계정은 이메일 정보가 없습니다.');
+    }
+    if (userEmail !== inputEmail) {
+      throw new UnauthorizedException('이메일이 일치하지 않습니다.');
+    }
+
+    await this.prisma.user.delete({ where: { id: userId } });
+  }
+
+  async cancelEmailAuthSignup(userId: number): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, nickname: true },
+    });
+    if (!user) return;
+
+    const hasNickname = !!String(user.nickname ?? '').trim();
+    if (hasNickname) {
+      throw new ConflictException('이미 가입이 완료된 계정입니다.');
     }
 
     await this.prisma.user.delete({ where: { id: userId } });

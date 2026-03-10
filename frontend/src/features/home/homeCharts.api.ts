@@ -47,6 +47,8 @@ export type ResolvedMeta = {
   releaseYear: number | null;
 
   watchProviders: unknown | null;
+  hidden?: boolean;
+  adminHidden?: boolean;
 
   metaVersion: number;
   resolvedAt: string;

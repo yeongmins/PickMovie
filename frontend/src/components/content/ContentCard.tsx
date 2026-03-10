@@ -81,6 +81,8 @@ function typeTextFromMeta(meta: ResolvedMeta | null) {
 function mediaTypeFromItemStrict(item: any): "movie" | "tv" | null {
   const mt = String(item?.media_type ?? "").toLowerCase();
   if (mt === "movie" || mt === "tv") return mt;
+  const mt2 = String(item?.mediaType ?? "").toLowerCase();
+  if (mt2 === "movie" || mt2 === "tv") return mt2 as "movie" | "tv";
   return null;
 }
 
@@ -95,13 +97,14 @@ export function ContentCard({
   className,
   canFavorite,
   showRecommendReason = false,
+  ignoreAdminHidden = false,
 }: ContentCardProps) {
   const { ref: cardRef, inView } = useInViewOnce<HTMLDivElement>({
     rootMargin: "300px",
     threshold: 0.01,
   });
 
-  const title = getDisplayTitle(item);
+  const baseTitle = getDisplayTitle(item);
   const rating =
     typeof item.vote_average === "number" ? item.vote_average.toFixed(1) : "—";
 
@@ -137,6 +140,12 @@ export function ContentCard({
   }, [inView, mediaType, item.id]);
 
   const typeText = useMemo(() => typeTextFromMeta(meta), [meta]);
+
+  const title = useMemo(() => {
+    const overrideTitle = String(meta?.detailOverride?.title ?? "").trim();
+    if (overrideTitle) return overrideTitle;
+    return baseTitle;
+  }, [meta?.detailOverride?.title, baseTitle]);
 
   const providers = meta?.providers ?? [];
 
@@ -201,6 +210,9 @@ export function ContentCard({
 
   const canFav =
     typeof canFavorite === "boolean" ? canFavorite : isLoggedInFallback();
+  const shouldHideCard = !!meta?.adminHidden && !ignoreAdminHidden;
+
+  if (shouldHideCard) return null;
 
   return (
     <div
@@ -211,10 +223,10 @@ export function ContentCard({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick();
       }}
-      className={`group cursor-pointer select-none ${className ?? ""} w-[200px]`}
+      className={`group cursor-pointer select-none w-[200px] ${className ?? ""}`}
       aria-label={`${title} 상세 보기`}
     >
-      <div className="relative w-[200px] h-[300px] overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
+      <div className="relative w-full aspect-[2/3] overflow-hidden rounded-[5px] bg-white/5 shadow-lg">
         {posterUrl ? (
           <img
             src={posterUrl}

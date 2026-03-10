@@ -11,6 +11,7 @@ import {
 import type { Request } from 'express';
 import { TmdbService, type TmdbQuery } from './tmdb.service';
 import { ScreeningService } from './screening.service';
+import { getViewerAccessFromAuthHeader } from '../common/viewer-access';
 
 type RawQuery = Record<string, string | string[] | undefined>;
 
@@ -30,6 +31,10 @@ export class TmdbController {
     private readonly screening: ScreeningService,
   ) {}
 
+  private viewerIsAdmin(req: Request): boolean {
+    return getViewerAccessFromAuthHeader(req.headers?.authorization).isAdmin;
+  }
+
   @Get('screening/sets')
   screeningSets(
     @Query('region') region?: string,
@@ -43,6 +48,7 @@ export class TmdbController {
 
   @Get('meta/:type/:id')
   meta(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query('region') region?: string,
@@ -51,11 +57,12 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.getMeta(type, id, region, language);
+    return this.tmdb.getMeta(type, id, region, language, this.viewerIsAdmin(req));
   }
 
   @Get('images/:type/:id')
   getImages(
+    @Req() _req: Request,
     @Param('type') type: 'movie' | 'tv',
     @Param('id') id: string,
     @Query('language') language?: string,
@@ -64,6 +71,7 @@ export class TmdbController {
   }
   @Get('videos/:type/:id')
   videos(
+    @Req() _req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query('language') language?: string,
@@ -76,6 +84,7 @@ export class TmdbController {
 
   @Get('watch/providers/:type/:id')
   legacyWatchProviders(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query() raw: RawQuery,
@@ -83,11 +92,16 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+    return this.tmdb.proxy(
+      `${type}/${id}/watch/providers`,
+      toTmdbQuery(raw),
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get('providers/:type/:id')
   legacyProviders(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query() raw: RawQuery,
@@ -95,11 +109,16 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+    return this.tmdb.proxy(
+      `${type}/${id}/watch/providers`,
+      toTmdbQuery(raw),
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get('watch/:type/:id')
   legacyWatch(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query() raw: RawQuery,
@@ -107,11 +126,16 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.proxy(`${type}/${id}/watch/providers`, toTmdbQuery(raw));
+    return this.tmdb.proxy(
+      `${type}/${id}/watch/providers`,
+      toTmdbQuery(raw),
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get('reviews/:type/:id')
   legacyReviews(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query() raw: RawQuery,
@@ -119,11 +143,16 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.proxy(`${type}/${id}/reviews`, toTmdbQuery(raw));
+    return this.tmdb.proxy(
+      `${type}/${id}/reviews`,
+      toTmdbQuery(raw),
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get(':type/:id/reviews')
   legacyTypeReviews(
+    @Req() req: Request,
     @Param('type') type: string,
     @Param('id', ParseIntPipe) id: number,
     @Query() raw: RawQuery,
@@ -131,7 +160,11 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.proxy(`${type}/${id}/reviews`, toTmdbQuery(raw));
+    return this.tmdb.proxy(
+      `${type}/${id}/reviews`,
+      toTmdbQuery(raw),
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get('proxy/*path')
@@ -153,6 +186,6 @@ export class TmdbController {
     }
 
     if (!path) throw new BadRequestException('Invalid proxy path');
-    return this.tmdb.proxy(path, toTmdbQuery(raw));
+    return this.tmdb.proxy(path, toTmdbQuery(raw), this.viewerIsAdmin(req));
   }
 }

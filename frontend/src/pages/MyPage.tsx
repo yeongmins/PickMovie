@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  KeyRound,
+  Check,
   Laptop,
   LogOut,
   Mail,
@@ -13,7 +13,7 @@ import {
 import { apiGet, apiPost, ApiError } from "../lib/apiClient";
 import { Header } from "../components/layout/Header";
 import { Button } from "../components/ui/button";
-import { AUTH_KEYS, dispatchAuthChanged } from "../lib/auth";
+import { AUTH_KEYS, dispatchAuthChanged, openAuthModal, reloadAfterAuth } from "../lib/auth";
 import { PageFooter } from "../components/layout/Footer";
 
 type SafeUser = {
@@ -67,8 +67,24 @@ function parseDeviceLabel(userAgent: string | null): string {
   return "기타 기기";
 }
 
+function validateNicknameInput(value: string): string | null {
+  const v = value.trim();
+  if (!v) return "닉네임을 입력해주세요.";
+  if (v.length < 2) return "닉네임은 최소 2자 이상이어야 합니다.";
+  if (!/^[A-Za-z0-9가-힣]+$/.test(v)) {
+    return "닉네임은 한글, 영문, 숫자만 사용할 수 있습니다.";
+  }
+  const hasHangul = /[가-힣]/.test(v);
+  const maxLen = hasHangul ? 10 : 15;
+  if (v.length > maxLen) {
+    return "한글 닉네임은 최대 10자, 영문/숫자 닉네임은 최대 15자까지 가능합니다.";
+  }
+  return null;
+}
+
 export function MyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [me, setMe] = useState<SafeUser | null>(() => readStoredUser());
   const [nickname, setNickname] = useState("");
@@ -81,6 +97,11 @@ export function MyPage() {
   const [nickCheckLoading, setNickCheckLoading] = useState(false);
   const [nickCheckedValue, setNickCheckedValue] = useState<string | null>(null);
   const [nickCheckMessage, setNickCheckMessage] = useState<string | null>(null);
+  const [emailEditing, setEmailEditing] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailChangeMessage, setEmailChangeMessage] = useState<string | null>(null);
+  const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -90,9 +111,10 @@ export function MyPage() {
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteEmail, setDeleteEmail] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [skipLoginModalOnRedirect, setSkipLoginModalOnRedirect] = useState(false);
 
   const displayName = useMemo(() => {
     const u = me;
@@ -112,7 +134,15 @@ export function MyPage() {
 
   useEffect(() => {
     if (!me) {
-      navigate("/login", { replace: true });
+      navigate("/", { replace: true });
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      });
+      if (!skipLoginModalOnRedirect) {
+        openAuthModal("login");
+      } else {
+        setSkipLoginModalOnRedirect(false);
+      }
       return;
     }
 
@@ -121,7 +151,31 @@ export function MyPage() {
     setNicknameEditing(false);
     setNickCheckedValue(null);
     setNickCheckMessage(null);
-  }, [me, navigate]);
+    setEmailDraft(me.email ?? "");
+  }, [me, navigate, skipLoginModalOnRedirect]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const status = String(params.get("emailChange") ?? "");
+    if (!status) return;
+
+    if (status === "success") {
+      setEmailChangeMessage("이메일 주소가 변경되었습니다.");
+      setEmailChangeError(null);
+    } else {
+      setEmailChangeError("이메일 변경 링크가 유효하지 않거나 만료되었습니다.");
+    }
+
+    params.delete("emailChange");
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : "",
+        hash: location.hash,
+      },
+      { replace: true, state: location.state },
+    );
+  }, [location.hash, location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
     let alive = true;
@@ -201,16 +255,10 @@ export function MyPage() {
   const onCheckNickname = async () => {
     if (!me) return;
     const trimmed = nicknameDraft.trim();
-
-    if (!trimmed) {
+    const inputError = validateNicknameInput(trimmed);
+    if (inputError) {
       setNickCheckedValue(null);
-      setNickCheckMessage("닉네임을 입력해주세요.");
-      return;
-    }
-
-    if (trimmed.length > 20) {
-      setNickCheckedValue(null);
-      setNickCheckMessage("닉네임은 최대 20자까지 가능합니다.");
+      setNickCheckMessage(inputError);
       return;
     }
 
@@ -249,8 +297,9 @@ export function MyPage() {
   const onApplyNickname = async () => {
     if (profileSaving) return;
     const trimmed = nicknameDraft.trim();
-    if (!trimmed) {
-      setNickCheckMessage("닉네임을 입력해주세요.");
+    const inputError = validateNicknameInput(trimmed);
+    if (inputError) {
+      setNickCheckMessage(inputError);
       return;
     }
 
@@ -289,9 +338,32 @@ export function MyPage() {
     } finally {
       localStorage.removeItem(AUTH_KEYS.ACCESS);
       localStorage.removeItem(AUTH_KEYS.USER);
-      dispatchAuthChanged();
-      navigate("/login", { replace: true });
+      reloadAfterAuth("/");
       setLogoutAllLoading(false);
+    }
+  };
+
+  const onRequestEmailChange = async () => {
+    if (emailSending) return;
+    const nextEmail = emailDraft.trim().toLowerCase();
+    if (!nextEmail) {
+      setEmailChangeError("변경할 이메일을 입력해주세요.");
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailChangeError(null);
+    setEmailChangeMessage(null);
+    try {
+      await apiPost("/auth/email-change/request", { email: nextEmail });
+      setEmailEditing(false);
+      setEmailChangeMessage("메일이 전송되었습니다. 받은 편지함을 확인하세요.");
+    } catch (err) {
+      const msg =
+        err instanceof ApiError ? err.message : "이메일 변경 메일 전송에 실패했습니다.";
+      setEmailChangeError(msg);
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -301,14 +373,17 @@ export function MyPage() {
 
     try {
       await apiPost("/auth/account/delete", {
-        password: deletePassword,
+        email: deleteEmail,
         confirmText: deleteConfirmText,
       });
 
       localStorage.removeItem(AUTH_KEYS.ACCESS);
       localStorage.removeItem(AUTH_KEYS.USER);
-      dispatchAuthChanged();
-      navigate("/", { replace: true });
+      setSkipLoginModalOnRedirect(true);
+      setDeleteOpen(false);
+      setDeleteConfirmText("");
+      setDeleteEmail("");
+      reloadAfterAuth("/");
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "계정 탈퇴에 실패했습니다.";
       setDeleteError(msg);
@@ -383,7 +458,7 @@ export function MyPage() {
                                   setNickCheckedValue(null);
                                   setNickCheckMessage(null);
                                 }}
-                                maxLength={20}
+                                maxLength={15}
                                 placeholder="닉네임을 입력하세요"
                                 className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-purple-400/50"
                               />
@@ -391,7 +466,7 @@ export function MyPage() {
                                 type="button"
                                 onClick={onCheckNickname}
                                 disabled={nickCheckLoading || profileSaving}
-                                className="pick-cta !h-8 md:!h-10 min-w-[80px] md:min-w-[96px] !py-0 px-2.5 md:px-4 leading-none text-[11px] md:text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
                               >
                                 {nickCheckLoading ? "확인 중..." : "중복확인"}
                               </Button>
@@ -399,7 +474,7 @@ export function MyPage() {
                                 type="button"
                                 onClick={onApplyNickname}
                                 disabled={profileSaving}
-                                className="pick-cta !h-8 md:!h-10 min-w-[80px] md:min-w-[96px] !py-0 px-2.5 md:px-4 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
                               >
                                 {profileSaving ? "처리 중..." : "적용"}
                               </Button>
@@ -441,16 +516,68 @@ export function MyPage() {
                   </div>
 
                   <div className="rounded-xl border border-white/10 bg-black/25 px-2 md:px-4 py-2.5 md:py-3">
-                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-center gap-1.5 md:gap-3">
-                      <div className="text-white text-xs md:text-sm font-semibold">이메일 주소</div>
-                      <div className="text-xs md:text-sm text-white truncate flex items-center gap-1.5 md:gap-2">
-                        <Mail className="h-3.5 w-3.5 md:h-4 md:w-4 text-white" />
-                        {me.email ?? "이메일 미등록"}
+                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-start gap-1.5 md:gap-3">
+                      <div
+                        className={`text-white text-xs md:text-sm font-semibold ${
+                          emailEditing ? "pt-1" : "pt-0"
+                        }`}
+                      >
+                        이메일 주소
                       </div>
-                      <span className="text-[11px] md:text-xs text-purple-200">변경(예정)</span>
+                      <div className="min-w-0">
+                        {!emailEditing ? (
+                          <div className="text-xs md:text-sm text-white/90 truncate">
+                            {me.email ?? "이메일 미등록"}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            <input
+                              type="email"
+                              value={emailDraft}
+                              onChange={(e) => setEmailDraft(e.target.value)}
+                              placeholder="변경할 이메일을 입력하세요"
+                              className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-purple-400/50"
+                            />
+                            <Button
+                              type="button"
+                              onClick={onRequestEmailChange}
+                              disabled={emailSending}
+                              className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                            >
+                              {emailSending ? "전송 중..." : "변경"}
+                            </Button>
+                          </div>
+                        )}
+                        {emailChangeMessage ? (
+                          <p className="mt-2 inline-flex items-center gap-1.5 text-xs md:text-sm text-emerald-300">
+                            <Check className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                            {emailChangeMessage}
+                          </p>
+                        ) : null}
+                        {emailChangeError ? (
+                          <p className="mt-2 text-xs md:text-sm text-rose-300">{emailChangeError}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1"
+                        onClick={() => {
+                          if (emailEditing) {
+                            setEmailEditing(false);
+                            setEmailDraft(me.email ?? "");
+                            setEmailChangeError(null);
+                            return;
+                          }
+                          setEmailEditing(true);
+                          setEmailChangeMessage(null);
+                          setEmailChangeError(null);
+                        }}
+                      >
+                        {emailEditing ? "취소" : "변경"}
+                      </button>
                     </div>
                     <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/50">
-                      회원 인증 및 픽무비의 이메일을 수신하는 주소입니다.
+                      회원 인증 또는 시스템에서 발송하는 이메일을 수신하는 주소입니다.
                     </p>
                   </div>
 
@@ -572,8 +699,8 @@ export function MyPage() {
           <div className="w-full max-w-[460px] rounded-xl md:rounded-2xl border border-white/10 bg-[#12121b] p-4 md:p-5">
             <div className="text-base md:text-lg font-bold text-white">계정 탈퇴 확인</div>
             <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/65">
-              계속하려면 확인 문구 <span className="font-semibold text-rose-300">회원탈퇴</span> 를 입력하고,
-              현재 비밀번호를 다시 입력하세요.
+              계속하려면 확인 문구 <span className="font-semibold text-rose-300">계정 탈퇴</span> 를 입력하고,
+              가입한 이메일을 다시 입력하세요.
             </p>
 
             <div className="mt-3 md:mt-4 space-y-2.5 md:space-y-3">
@@ -582,21 +709,21 @@ export function MyPage() {
                 <input
                   value={deleteConfirmText}
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  placeholder="회원탈퇴"
+                  placeholder="계정 탈퇴"
                   className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
                 />
               </div>
 
               <div>
                 <label className="text-[11px] md:text-xs text-white/55 flex items-center gap-1">
-                  <KeyRound className="h-3 w-3 md:h-3.5 md:w-3.5" />
-                  현재 비밀번호
+                  <Mail className="h-3 w-3 md:h-3.5 md:w-3.5" />
+                  가입한 이메일
                 </label>
                 <input
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="비밀번호를 입력하세요"
+                  type="email"
+                  value={deleteEmail}
+                  onChange={(e) => setDeleteEmail(e.target.value)}
+                  placeholder="이메일을 입력하세요"
                   className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
                 />
               </div>
@@ -612,7 +739,7 @@ export function MyPage() {
                 onClick={() => {
                   if (deleteLoading) return;
                   setDeleteOpen(false);
-                  setDeletePassword("");
+                  setDeleteEmail("");
                   setDeleteConfirmText("");
                   setDeleteError(null);
                 }}

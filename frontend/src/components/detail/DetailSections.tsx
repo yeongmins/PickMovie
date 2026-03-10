@@ -149,15 +149,19 @@ function Section({
   );
 }
 
+const OPEN_CONTENT_ISSUE_EVENT = "pickmovie-open-content-issue-report";
+
 export function DetailSections({
   detail,
   mediaType,
   loading,
+  isAuthed,
   statusKindOverride,
 }: {
   detail: DetailBase | null;
   mediaType: MediaType;
   loading?: boolean;
+  isAuthed?: boolean;
   statusKindOverride?: ReleaseStatusKind | null;
 }) {
   const navigate = useNavigate();
@@ -340,7 +344,9 @@ export function DetailSections({
       mediaType === "tv" ? d?.original_name : d?.original_title,
     );
 
-    const movieOpenDate = safeText(theatrical?.originalTheatricalDate);
+    const overrideReleaseDate = safeText(meta?.detailOverride?.releaseDate);
+    const movieOpenDate =
+      overrideReleaseDate || safeText(theatrical?.originalTheatricalDate);
     const movieRerunDate = safeText(theatrical?.rerunTheatricalDate);
 
     const tvLatestSeasonAirDate = (() => {
@@ -376,7 +382,9 @@ export function DetailSections({
     const tvDisplayOpenDate =
       seasonNo > 0
         ? tvSelectedSeasonAirDate || tvLatestSeasonAirDate
-        : tvLatestSeasonAirDate || safeText(d?.first_air_date);
+        : overrideReleaseDate ||
+          tvLatestSeasonAirDate ||
+          fixedFirstAirDate;
 
     const runtime =
       mediaType === "tv"
@@ -390,12 +398,16 @@ export function DetailSections({
           ? `${d.runtime}분`
           : "";
 
-    // ✅ 컨텐츠정보 "출시년도"는 무조건 fixedFirstAirDate(고정값)
-    const contentInfoYear = yearFromYmd(
-      mediaType === "movie"
-        ? movieOpenDate || fixedFirstAirDate
-        : fixedFirstAirDate,
-    );
+    // ✅ 컨텐츠정보 "출시년도"는 contentInfoReleaseYear(최초 기준) 우선
+    const yearFromMeta = Number(meta?.contentInfoReleaseYear);
+    const contentInfoYear =
+      Number.isFinite(yearFromMeta) && yearFromMeta > 0
+        ? String(Math.trunc(yearFromMeta))
+        : yearFromYmd(
+            mediaType === "movie"
+              ? movieOpenDate || fixedFirstAirDate
+              : overrideReleaseDate || fixedFirstAirDate,
+          );
     const contentInfoYearRow = contentInfoYear ? `${contentInfoYear}년` : "";
 
     const genres = Array.isArray(d?.genres)
@@ -457,6 +469,8 @@ export function DetailSections({
     detail,
     mediaType,
     theatrical,
+    meta?.detailOverride?.releaseDate,
+    meta?.contentInfoReleaseYear,
     seasonNo,
     seasonContext,
     fixedFirstAirDate,
@@ -475,7 +489,22 @@ export function DetailSections({
 
   return (
     <div className="px-4 sm:px-8 pb-12">
-      <Section title="줄거리 / 컨텐츠 정보" noTopMargin>
+      <Section
+        title="줄거리 / 컨텐츠 정보"
+        noTopMargin
+        right={isAuthed ? (
+          <button
+            type="button"
+            className="text-red-400 text-[12px] font-semibold hover:text-red-300"
+            onClick={() => {
+              if (typeof window === "undefined") return;
+              window.dispatchEvent(new Event(OPEN_CONTENT_ISSUE_EVENT));
+            }}
+          >
+            오류 제보
+          </button>
+        ) : undefined}
+      >
         <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-8">
           <div>
             <div className="text-white/90 font-extrabold text-[14px] mb-2">

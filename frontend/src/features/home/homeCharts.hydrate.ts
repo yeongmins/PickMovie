@@ -132,6 +132,7 @@ export async function hydrateHomeCharts(
       const d = detailMap.get(keyOf(it.mediaType, it.tmdbId));
       if (!d) continue;
       const meta = metaMap.get(keyOf(it.mediaType, it.tmdbId)) ?? null;
+      if (!!meta?.adminHidden) continue;
       cards.push(toCardLike(d, it.mediaType, it.rank, meta));
     }
     out[c.key] = cards.sort((a, b) => a.rank - b.rank);

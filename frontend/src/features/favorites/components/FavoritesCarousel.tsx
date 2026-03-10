@@ -470,7 +470,7 @@ function FavoritesCarouselInner(
           <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
           <p className="text-gray-400 text-lg">아직 찜한 컨텐츠가 없습니다</p>
           <p className="text-gray-500 text-sm mt-2">
-            마음에 드는 컨텐츠를 찜해보세요!
+            마음에 드는 컨텐츠를 찜하거나 분석하기를 눌러보세요!
           </p>
         </div>
       </div>
@@ -769,9 +769,9 @@ export function FavoritesCarousel(
       >
         <div className="text-center">
           <Heart className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg">아직 찜한 컨텐츠가 없습니다</p>
+          <p className="text-gray-400 text-lg">아직 찜을 한 컨텐츠가 없습니다</p>
           <p className="text-gray-500 text-sm mt-2">
-            마음에 드는 컨텐츠를 찜해보세요!
+            마음에 드는 컨텐츠를 찜하거나 분석하기를 눌러보세요!
           </p>
         </div>
       </div>

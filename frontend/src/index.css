@@ -4141,3 +4141,36 @@ body:after {
     padding-inline: 3.5rem;
   }
 }
+
+@media (max-width: 640px) {
+  .admin-settings-page {
+    font-size: 13px;
+  }
+
+  .admin-settings-page h1 {
+    font-size: 1.5rem !important;
+    line-height: 1.2;
+  }
+
+  .admin-settings-page h2 {
+    font-size: 1.25rem !important;
+    line-height: 1.2;
+  }
+
+  .admin-settings-page button {
+    font-size: 12px !important;
+  }
+
+  .admin-settings-page button.h-10,
+  .admin-settings-page button.h-9 {
+    height: 2rem !important;
+    padding-left: 0.625rem !important;
+    padding-right: 0.625rem !important;
+  }
+
+  .admin-settings-page input,
+  .admin-settings-page select,
+  .admin-settings-page textarea {
+    font-size: 12px !important;
+  }
+}

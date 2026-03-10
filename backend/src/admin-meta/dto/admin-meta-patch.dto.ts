@@ -1,5 +1,12 @@
 // backend/src/admin-meta/dto/admin-meta-patch.dto.ts
-import { IsIn, IsInt, IsOptional, Min, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 export class AdminMetaPatchDto {
   @IsOptional()
@@ -28,5 +35,40 @@ export class AdminMetaPatchDto {
   releaseYear?: number | null;
 
   @IsOptional()
+  @ValidateIf(
+    (o: AdminMetaPatchDto) =>
+      o.contentInfoReleaseYear !== null &&
+      o.contentInfoReleaseYear !== undefined,
+  )
+  @IsInt()
+  @Min(1800)
+  contentInfoReleaseYear?: number | null;
+
+  @IsOptional()
   watchProviders?: unknown;
+
+  @IsOptional()
+  title?: string | null;
+
+  @IsOptional()
+  originalTitle?: string | null;
+
+  @IsOptional()
+  overview?: string | null;
+
+  @IsOptional()
+  runtime?: number | null;
+
+  @IsOptional()
+  releaseDate?: string | null;
+
+  @IsOptional()
+  rerunTheatricalDate?: string | null;
+
+  @IsOptional()
+  unifiedYearLabel?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  forceHidden?: boolean | null;
 }

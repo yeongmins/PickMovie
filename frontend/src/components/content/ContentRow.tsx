@@ -1,5 +1,5 @@
 // frontend/src/components/content/ContentRow.tsx
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
@@ -7,6 +7,7 @@ import {
   type ContentCardItem,
   type MediaType,
 } from "./ContentCard";
+import { requestResolvedMetaBatch } from "../../lib/metaClient";
 
 export interface ContentRowProps {
   title: string;
@@ -35,6 +36,7 @@ export function ContentRow({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [hiddenMovieKeys, setHiddenMovieKeys] = useState<string[]>([]);
+  const [adminHiddenKeys, setAdminHiddenKeys] = useState<Set<string>>(new Set());
 
   const uniqueMovies = useMemo(() => {
     return Array.from(new Map(movies.map((m) => [m.id, m])).values());
@@ -45,9 +47,49 @@ export function ContentRow({
       const mt = (movie.media_type || "movie") as MediaType;
       const key = `${mt}:${movie.id}`;
       if (hiddenMovieKeys.includes(key)) return false;
+      if (adminHiddenKeys.has(key)) return false;
       return true;
     });
-  }, [uniqueMovies, hiddenMovieKeys]);
+  }, [uniqueMovies, hiddenMovieKeys, adminHiddenKeys]);
+
+  useEffect(() => {
+    let alive = true;
+
+    const load = async () => {
+      const reqs = uniqueMovies
+        .map((movie) => {
+          const mt = (movie.media_type || "movie") as MediaType;
+          const id = Number(movie.id);
+          if (!Number.isFinite(id) || id <= 0) return null;
+          return { mediaType: mt, tmdbId: id };
+        })
+        .filter(Boolean) as Array<{ mediaType: "movie" | "tv"; tmdbId: number }>;
+
+      if (reqs.length === 0) {
+        if (alive) setAdminHiddenKeys(new Set());
+        return;
+      }
+
+      try {
+        const metas = await requestResolvedMetaBatch(reqs);
+        if (!alive) return;
+        const hidden = new Set<string>();
+        for (const m of metas) {
+          if (!m?.adminHidden) continue;
+          hidden.add(`${m.mediaType}:${m.tmdbId}`);
+        }
+        setAdminHiddenKeys(hidden);
+      } catch {
+        if (!alive) return;
+        setAdminHiddenKeys(new Set());
+      }
+    };
+
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [uniqueMovies]);
 
   const scroll = (direction: "left" | "right") => {
     const container = scrollContainerRef.current;

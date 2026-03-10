@@ -20,6 +20,7 @@ import { MetaModule } from './meta/meta.module';
 import { HomeChartsModule } from './home-charts/home-charts.module';
 import { AdminMetaModule } from './admin-meta/admin-meta.module';
 import { HealthModule } from './health/health.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { HealthModule } from './health/health.module';
     HomeChartsModule,
     AdminMetaModule,
     HealthModule,
+    AnalyticsModule,
   ],
 })
 export class AppModule {}

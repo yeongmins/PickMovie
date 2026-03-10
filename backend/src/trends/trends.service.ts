@@ -136,9 +136,15 @@ function normTitle(s: string): string {
     .replace(/[~`!@#$%^&*()_+\-={}[\]|\\:;"'<>,.?/·•…：]/g, '');
 }
 
+function hasHangul(value: string): boolean {
+  return /[가-힣]/.test(value);
+}
+
 function isBlockedTrendKeyword(keyword: string): boolean {
-  void keyword;
-  return false;
+  const normalized = String(keyword ?? '').trim();
+  if (!normalized) return true;
+  // PickMovie 정책: 한글 제목이 있는 콘텐츠만 허용
+  return !hasHangul(normalized);
 }
 
 function yearFromReleaseDate(v?: string): number | null {

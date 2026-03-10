@@ -289,6 +289,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
   // ✅ 비로그인 트렌드 로딩 (기존 유지)
   useEffect(() => {
     if (loggedIn) return;
+    if (Array.isArray(movies) && movies.length > 0) return;
 
     let mounted = true;
     setTrendLoading(true);
@@ -347,10 +348,13 @@ export function useFavoritesHeroState(movies: Movie[]) {
     })();
 
     return () => void (mounted = false);
-  }, [loggedIn]);
+  }, [loggedIn, movies]);
 
   const activeMovies = useMemo(() => {
-    const raw = loggedIn ? movies : trendMovies;
+    const raw =
+      loggedIn || (Array.isArray(movies) && movies.length > 0)
+        ? movies
+        : trendMovies;
     return Array.isArray(raw) ? raw : [];
   }, [loggedIn, movies, trendMovies]);
 

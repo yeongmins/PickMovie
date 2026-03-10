@@ -73,6 +73,7 @@ export class MailService {
     footer?: string;
     highlightLabel?: string;
     highlightValue?: string;
+    brandTitle?: boolean;
   }) {
     const {
       title,
@@ -82,9 +83,10 @@ export class MailService {
       footer,
       highlightLabel,
       highlightValue,
+      brandTitle,
     } = opts;
 
-    const subject = `[PickMovie] ${title}`;
+    const subject = title;
 
     const textParts: string[] = [];
     textParts.push(title);
@@ -116,7 +118,11 @@ export class MailService {
       ? this.escapeHtml(highlightValue)
       : '';
 
-    // ✅ 이메일 클라이언트 호환성 우선: 라이트 고정 + 테이블 + 인라인 CSS
+    const extraText =
+      highlightLabel && highlightValue
+        ? `${highlightLabel}: ${highlightValue}`
+        : '';
+
     const html = `
 <!doctype html>
 <html>
@@ -126,57 +132,57 @@ export class MailService {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
   </head>
-  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Apple SD Gothic Neo,Segoe UI,Roboto,sans-serif;color:#111;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f6f7fb;margin:0;padding:0;">
+  <body style="margin:0;padding:0;background:#ffffff;font-family:Apple SD Gothic Neo,Segoe UI,Roboto,sans-serif;color:#111827;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff;margin:0;padding:0;">
       <tr>
-        <td align="center" style="padding:32px 16px;">
-          <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;background:#ffffff;border:1px solid #e9e9ef;border-radius:18px;overflow:hidden;">
+        <td align="center" style="padding:34px 16px;">
+          <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:620px;background:#ffffff;">
             <tr>
-              <td style="padding:22px 22px 18px 22px;">
-                <div style="font-size:20px;font-weight:800;line-height:1.25;color:#111827;">
-                  ${safeTitle}
+              <td style="padding:12px 14px 0 14px;text-align:left;">
+                <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
+                  ${
+                    brandTitle
+                      ? '<span style="background-image:linear-gradient(90deg,#7c3aed,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent;">Pick</span><span style="color:#111827;">Movie</span>'
+                      : safeTitle
+                  }
                 </div>
-                <div style="margin-top:10px;font-size:14px;line-height:1.6;color:#4b5563;">
+                <div style="margin-top:12px;font-size:18px;line-height:1.55;color:#6b7280;">
                   ${safeSubtitle}
                 </div>
 
                 ${
-                  highlightLabel && highlightValue
+                  extraText
                     ? `
-                <div style="margin-top:16px;padding:14px 14px;background:#f7f7ff;border:1px solid #e7e7ff;border-radius:14px;">
-                  <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">${safeHighlightLabel}</div>
-                  <div style="font-size:18px;font-weight:800;letter-spacing:0.2px;color:#111827;">${safeHighlightValue}</div>
-                </div>
+                <div style="margin-top:10px;font-size:16px;line-height:1.5;color:#6b7280;">${safeHighlightLabel}: <span style="font-weight:700;color:#374151;">${safeHighlightValue}</span></div>
                 `
                     : ''
                 }
 
-                <div style="margin-top:18px;">
+                <div style="margin-top:22px;">
                   <a href="${safeUrl}"
-                    style="display:inline-block;padding:12px 18px;border-radius:12px;
+                    style="display:inline-block;padding:13px 20px;border-radius:10px;
                            background:#7c3aed;background-image:linear-gradient(90deg,#7c3aed,#db2777);
-                           color:#ffffff;text-decoration:none;font-weight:800;">
+                           color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;line-height:1.4;">
                     ${safeBtn}
                   </a>
                 </div>
 
-                <div style="margin-top:16px;font-size:12px;line-height:1.6;color:#6b7280;">
+                <div style="margin-top:20px;font-size:16px;line-height:1.5;color:#6b7280;">
                   버튼이 안 눌리면 아래 링크를 복사해 브라우저에 붙여넣어주세요.<br/>
-                  <a href="${safeUrl}" style="color:#4f46e5;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
                 </div>
 
+                <div style="margin-top:8px;font-size:15px;line-height:1.55;">
+                  <a href="${safeUrl}" style="color:#4f46e5;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
+                </div>
                 ${
                   footer
-                    ? `<div style="margin-top:16px;font-size:12px;color:#9ca3af;line-height:1.5;">${safeFooter}</div>`
+                    ? `<div style="margin-top:16px;font-size:14px;color:#9ca3af;line-height:1.5;">${safeFooter}</div>`
                     : ''
                 }
               </td>
             </tr>
           </table>
 
-          <div style="text-align:center;margin-top:12px;font-size:12px;color:#9ca3af;">
-            © 2025 PickMovie
-          </div>
         </td>
       </tr>
     </table>
@@ -205,11 +211,31 @@ export class MailService {
 
   async sendEmailVerification(to: string, verifyUrl: string): Promise<void> {
     const { subject, html, text } = this.buildBaseTemplate({
-      title: '이메일 인증을 완료해주세요',
+      title: 'PickMovie 이메일 인증',
       subtitle: '아래 버튼을 누르면 이메일 인증이 완료됩니다.',
-      buttonText: '이메일 인증하기',
+      buttonText: '계속하기',
       url: verifyUrl,
-      footer: '본 메일은 요청 시에만 발송됩니다.',
+      footer: '이 링크는 24시간 동안 유효합니다.',
+      brandTitle: true,
+    });
+
+    await this.send(to, subject, html, text);
+  }
+
+  async sendEmailAuthLink(
+    to: string,
+    authUrl: string,
+    mode: 'login' | 'signup',
+  ): Promise<void> {
+    const title = mode === 'signup' ? 'PickMovie 회원가입' : 'PickMovie 로그인';
+    const { subject, html, text } = this.buildBaseTemplate({
+      title,
+      subtitle:
+        '아래 버튼을 누르면 로그인 또는 회원가입이 자동으로 진행됩니다.',
+      buttonText: '계속하기',
+      url: authUrl,
+      footer: '본 메일은 요청 시에만 발송되며, 링크는 20분 후 만료됩니다.',
+      brandTitle: true,
     });
 
     await this.send(to, subject, html, text);
@@ -217,11 +243,25 @@ export class MailService {
 
   async sendPasswordReset(to: string, resetUrl: string): Promise<void> {
     const { subject, html, text } = this.buildBaseTemplate({
-      title: '비밀번호 재설정',
+      title: 'PickMovie 비밀번호 재설정',
       subtitle: '아래 버튼을 눌러 새 비밀번호를 설정하세요.',
-      buttonText: '비밀번호 재설정',
+      buttonText: '계속하기',
       url: resetUrl,
-      footer: '본 메일은 요청 시에만 발송됩니다.',
+      footer: '이 링크는 15분 동안 유효합니다.',
+      brandTitle: true,
+    });
+
+    await this.send(to, subject, html, text);
+  }
+
+  async sendEmailChangeVerify(to: string, verifyUrl: string): Promise<void> {
+    const { subject, html, text } = this.buildBaseTemplate({
+      title: 'PickMovie 이메일 변경',
+      subtitle: '아래 버튼을 누르면 이메일 변경이 완료됩니다.',
+      buttonText: '계속하기',
+      url: verifyUrl,
+      footer: '이 링크는 30분 동안 유효합니다.',
+      brandTitle: true,
     });
 
     await this.send(to, subject, html, text);
@@ -242,13 +282,14 @@ export class MailService {
       `${this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173'}/login`;
 
     const { subject, html, text } = this.buildBaseTemplate({
-      title: '아이디 안내',
+      title: 'PickMovie 아이디 안내',
       subtitle: '요청하신 계정의 아이디는 보안상 일부 마스킹되어 안내됩니다.',
-      buttonText: '로그인 페이지로 이동',
+      buttonText: '계속하기',
       url,
       footer: '본 메일은 요청 시에만 발송됩니다.',
       highlightLabel: '요청하신 아이디',
       highlightValue: maskedUsername,
+      brandTitle: true,
     });
 
     await this.send(to, subject, html, text);

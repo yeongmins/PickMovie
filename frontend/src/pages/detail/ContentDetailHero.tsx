@@ -15,12 +15,16 @@ import {
 import type { DetailBase, MediaType, ProviderItem } from "./contentDetail.data";
 import { TitleLogoOrText } from "./ContentTitleLogo";
 import { getLogoSrcByProviderName } from "../../assets/logo";
+import { apiPost } from "../../lib/apiClient";
+import { AUTH_KEYS } from "../../lib/auth";
 
 import {
   peekResolvedMeta,
   requestResolvedMeta,
   type ResolvedMeta,
 } from "../../lib/metaClient";
+
+const OPEN_CONTENT_ISSUE_EVENT = "pickmovie-open-content-issue-report";
 
 /* =========================
    ✅ 규칙 반영
@@ -40,6 +44,12 @@ type SeasonNavContext = {
   overview?: string | null;
   vote_average?: number | null;
   year?: number | null;
+};
+
+type ReporterProfile = {
+  id: number | null;
+  name: string;
+  email: string;
 };
 
 function preloadImage(src: string): Promise<void> {
@@ -177,6 +187,7 @@ export function ContentDetailHero({
   typeText,
   yearText,
   ageValue,
+  hiddenBadge,
 
   trailerKey,
   trailerOpen,
@@ -197,6 +208,7 @@ export function ContentDetailHero({
   typeText: string;
   yearText: string;
   ageValue: string | null;
+  hiddenBadge?: boolean;
 
   trailerKey: string | null;
   trailerOpen: boolean;
@@ -210,6 +222,17 @@ export function ContentDetailHero({
 }) {
   const title = getDisplayTitle(detail as any);
   const location = useLocation();
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reporterProfile, setReporterProfile] = useState<ReporterProfile>({
+    id: null,
+    name: "",
+    email: "",
+  });
+  const [reportMessage, setReportMessage] = useState("");
+  const [reportDetail, setReportDetail] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportCompleteOpen, setReportCompleteOpen] = useState(false);
 
   // ✅ TV 시즌 선택 상태(쿼리 기반)
   const seasonNo = useMemo(() => {
@@ -247,6 +270,104 @@ export function ContentDetailHero({
       alive = false;
     };
   }, [mediaType, detail.id]);
+
+  useEffect(() => {
+    if (!reportOpen) return;
+    try {
+      const raw = localStorage.getItem(AUTH_KEYS.USER);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        id?: number;
+        username?: string;
+        nickname?: string | null;
+        email?: string | null;
+      };
+      const uid = Number(parsed?.id);
+      const nextName = String(parsed?.nickname ?? parsed?.username ?? "").trim();
+      const nextEmail = String(parsed?.email ?? "").trim();
+      setReporterProfile({
+        id: Number.isFinite(uid) && uid > 0 ? Math.trunc(uid) : null,
+        name: nextName,
+        email: nextEmail,
+      });
+    } catch {}
+  }, [reportOpen]);
+
+  useEffect(() => {
+    const openReport = () => {
+      if (!isAuthed) return;
+      setReportError(null);
+      setReportOpen(true);
+    };
+    window.addEventListener(OPEN_CONTENT_ISSUE_EVENT, openReport);
+    return () => window.removeEventListener(OPEN_CONTENT_ISSUE_EVENT, openReport);
+  }, [isAuthed]);
+
+  useEffect(() => {
+    if (!reportOpen && !reportCompleteOpen) return;
+
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyPaddingRight = body.style.paddingRight;
+
+    const scrollbarWidth = window.innerWidth - html.clientWidth;
+    body.style.overflow = "hidden";
+    html.style.overflow = "hidden";
+    if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`;
+
+    const blockWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const blockTouch = (e: TouchEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const blockKeys = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (reportOpen) {
+          setReportOpen(false);
+          return;
+        }
+        if (reportCompleteOpen) {
+          setReportCompleteOpen(false);
+        }
+        return;
+      }
+      const blocked = [
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "PageUp",
+        "PageDown",
+        "Home",
+        "End",
+        " ",
+      ];
+      if (blocked.includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    window.addEventListener("wheel", blockWheel, { passive: false });
+    window.addEventListener("touchmove", blockTouch, { passive: false });
+    window.addEventListener("keydown", blockKeys, true);
+
+    return () => {
+      window.removeEventListener("wheel", blockWheel as any);
+      window.removeEventListener("touchmove", blockTouch as any);
+      window.removeEventListener("keydown", blockKeys, true);
+      body.style.overflow = prevBodyOverflow;
+      html.style.overflow = prevHtmlOverflow;
+      body.style.paddingRight = prevBodyPaddingRight;
+    };
+  }, [reportOpen, reportCompleteOpen, reportBusy]);
 
   // ✅ (요구사항) 히어로 년도: 시즌 선택 시 선택 시즌 년도 표시
   // - TV 시즌 선택: seasonContext.year 우선
@@ -406,6 +527,7 @@ export function ContentDetailHero({
   };
 
   const onClickFavorite = () => {
+    if (!isAuthed) return;
     onToggleFavorite(detail.id, mediaType);
   };
 
@@ -671,6 +793,12 @@ export function ContentDetailHero({
                 ) : (
                   <AgeBadge value={ageValue} />
                 )}
+
+                {hiddenBadge ? (
+                  <span className="h-6 rounded-md bg-rose-500/25 px-2.5 text-xs font-extrabold text-rose-200 inline-flex items-center">
+                    비노출
+                  </span>
+                ) : null}
               </div>
 
               <div className="max-w-[720px]">
@@ -715,11 +843,15 @@ export function ContentDetailHero({
                       type="button"
                       size="lg"
                       className={`backdrop-blur-md text-white transition-all shadow-lg ${
-                        isFavorite
+                        !isAuthed
+                          ? "bg-white/15 text-white/60 cursor-not-allowed"
+                          : isFavorite
                           ? "bg-red-500/55 hover:bg-red-500/70"
                           : "bg-red-500/30 hover:bg-red-500/50"
                       }`}
                       onClick={onClickFavorite}
+                      disabled={!isAuthed}
+                      title={!isAuthed ? "로그인 후 찜 가능" : undefined}
                     >
                       <AnimatePresence mode="popLayout" initial={false}>
                         <motion.span
@@ -744,7 +876,7 @@ export function ContentDetailHero({
                       </AnimatePresence>
 
                       <span className="font-semibold">
-                        {isFavorite ? "찜 해제" : "찜 하기"}
+                        {!isAuthed ? "로그인 후 찜 가능" : isFavorite ? "찜 해제" : "찜 하기"}
                       </span>
                     </Button>
 
@@ -776,6 +908,7 @@ export function ContentDetailHero({
                       <Play className="w-5 h-5 mr-2 fill-current" />
                       <span className="font-semibold">예고편 재생</span>
                     </Button>
+
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -854,6 +987,162 @@ export function ContentDetailHero({
           <X className="w-5 h-5" />
         </button>
       ) : null}
+
+      <AnimatePresence>
+        {reportOpen ? (
+          <>
+            <motion.div
+              className="fixed inset-0 z-[9997] bg-black/65 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              onClick={() => {
+                if (reportBusy) return;
+                setReportOpen(false);
+              }}
+            />
+            <motion.div
+              className="fixed inset-0 z-[9998] flex items-center justify-center px-4"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              onClick={() => setReportOpen(false)}
+            >
+              <div
+                className="w-full max-w-[520px] rounded-2xl bg-[#111621]/95 p-4 shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h4 className="text-sm font-semibold text-white">오류 제보</h4>
+                <p className="mt-1 text-xs text-white/65">
+                  해당 컨텐츠의 문제점/오류가 있다면 제보를 남겨주세요.
+                </p>
+
+                <div className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-xs text-white/75">
+                  제보자: {reporterProfile.name || "회원"} {reporterProfile.email ? `(${reporterProfile.email})` : ""}
+                </div>
+
+                <input
+                  value={reportMessage}
+                  onChange={(e) => setReportMessage(e.target.value)}
+                  placeholder="오류 제목 (예: 포스터가 잘못 노출됩니다)"
+                  className="mt-2 h-9 w-full rounded-lg bg-white/10 px-3 text-sm text-white outline-none"
+                />
+
+                <textarea
+                  value={reportDetail}
+                  onChange={(e) => setReportDetail(e.target.value)}
+                  placeholder="오류 내용, 재현 방법 등을 입력해주세요."
+                  className="mt-2 h-24 w-full resize-none rounded-lg bg-white/10 px-3 py-2 text-sm text-white outline-none"
+                />
+
+                {reportError ? <p className="mt-2 text-xs text-rose-300">{reportError}</p> : null}
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-sm"
+                    onClick={() => {
+                      setReportOpen(false);
+                    }}
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reportBusy}
+                    className="h-9 px-3 rounded-lg bg-white text-black hover:bg-white/90 text-sm font-semibold disabled:opacity-60"
+                    onClick={async () => {
+                      const message = reportMessage.trim();
+                      const detailText = reportDetail.trim();
+                      if (!message) {
+                        setReportError("오류 제목을 입력해주세요.");
+                        return;
+                      }
+                      setReportBusy(true);
+                      setReportError(null);
+                      try {
+                        let visitorId = "";
+                        try {
+                          visitorId = String(
+                            localStorage.getItem("pickmovie_analyze_visitor_id") ?? "",
+                          )
+                            .trim()
+                            .slice(0, 120);
+                        } catch {}
+
+                        await apiPost<{ ok: true }>("/analytics/content-issues", {
+                          mediaType,
+                          tmdbId: Number(detail.id),
+                          contentTitle: title,
+                          issueMessage: message,
+                          issueDetail: detailText,
+                          reporterUserId: reporterProfile.id,
+                          reporterName: reporterProfile.name,
+                          reporterEmail: reporterProfile.email,
+                          visitorId,
+                        });
+                        setReportMessage("");
+                        setReportDetail("");
+                        setReportOpen(false);
+                        setReportCompleteOpen(true);
+                      } catch {
+                        setReportError("오류 제보 접수에 실패했습니다. 잠시 후 다시 시도해주세요.");
+                      } finally {
+                        setReportBusy(false);
+                      }
+                    }}
+                  >
+                    {reportBusy ? "접수 중..." : "오류 제보"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {reportCompleteOpen ? (
+          <>
+            <motion.div
+              className="fixed inset-0 z-[9997] bg-black/65 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              onClick={() => setReportCompleteOpen(false)}
+            />
+            <motion.div
+              className="fixed inset-0 z-[9998] flex items-center justify-center px-4"
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 14, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              onClick={() => setReportCompleteOpen(false)}
+            >
+              <div
+                className="w-full max-w-[420px] rounded-2xl bg-[#111621]/95 p-4 shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h4 className="text-sm font-semibold text-white">오류 제보 접수 완료</h4>
+                <p className="mt-2 text-sm text-white/75">
+                  제보해주신 내용은 검토 후 개선에 반영하겠습니다.
+                </p>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    className="h-9 px-3 rounded-lg bg-white text-black hover:bg-white/90 text-sm font-semibold"
+                    onClick={() => setReportCompleteOpen(false)}
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }

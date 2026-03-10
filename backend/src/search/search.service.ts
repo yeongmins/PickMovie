@@ -21,6 +21,7 @@ import {
 } from './search.lexicon';
 import { expandWithLexicon } from './search.query';
 import { isBlockedContentByPolicy } from '../common/content-policy';
+import { PrismaService } from '../prisma/prisma.service';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -105,6 +106,12 @@ type InferResult = {
   forceGenreIds: number[];
 };
 
+function toMediaTypeValue(v: unknown): MediaType | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'movie' || s === 'tv') return s;
+  return null;
+}
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
@@ -115,8 +122,100 @@ export class SearchService {
 
   private readonly providersCache = new Map<string, ProviderBadge[]>();
   private readonly ageCache = new Map<string, string | null>();
+  private readonly keywordSoftcoreCache = new Map<string, boolean>();
 
-  constructor(private readonly http: HttpService) {}
+  constructor(
+    private readonly http: HttpService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  async getPopularContents(limit = 10): Promise<{
+    items: Array<{
+      tmdbId: number;
+      mediaType: 'movie' | 'tv';
+      title: string;
+      count: number;
+      updatedAt: string;
+    }>;
+  }> {
+    const safeLimit = clamp(Math.trunc(limit), 1, 50);
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        tmdbId: number;
+        mediaType: string;
+        title: string;
+        count: number;
+        updatedAt: Date;
+      }>
+    >(
+      `
+      SELECT
+        "tmdbId",
+        "mediaType"::text AS "mediaType",
+        "title",
+        "searchCount" AS "count",
+        "updatedAt"
+      FROM "SearchPopularContent"
+      ORDER BY "searchCount" DESC, "lastSearchedAt" DESC
+      LIMIT $1
+      `,
+      safeLimit,
+    );
+
+    const items = rows
+      .map((r) => ({
+        tmdbId: Number(r.tmdbId),
+        mediaType:
+          String(r.mediaType).toLowerCase() === 'tv'
+            ? ('tv' as const)
+            : ('movie' as const),
+        title: String(r.title ?? '').trim(),
+        count: Number(r.count ?? 0),
+        updatedAt:
+          r.updatedAt instanceof Date
+            ? r.updatedAt.toISOString()
+            : new Date(r.updatedAt as any).toISOString(),
+      }))
+      .filter(
+        (r) =>
+          Number.isFinite(r.tmdbId) &&
+          r.tmdbId > 0 &&
+          Number.isFinite(r.count) &&
+          r.count >= 10 &&
+          !!r.title,
+      );
+
+    return { items };
+  }
+
+  async recordPopularContentHit(args: {
+    tmdbId: number;
+    mediaType: 'movie' | 'tv';
+    title: string;
+  }): Promise<void> {
+    const tmdbId = Math.trunc(Number(args.tmdbId));
+    const mediaType = args.mediaType === 'tv' ? 'tv' : 'movie';
+    const title = String(args.title ?? '').trim().slice(0, 300);
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0 || !title) return;
+
+    await this.prisma.$executeRawUnsafe(
+      `
+      INSERT INTO "SearchPopularContent"
+        ("tmdbId", "mediaType", "title", "searchCount", "lastSearchedAt", "createdAt", "updatedAt")
+      VALUES
+        ($1, $2::"MediaType", $3, 1, NOW(), NOW(), NOW())
+      ON CONFLICT ("tmdbId", "mediaType")
+      DO UPDATE SET
+        "title" = EXCLUDED."title",
+        "searchCount" = "SearchPopularContent"."searchCount" + 1,
+        "lastSearchedAt" = NOW(),
+        "updatedAt" = NOW()
+      `,
+      tmdbId,
+      mediaType,
+      title,
+    );
+  }
 
   private get apiKey(): string {
     const key = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY;
@@ -142,6 +241,46 @@ export class SearchService {
     } catch {
       return null;
     }
+  }
+
+  private async hasSoftcoreKeywordByTmdb(
+    mediaType: MediaType,
+    id: number,
+  ): Promise<boolean> {
+    const cacheKey = `${mediaType}:${id}`;
+    if (this.keywordSoftcoreCache.has(cacheKey)) {
+      return this.keywordSoftcoreCache.get(cacheKey) ?? false;
+    }
+
+    const path = mediaType === 'movie' ? '/movie' : '/tv';
+    const url = `${this.tmdbBase}${path}/${id}/keywords?${new URLSearchParams({
+      api_key: this.apiKey,
+    }).toString()}`;
+
+    const data = await this.fetchJson(url);
+    if (!isRecord(data)) {
+      this.keywordSoftcoreCache.set(cacheKey, false);
+      return false;
+    }
+
+    const listRaw = Array.isArray(data.keywords)
+      ? data.keywords
+      : Array.isArray(data.results)
+        ? data.results
+        : [];
+
+    let blocked = false;
+    for (const it of listRaw) {
+      if (!isRecord(it)) continue;
+      const name = (isString(it.name) ? it.name : '').toLowerCase();
+      if (name.includes('softcore')) {
+        blocked = true;
+        break;
+      }
+    }
+
+    this.keywordSoftcoreCache.set(cacheKey, blocked);
+    return blocked;
   }
 
   private parseYearRange(
@@ -416,6 +555,7 @@ export class SearchService {
     language: string;
     includeAdult: boolean;
     source: 'search' | 'retry';
+    viewerIsAdmin?: boolean;
   }): Promise<
     Array<
       JsonRecord & { mediaType: MediaType; _searchSource: 'search' | 'retry' }
@@ -454,6 +594,12 @@ export class SearchService {
         const key = `${mt}:${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        if (isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts.viewerIsAdmin }))
+          continue;
+        if (!opts.viewerIsAdmin) {
+          const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(mt, Math.trunc(id));
+          if (blockedByKeyword) continue;
+        }
 
         out.push({ ...it, mediaType: mt, _searchSource: opts.source });
       }
@@ -467,6 +613,7 @@ export class SearchService {
     page: number;
     language?: string;
     includeAdult?: boolean;
+    viewerIsAdmin?: boolean;
   }): Promise<{
     expandedQueries: string[];
     results: Record<string, unknown>[];
@@ -486,6 +633,7 @@ export class SearchService {
       language,
       includeAdult,
       source: 'search',
+      viewerIsAdmin: !!opts.viewerIsAdmin,
     });
 
     // searchMultiCandidates에서 mediaType을 붙여놨다면 프론트에서 필요없을 수 있어서 제거
@@ -915,7 +1063,10 @@ export class SearchService {
     return [...ascii.slice(0, 8), ...nonAscii.slice(0, 4)];
   }
 
-  async recommend(dto: SearchRecommendDto): Promise<SearchRecommendResponse> {
+  async recommend(
+    dto: SearchRecommendDto,
+    opts?: { viewerIsAdmin?: boolean },
+  ): Promise<SearchRecommendResponse> {
     try {
       const prompt = (dto.prompt ?? '').trim();
       if (!prompt) return { items: [] };
@@ -990,6 +1141,7 @@ export class SearchService {
         language,
         includeAdult,
         source: 'search',
+        viewerIsAdmin: !!opts?.viewerIsAdmin,
       });
 
       // ✅ 4) discover 후보(필터 적용)
@@ -1023,7 +1175,18 @@ export class SearchService {
       for (const it of [...searchCands, ...discoverCands]) {
         const id: unknown = it.id;
         if (!isNumber(id)) continue;
-        if (isBlockedContentByPolicy(it)) continue;
+        if (isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts?.viewerIsAdmin }))
+          continue;
+        if (!opts?.viewerIsAdmin) {
+          const mt = toMediaTypeValue((it as Record<string, unknown>).mediaType);
+          if (mt) {
+            const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+              mt,
+              Math.trunc(id),
+            );
+            if (blockedByKeyword) continue;
+          }
+        }
         if (!isString(it.poster_path) || !it.poster_path.trim()) continue;
         const key = `${it.mediaType}:${id}`;
         if (seen.has(key)) continue;
@@ -1039,15 +1202,27 @@ export class SearchService {
           language,
           includeAdult,
           source: 'retry',
+          viewerIsAdmin: !!opts?.viewerIsAdmin,
         });
-        merged.push(
-          ...retry.filter(
-            (it) =>
-              !isBlockedContentByPolicy(it) &&
-              isString(it.poster_path) &&
-              !!it.poster_path.trim(),
-          ),
-        );
+        for (const it of retry) {
+          if (
+            isBlockedContentByPolicy(it, {
+              viewerIsAdmin: !!opts?.viewerIsAdmin,
+            })
+          ) {
+            continue;
+          }
+          if (!opts?.viewerIsAdmin) {
+            if (!isNumber(it.id)) continue;
+            const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+              it.mediaType,
+              Math.trunc(it.id),
+            );
+            if (blockedByKeyword) continue;
+          }
+          if (!isString(it.poster_path) || !it.poster_path.trim()) continue;
+          merged.push(it);
+        }
       }
 
       const preferredOnly = merged.filter((it) => {

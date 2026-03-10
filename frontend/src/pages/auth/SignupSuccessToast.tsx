@@ -26,7 +26,7 @@ export function AuthSuccessModal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed left-1/2 top-6 z-[60] -translate-x-1/2"
+          className="fixed left-1/2 top-6 z-[130] -translate-x-1/2"
           initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -35,7 +35,7 @@ export function AuthSuccessModal({
           <button
             type="button"
             onClick={onClose}
-            className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-md shadow-[0_12px_40px_rgba(0,0,0,0.35)]"
+            className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-black/55 px-4 py-3 backdrop-blur-md shadow-[0_12px_40px_rgba(0,0,0,0.35)]"
           >
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
               <PartyPopper className="h-5 w-5 text-white" />

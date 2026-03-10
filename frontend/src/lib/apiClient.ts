@@ -230,7 +230,7 @@ function isAbortError(err: any) {
 }
 
 async function requestJson<T>(args: {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   params?: Record<string, any>;
   body?: any;
@@ -293,7 +293,7 @@ async function requestJson<T>(args: {
         headers: buildHeaders(headers),
         credentials: "include",
         body:
-          method === "POST" || method === "DELETE"
+          method === "POST" || method === "PATCH" || method === "DELETE"
             ? JSON.stringify(body ?? {})
             : undefined,
         signal: mergedSignal,
@@ -409,6 +409,20 @@ export async function apiDelete<T>(
 ): Promise<T> {
   return requestJson<T>({
     method: "DELETE",
+    path,
+    body,
+    headers: { "Content-Type": "application/json" },
+    options,
+  });
+}
+
+export async function apiPatch<T>(
+  path: string,
+  body: any,
+  options?: ApiRequestOptions
+): Promise<T> {
+  return requestJson<T>({
+    method: "PATCH",
     path,
     body,
     headers: { "Content-Type": "application/json" },

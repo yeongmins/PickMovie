@@ -24,7 +24,11 @@ export class AdminMetaService {
         releaseStatus: patch.releaseStatus,
         ageRating: patch.ageRating,
         releaseYear: patch.releaseYear,
+        contentInfoReleaseYear: patch.contentInfoReleaseYear,
         watchProviders: patch.watchProviders,
+        forceHidden: patch.forceHidden,
+        rerunTheatricalDate: patch.rerunTheatricalDate,
+        unifiedYearLabel: patch.unifiedYearLabel,
       },
       updatedBy,
     });

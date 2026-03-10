@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { apiGet } from "../../lib/apiClient";
+import { openAuthModal } from "../../lib/auth";
 import {
   ContentCard,
   type ContentCardItem,
@@ -216,7 +217,7 @@ export function SeriesSeasonCards({
   const toggleSeasonFavorite = useCallback(
     (seasonNo: number, seasonLike?: SeasonLike) => {
       if (!isAuthed) {
-        navigate("/login");
+        openAuthModal("login");
         return;
       }
 

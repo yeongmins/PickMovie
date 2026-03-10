@@ -74,6 +74,7 @@ type TmdbMetaResponse = Record<string, unknown> & {
   isNowPlaying?: boolean;
   isUpcoming?: boolean;
 };
+type MediaTypeHint = MediaType | null;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -100,6 +101,34 @@ function ensureLeadingSlash(path: string) {
   const p = String(path || '').trim();
   if (!p) return '/';
   return p.startsWith('/') ? p : `/${p}`;
+}
+
+function isContentListPath(path: string): boolean {
+  const p = ensureLeadingSlash(path).toLowerCase();
+  return (
+    p.startsWith('/search/movie') ||
+    p.startsWith('/search/tv') ||
+    p.startsWith('/search/multi') ||
+    p.startsWith('/discover/') ||
+    p.startsWith('/trending/') ||
+    p.includes('/popular') ||
+    p.includes('/top_rated') ||
+    p.includes('/now_playing') ||
+    p.includes('/upcoming') ||
+    p.endsWith('/similar')
+  );
+}
+
+function isContentDetailPath(path: string): boolean {
+  const p = ensureLeadingSlash(path).toLowerCase();
+  return /^\/(movie|tv)\/\d+$/.test(p);
+}
+
+function inferMediaTypeFromPath(path: string): MediaTypeHint {
+  const p = ensureLeadingSlash(path).toLowerCase();
+  if (p.includes('/movie/')) return 'movie';
+  if (p.includes('/tv/')) return 'tv';
+  return null;
 }
 
 function normalizeIso639_1(language?: string): string {
@@ -133,6 +162,11 @@ export class TmdbService {
     defaultTtlMs: 60 * 1000,
     negativeTtlMs: 15 * 1000,
     maxEntries: 10_000,
+  });
+  private readonly keywordPolicyCache = new MemoryCache({
+    defaultTtlMs: 10 * 60 * 1000,
+    negativeTtlMs: 2 * 60 * 1000,
+    maxEntries: 20_000,
   });
 
   constructor(
@@ -202,9 +236,10 @@ export class TmdbService {
 
   private applyContentPolicyToPaged<T>(
     paged: TmdbPagedResponse<T>,
+    opts?: { viewerIsAdmin?: boolean },
   ): TmdbPagedResponse<T> {
     const filtered = paged.results.filter(
-      (item) => !isBlockedContentByPolicy(item),
+      (item) => !isBlockedContentByPolicy(item, opts),
     );
     return {
       ...paged,
@@ -213,13 +248,121 @@ export class TmdbService {
     };
   }
 
+  private extractItemMediaType(item: unknown, fallback?: MediaTypeHint): MediaTypeHint {
+    if (fallback) return fallback;
+    if (!isRecord(item)) return null;
+    const mt = getString(item, 'media_type').toLowerCase();
+    if (mt === 'movie' || mt === 'tv') return mt;
+    return null;
+  }
+
+  private extractItemId(item: unknown): number | null {
+    if (!isRecord(item)) return null;
+    return getNumber(item, 'id');
+  }
+
+  private async hasSoftcoreKeywordByTmdb(
+    mediaType: MediaType,
+    id: number,
+  ): Promise<boolean> {
+    const cacheKey = `kw-softcore:${mediaType}:${id}`;
+    return await this.keywordPolicyCache.getOrSet<boolean>(cacheKey, async () => {
+      const path =
+        mediaType === 'movie' ? `/movie/${id}/keywords` : `/tv/${id}/keywords`;
+      const raw = await this.tmdbGetOrNull<unknown>(path);
+      if (!isRecord(raw)) return false;
+
+      const listRaw = Array.isArray(raw['keywords'])
+        ? raw['keywords']
+        : Array.isArray(raw['results'])
+          ? raw['results']
+          : [];
+
+      for (const it of listRaw) {
+        if (!isRecord(it)) continue;
+        const name = getString(it, 'name').toLowerCase();
+        if (name.includes('softcore')) return true;
+      }
+      return false;
+    });
+  }
+
+  private async applyKeywordPolicyToPaged<T>(
+    paged: TmdbPagedResponse<T>,
+    opts?: { viewerIsAdmin?: boolean; mediaTypeHint?: MediaTypeHint },
+  ): Promise<TmdbPagedResponse<T>> {
+    if (opts?.viewerIsAdmin) return paged;
+    if (!paged.results.length) return paged;
+
+    const filtered: T[] = [];
+    for (const item of paged.results) {
+      const mt = this.extractItemMediaType(item, opts?.mediaTypeHint);
+      const id = this.extractItemId(item);
+      if (!mt || !id) {
+        filtered.push(item);
+        continue;
+      }
+
+      const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(mt, id);
+      if (blockedByKeyword) continue;
+      filtered.push(item);
+    }
+
+    return {
+      ...paged,
+      results: filtered,
+      total_results: filtered.length,
+    };
+  }
+
+  private async filterProxyResponse(
+    path: string,
+    raw: unknown,
+    opts?: { viewerIsAdmin?: boolean },
+  ): Promise<unknown> {
+    if (!raw) return raw;
+
+    const mediaTypeHint = inferMediaTypeFromPath(path);
+
+    if (isContentDetailPath(path)) {
+      if (isBlockedContentByPolicy(raw, opts)) return null;
+      if (!opts?.viewerIsAdmin && mediaTypeHint && isRecord(raw)) {
+        const id = getNumber(raw, 'id');
+        if (id) {
+          const blocked = await this.hasSoftcoreKeywordByTmdb(mediaTypeHint, id);
+          if (blocked) return null;
+        }
+      }
+      return raw;
+    }
+
+    if (isContentListPath(path)) {
+      const textFiltered = this.applyContentPolicyToPaged(
+        this.normalizePaged<unknown>(raw),
+        opts,
+      );
+      return await this.applyKeywordPolicyToPaged(textFiltered, {
+        viewerIsAdmin: !!opts?.viewerIsAdmin,
+        mediaTypeHint,
+      });
+    }
+
+    return raw;
+  }
+
   /* =========================
      ✅ Controllers 호환: proxy / images / videos / similar / discover / search
   ========================= */
 
   /** /tmdb/proxy 용 */
-  async proxy(path: string, query: TmdbQuery = {}): Promise<unknown> {
-    return await this.tmdbGetOrNull<unknown>(ensureLeadingSlash(path), query);
+  async proxy(
+    path: string,
+    query: TmdbQuery = {},
+    viewerIsAdmin = false,
+  ): Promise<unknown> {
+    const safePath = ensureLeadingSlash(path);
+    const raw = await this.tmdbGetOrNull<unknown>(safePath, query);
+    return await this.filterProxyResponse(safePath, raw, { viewerIsAdmin });
   }
 
   /**
@@ -272,18 +415,34 @@ export class TmdbService {
     id: number,
     page = 1,
     language = 'ko-KR',
+    viewerIsAdmin = false,
   ): Promise<TmdbPagedResponse<unknown>> {
     const mt: MediaType = type === 'tv' ? 'tv' : 'movie';
     const raw = await this.tmdbGetOrNull<unknown>(`/${mt}/${id}/similar`, {
       page,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: mt,
+    });
   }
 
-  async discoverMovies(query: TmdbQuery): Promise<TmdbPagedResponse<unknown>> {
+  async discoverMovies(
+    query: TmdbQuery,
+    viewerIsAdmin = false,
+  ): Promise<TmdbPagedResponse<unknown>> {
     const raw = await this.tmdbGetOrNull<unknown>('/discover/movie', query);
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
   async searchMovie(params: {
@@ -294,6 +453,7 @@ export class TmdbService {
     includeAdult?: boolean;
     year?: number;
     primaryReleaseYear?: number;
+    viewerIsAdmin?: boolean;
   }): Promise<TmdbPagedResponse<TmdbMovieResult>> {
     const raw = await this.tmdbGetOrNull<unknown>('/search/movie', {
       query: params.query,
@@ -304,9 +464,14 @@ export class TmdbService {
       year: params.year,
       primary_release_year: params.primaryReleaseYear,
     });
-    return this.applyContentPolicyToPaged(
+    const textFiltered = this.applyContentPolicyToPaged(
       this.normalizePaged<TmdbMovieResult>(raw),
+      { viewerIsAdmin: !!params.viewerIsAdmin },
     );
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin: !!params.viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
   async multiSearch(params: {
@@ -315,6 +480,7 @@ export class TmdbService {
     language?: string;
     region?: string;
     includeAdult?: boolean;
+    viewerIsAdmin?: boolean;
   }): Promise<TmdbPagedResponse<TmdbMultiResult>> {
     const raw = await this.tmdbGetOrNull<unknown>('/search/multi', {
       query: params.query,
@@ -323,9 +489,14 @@ export class TmdbService {
       region: params.region ?? 'KR',
       include_adult: params.includeAdult ?? false,
     });
-    return this.applyContentPolicyToPaged(
+    const textFiltered = this.applyContentPolicyToPaged(
       this.normalizePaged<TmdbMultiResult>(raw),
+      { viewerIsAdmin: !!params.viewerIsAdmin },
     );
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin: !!params.viewerIsAdmin,
+      mediaTypeHint: null,
+    });
   }
 
   /** ✅ movies.controller 가 찾는 이름 그대로 제공 */
@@ -335,6 +506,7 @@ export class TmdbService {
     language?: string;
     region?: string;
     includeAdult?: boolean;
+    viewerIsAdmin?: boolean;
   }): Promise<TmdbPagedResponse<TmdbMultiResult>> {
     return await this.multiSearch(params);
   }
@@ -343,63 +515,127 @@ export class TmdbService {
      ✅ MoviesService가 기대하는 메서드들(기능 복구)
   ========================= */
 
-  async getPopularMovies(page = 1, region = 'KR', language = 'ko-KR') {
+  async getPopularMovies(
+    page = 1,
+    region = 'KR',
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ) {
     const raw = await this.tmdbGetOrNull<unknown>('/movie/popular', {
       page,
       region,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
-  async getTopRatedMovies(page = 1, region = 'KR', language = 'ko-KR') {
+  async getTopRatedMovies(
+    page = 1,
+    region = 'KR',
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ) {
     const raw = await this.tmdbGetOrNull<unknown>('/movie/top_rated', {
       page,
       region,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
-  async getNowPlayingMovies(page = 1, region = 'KR', language = 'ko-KR') {
+  async getNowPlayingMovies(
+    page = 1,
+    region = 'KR',
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ) {
     const raw = await this.tmdbGetOrNull<unknown>('/movie/now_playing', {
       page,
       region,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
-  async getUpcomingMovies(page = 1, region = 'KR', language = 'ko-KR') {
+  async getUpcomingMovies(
+    page = 1,
+    region = 'KR',
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ) {
     const raw = await this.tmdbGetOrNull<unknown>('/movie/upcoming', {
       page,
       region,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'movie',
+    });
   }
 
-  async getPopularTVShows(page = 1, language = 'ko-KR') {
+  async getPopularTVShows(page = 1, language = 'ko-KR', viewerIsAdmin = false) {
     const raw = await this.tmdbGetOrNull<unknown>('/tv/popular', {
       page,
       language,
     });
-    return this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw));
+    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
+      viewerIsAdmin,
+    });
+    return await this.applyKeywordPolicyToPaged(textFiltered, {
+      viewerIsAdmin,
+      mediaTypeHint: 'tv',
+    });
   }
 
-  async getMovieDetails(id: number, language = 'ko-KR'): Promise<unknown> {
+  async getMovieDetails(
+    id: number,
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ): Promise<unknown> {
     const detail = await this.tmdbGetOrNull<unknown>(`/movie/${id}`, {
       language,
     });
-    if (isBlockedContentByPolicy(detail)) return null;
+    if (isBlockedContentByPolicy(detail, { viewerIsAdmin })) return null;
+    if (!viewerIsAdmin && (await this.hasSoftcoreKeywordByTmdb('movie', id))) {
+      return null;
+    }
     return detail;
   }
 
-  async getTVDetails(id: number, language = 'ko-KR'): Promise<unknown> {
+  async getTVDetails(
+    id: number,
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ): Promise<unknown> {
     const detail = await this.tmdbGetOrNull<unknown>(`/tv/${id}`, {
       language,
     });
-    if (isBlockedContentByPolicy(detail)) return null;
+    if (isBlockedContentByPolicy(detail, { viewerIsAdmin })) return null;
+    if (!viewerIsAdmin && (await this.hasSoftcoreKeywordByTmdb('tv', id))) {
+      return null;
+    }
     return detail;
   }
 
@@ -450,6 +686,7 @@ export class TmdbService {
     id: number;
     region?: string;
     language?: string;
+    viewerIsAdmin?: boolean;
   }): Promise<TmdbMetaResponse | null>;
 
   /** ✅ (호환) 기존 컨트롤러가 쓰던 4인자 버전 */
@@ -458,6 +695,7 @@ export class TmdbService {
     id: number,
     region?: string,
     language?: string,
+    viewerIsAdmin?: boolean,
   ): Promise<TmdbMetaResponse | null>;
 
   async getMeta(
@@ -467,11 +705,13 @@ export class TmdbService {
           id: number;
           region?: string;
           language?: string;
+          viewerIsAdmin?: boolean;
         }
       | MediaType,
     b?: number,
     c?: string,
     d?: string,
+    e?: boolean,
   ): Promise<TmdbMetaResponse | null> {
     const type: MediaType =
       typeof a === 'string' ? (a === 'tv' ? 'tv' : 'movie') : a.type;
@@ -480,9 +720,11 @@ export class TmdbService {
 
     const region = (typeof a === 'string' ? c : a.region) ?? 'KR';
     const language = (typeof a === 'string' ? d : a.language) ?? 'ko-KR';
+    const viewerIsAdmin =
+      typeof a === 'string' ? !!e : !!a.viewerIsAdmin;
 
     const safeRegion = String(region).toUpperCase();
-    const cacheKey = `meta:${type}:${id}:${safeRegion}:${language}`;
+    const cacheKey = `meta:${type}:${id}:${safeRegion}:${language}:admin=${viewerIsAdmin ? '1' : '0'}`;
 
     return await this.metaCache.getOrSet<TmdbMetaResponse | null>(
       cacheKey,
@@ -491,6 +733,12 @@ export class TmdbService {
           language,
         });
         if (!isRecord(detailRaw) || typeof detailRaw.id !== 'number') {
+          return null;
+        }
+        if (isBlockedContentByPolicy(detailRaw, { viewerIsAdmin })) {
+          return null;
+        }
+        if (!viewerIsAdmin && (await this.hasSoftcoreKeywordByTmdb(type, id))) {
           return null;
         }
 

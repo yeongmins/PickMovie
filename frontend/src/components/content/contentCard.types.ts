@@ -61,4 +61,5 @@ export type ContentCardProps = {
 
   canFavorite?: boolean;
   showRecommendReason?: boolean;
+  ignoreAdminHidden?: boolean;
 };

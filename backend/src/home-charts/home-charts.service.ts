@@ -62,6 +62,7 @@ export class HomeChartsService {
   private readonly tmdbBaseUrl = 'https://api.themoviedb.org/3';
   private chartsCache: HomeChartsResponse | null = null;
   private chartsCacheExpiresAt = 0;
+  private keywordSoftcoreCache = new Map<string, boolean>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -85,15 +86,88 @@ export class HomeChartsService {
     };
   }
 
+  private async applyContentPolicyToCharts(
+    src: HomeChartsResponse,
+    opts?: { viewerIsAdmin?: boolean },
+  ): Promise<HomeChartsResponse> {
+    if (opts?.viewerIsAdmin) return this.cloneCharts(src);
+    const apiKey = this.tmdbKey();
+    const collections: HomeChartsResponse['collections'] = [];
+    for (const c of src.collections) {
+      const items: HomeChartItem[] = [];
+      for (const it of c.items) {
+        if (isBlockedContentByPolicy(it, { viewerIsAdmin: false })) continue;
+        const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+          apiKey,
+          it.mediaType,
+          it.tmdbId,
+        );
+        if (blockedByKeyword) continue;
+        items.push(it);
+      }
+      collections.push({
+        ...c,
+        items: items.map((it, idx) => ({ ...it, rank: idx + 1 })),
+      });
+    }
+    return { collections };
+  }
+
   private invalidateChartsCache(): void {
     this.chartsCache = null;
     this.chartsCacheExpiresAt = 0;
   }
 
-  async getCharts(): Promise<HomeChartsResponse> {
+  private async hasSoftcoreKeywordByTmdb(
+    apiKey: string,
+    mediaType: 'movie' | 'tv',
+    tmdbId: number,
+  ): Promise<boolean> {
+    const key = `${mediaType}:${tmdbId}`;
+    if (this.keywordSoftcoreCache.has(key)) {
+      return this.keywordSoftcoreCache.get(key) ?? false;
+    }
+
+    const path =
+      mediaType === 'movie'
+        ? `/movie/${tmdbId}/keywords`
+        : `/tv/${tmdbId}/keywords`;
+    const url = `${this.tmdbBaseUrl}${path}`;
+    const resp = await axios.get<unknown>(url, {
+      params: { api_key: apiKey },
+      timeout: 8_000,
+      validateStatus: () => true,
+    });
+    if (resp.status < 200 || resp.status >= 300 || !isRecord(resp.data)) {
+      this.keywordSoftcoreCache.set(key, false);
+      return false;
+    }
+
+    const root = resp.data;
+    const list = Array.isArray(root['keywords'])
+      ? root['keywords']
+      : Array.isArray(root['results'])
+        ? root['results']
+        : [];
+
+    let blocked = false;
+    for (const it of list) {
+      if (!isRecord(it)) continue;
+      const name = asString(it['name']).toLowerCase();
+      if (name.includes('softcore')) {
+        blocked = true;
+        break;
+      }
+    }
+
+    this.keywordSoftcoreCache.set(key, blocked);
+    return blocked;
+  }
+
+  async getCharts(opts?: { viewerIsAdmin?: boolean }): Promise<HomeChartsResponse> {
     const now = Date.now();
     if (this.chartsCache && now < this.chartsCacheExpiresAt) {
-      return this.cloneCharts(this.chartsCache);
+      return await this.applyContentPolicyToCharts(this.chartsCache, opts);
     }
 
     const keys: HomeCollectionKey[] = [
@@ -125,7 +199,7 @@ export class HomeChartsService {
     const response: HomeChartsResponse = { collections: keys.map(build) };
     this.chartsCache = response;
     this.chartsCacheExpiresAt = now + 10_000;
-    return this.cloneCharts(response);
+    return await this.applyContentPolicyToCharts(response, opts);
   }
 
   async refreshAllCharts(): Promise<void> {
@@ -192,9 +266,14 @@ export class HomeChartsService {
     for (let i = 0; i < results.length && items.length < limit; i += 1) {
       const r = results[i];
       if (!isRecord(r)) continue;
-      if (isBlockedContentByPolicy(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
+      const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+        apiKey,
+        mediaType,
+        id,
+      );
+      if (blockedByKeyword) continue;
       items.push({
         mediaType,
         tmdbId: id,
@@ -236,9 +315,14 @@ export class HomeChartsService {
     for (let i = 0; i < results.length && items.length < limit; i += 1) {
       const r = results[i];
       if (!isRecord(r)) continue;
-      if (isBlockedContentByPolicy(r)) continue;
       const id = asNumber(r['id']);
       if (!id) continue;
+      const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+        apiKey,
+        mediaType,
+        id,
+      );
+      if (blockedByKeyword) continue;
       items.push({
         mediaType,
         tmdbId: id,

@@ -15,16 +15,12 @@ import { AuthSuccessModal } from "./SignupSuccessToast";
 import { Button } from "../../components/ui/button";
 import { apiPost, ApiError } from "../../lib/apiClient";
 import { AccountRecoveryModal } from "./AccountRecoveryModal";
+import { AUTH_KEYS, reloadAfterAuth } from "../../lib/auth";
 
 const USERNAME_MIN = 5;
 const USERNAME_MAX = 20;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 16;
-
-const AUTH_STORAGE = {
-  ACCESS: "pickmovie_access_token",
-  USER: "pickmovie_user",
-} as const;
 
 function validateUsername(v: string) {
   const s = v.trim();
@@ -155,14 +151,9 @@ export function LoginPage() {
       });
 
       // ✅ 로그인 상태 저장(헤더 닉네임 표시/설정 접근 등에 사용)
-      localStorage.setItem(AUTH_STORAGE.ACCESS, data.accessToken);
-      localStorage.setItem(AUTH_STORAGE.USER, JSON.stringify(data.user));
-
-      // ✅ 이벤트는 둘 다 쏴서(기존/신규 헤더) 호환
-      window.dispatchEvent(new Event("pickmovie:auth"));
-      window.dispatchEvent(new Event("pickmovie-auth-changed"));
-
-      navigate("/", { replace: true });
+      localStorage.setItem(AUTH_KEYS.ACCESS, data.accessToken);
+      localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(data.user));
+      reloadAfterAuth("/");
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 403) {

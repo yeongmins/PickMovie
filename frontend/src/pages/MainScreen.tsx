@@ -9,15 +9,27 @@ import {
   Suspense,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Mail, RotateCcw, X } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { PageFooter } from "../components/layout/Footer";
+import {
+  OPEN_PRIVACY_MODAL_EVENT,
+  OPEN_TERMS_MODAL_EVENT,
+  PageFooter,
+} from "../components/layout/Footer";
 
 import type { UserPreferences } from "../features/analyze/Analyze";
 import type { FavoriteItem } from "../App";
 
 import { apiGet, apiPost } from "../lib/apiClient";
-import { AUTH_EVENT, isLoggedInFallback } from "../lib/auth";
+import {
+  AUTH_EVENT,
+  dispatchAuthChanged,
+  isLoggedInFallback,
+  openAuthModal,
+  AUTH_KEYS,
+  reloadAfterAuth,
+} from "../lib/auth";
+import { AuthSuccessModal } from "./auth/SignupSuccessToast";
 import {
   getPopularMovies,
   getPopularTVShows,
@@ -128,12 +140,34 @@ function unwrapList<T = any>(v: any): T[] {
 const NEW_USER_FLAG = "pickmovie_new_signup";
 const ANALYZE_PROMPT_SEEN = "pickmovie_analyze_prompt_seen";
 const LEGACY_ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
+
+function validateNicknameInput(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (v.length < 2) return "닉네임은 최소 2자 이상이어야 합니다.";
+  if (!/^[A-Za-z0-9가-힣]+$/.test(v)) {
+    return "닉네임은 한글, 영문, 숫자만 사용할 수 있습니다.";
+  }
+  const hasHangul = /[가-힣]/.test(v);
+  const maxLen = hasHangul ? 10 : 15;
+  if (v.length > maxLen) {
+    return "한글 닉네임은 최대 10자, 영문/숫자 닉네임은 최대 15자까지 가능합니다.";
+  }
+  return null;
+}
 const KR = { region: "KR", language: "ko-KR" } as const;
 const PICK_REASON_TREND = "PickMovie 트렌드를 반영한 추천";
 
 type TrendSignalItem = {
   rank: number;
   score: number;
+};
+
+type StoredUser = {
+  id: number;
+  username: string;
+  email: string | null;
+  nickname: string | null;
 };
 
 function trendRankTo01(rank?: number): number {
@@ -270,30 +304,29 @@ function AnalyzePromptModal({
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: 10, scale: 0.985, filter: "blur(10px)" }}
             transition={{ duration: 0.22, ease: "easeOut" }}
-            className="relative w-full max-w-[720px] rounded-2xl border border-white/10 bg-[#10131b]/90 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.55)] overflow-hidden"
+            className="relative w-full max-w-[720px] overflow-hidden rounded-2xl bg-[#10131b] backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.55)]"
             onMouseDown={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
-            <div className="p-6 sm:p-7">
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute inset-0 bg-[#10131b]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_62%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.08),transparent_52%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.06),transparent_52%)]" />
+            </div>
+
+            <div className="relative z-[1] p-6 sm:p-7">
               <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                <div className="w-11 h-11 rounded-2xl bg-white/5 flex items-center justify-center">
                   <span className="text-xl">✨</span>
                 </div>
                 <div className="min-w-0">
                   <div className="text-lg font-semibold text-white">
-                    정밀 분석(온보딩)을 하면 추천이 더 정확해져요
+                    지금 바로 분석해보세요
                   </div>
                   <div className="mt-1 text-sm text-white/60 leading-relaxed">
-                    1분만 투자하면{" "}
-                    <span className="text-white/85 font-semibold">
-                      취향 기반 추천
-                    </span>
-                    과{" "}
-                    <span className="text-white/85 font-semibold">
-                      Search 검색 품질
-                    </span>
-                    이 확 올라가요. (선택사항)
+                    설문 몇 단계만 완료하면, 취향에 맞는 영화를 바로 추천해드려요.
                   </div>
                 </div>
               </div>
@@ -302,7 +335,7 @@ function AnalyzePromptModal({
                 <button
                   type="button"
                   onClick={onLater}
-                  className="h-10 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-white/80 transition"
+                  className="h-10 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-sm text-white/80 transition"
                 >
                   나중에
                 </button>
@@ -311,13 +344,339 @@ function AnalyzePromptModal({
                   onClick={onStart}
                   className="h-10 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-sm font-semibold text-white transition border-none"
                 >
-                  정밀 분석 시작
+                  분석하기
                 </button>
               </div>
             </div>
           </motion.div>
         </motion.div>
       )}
+    </AnimatePresence>
+  );
+}
+
+function NicknameOnboardingModal({
+  open,
+  email,
+  nickname,
+  termsAgreed,
+  error,
+  saving,
+  onNicknameChange,
+  onToggleTerms,
+  onOpenTerms,
+  onOpenPrivacy,
+  onSubmit,
+  onCancel,
+}: {
+  open: boolean;
+  email: string;
+  nickname: string;
+  termsAgreed: boolean;
+  error: string | null;
+  saving: boolean;
+  onNicknameChange: (value: string) => void;
+  onToggleTerms: (value: boolean) => void;
+  onOpenTerms: () => void;
+  onOpenPrivacy: () => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[95] flex items-center justify-center px-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            className="absolute inset-0 bg-black/75 backdrop-blur-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="relative w-full max-w-[640px] overflow-hidden rounded-3xl bg-[#10131b] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute inset-0 bg-[#10131b]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_62%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.08),transparent_52%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.06),transparent_52%)]" />
+            </div>
+
+            <div className="relative z-[1] p-5 sm:p-6 md:p-8">
+              <h2 className="text-[36px] font-extrabold tracking-tight text-white sm:text-[40px]">
+                환영합니다!
+              </h2>
+              <p className="mt-1 text-[15px] text-white/65 sm:text-base">
+                기본 회원 정보를 등록해주세요.
+              </p>
+
+              <div className="mt-7 space-y-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-white/85">
+                    닉네임
+                  </span>
+                  <input
+                    value={nickname}
+                    onChange={(e) => onNicknameChange(e.target.value)}
+                    placeholder="닉네임을 입력하세요."
+                    maxLength={15}
+                    className="h-12 w-full rounded-xl border border-white/10 bg-[#08111e]/72 px-3 text-base text-white outline-none placeholder:text-white/40 focus:border-[#9b8cad]/55"
+                  />
+                </label>
+
+                <div>
+                  <span className="mb-2 block text-sm font-semibold text-white/85">
+                    이메일
+                  </span>
+                  <div className="flex h-12 items-center rounded-xl border border-white/10 bg-[#08111e]/72 px-3 text-base text-white/70">
+                    {email || "이메일 정보 없음"}
+                  </div>
+                </div>
+
+                <label className="flex items-center justify-start gap-2 px-1 text-left">
+                  <input
+                    type="checkbox"
+                    checked={termsAgreed}
+                    onChange={(e) => onToggleTerms(e.target.checked)}
+                    className="h-4 w-4 accent-[#c9b5d2]"
+                  />
+                  <span className="text-xs text-white/75 leading-relaxed">
+                    (필수){" "}
+                    <button
+                      type="button"
+                      onClick={onOpenTerms}
+                      className="text-[12px] text-[#c9b5d2] hover:text-white"
+                    >
+                      이용약관
+                    </button>{" "}
+                    및{" "}
+                    <button
+                      type="button"
+                      onClick={onOpenPrivacy}
+                      className="text-[12px] text-[#c9b5d2] hover:text-white"
+                    >
+                      개인정보 수집·이용 고지
+                    </button>
+                    에 동의합니다.
+                  </span>
+                </label>
+              </div>
+
+              {error ? (
+                <p className="mt-4 rounded-lg border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="mt-7 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={saving}
+                  className="h-11 min-w-[100px] rounded-xl border border-white/10 bg-white/[0.04] px-4 text-base font-semibold text-white/85 hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={saving || !termsAgreed}
+                  className="h-11 min-w-[120px] rounded-xl bg-[#c9b5d2] px-4 text-base font-semibold text-[#111827] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {saving ? "저장 중..." : "완료"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+type EmailStatusModalState = {
+  open: boolean;
+  kind: "emailAuth" | "verify";
+  status: "sent" | "loading" | "success" | "error";
+  message: string | null;
+  email: string;
+};
+
+function EmailStatusModal({
+  state,
+  resending,
+  resentDone,
+  onClose,
+  onResend,
+  onGoLogin,
+}: {
+  state: EmailStatusModalState;
+  resending: boolean;
+  resentDone: boolean;
+  onClose: () => void;
+  onResend: () => void;
+  onGoLogin: () => void;
+}) {
+  const { open, kind, status, message, email } = state;
+  const title = kind === "emailAuth" ? "이메일 확인" : "이메일 인증";
+  const subtitle =
+    kind === "emailAuth"
+      ? "이메일 링크를 확인해 로그인 또는 회원가입을 완료하고 있어요."
+      : "이메일 인증을 완료하면 로그인할 수 있어요.";
+
+  return (
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[105] flex min-h-dvh items-center justify-center overflow-y-auto px-3 py-6 sm:px-4 sm:py-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.button
+            type="button"
+            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            onClick={onClose}
+            aria-label="닫기"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            initial={{ opacity: 0, y: 12, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.985 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="relative w-full max-w-[640px] overflow-hidden rounded-3xl bg-[#10131b] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
+          >
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute inset-0 bg-[#10131b]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_62%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.08),transparent_52%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.06),transparent_52%)]" />
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-4 top-4 z-10 rounded-full p-1.5 text-white/65 hover:bg-white/10 hover:text-white"
+              aria-label="닫기"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="relative z-[1] p-5 sm:p-6 md:p-8">
+              <h2 className="text-[36px] font-extrabold tracking-tight text-white sm:text-[40px]">
+                {title}
+              </h2>
+              <p className="mt-1 text-[15px] text-white/65 sm:text-base">{subtitle}</p>
+
+              <div className="mt-7">
+                {status === "loading" ? (
+                  <div className="rounded-xl border border-white/10 bg-[#08111e]/72 px-4 py-4 text-sm text-white/85">
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      인증 처리 중입니다...
+                    </span>
+                  </div>
+                ) : null}
+
+                {status === "sent" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-white/10 bg-[#08111e]/72 px-4 py-4 text-sm text-white/80">
+                      <p className="inline-flex items-center gap-2 text-white/90 font-semibold">
+                        <Mail size={16} />
+                        인증 메일을 확인해주세요
+                      </p>
+                      <p className="mt-2 leading-relaxed text-white/70">
+                        {email ? `${email} 로 인증 링크를 보냈습니다.` : "가입한 이메일로 인증 링크를 보냈습니다."}
+                      </p>
+                    </div>
+                    {resentDone ? (
+                      <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+                        인증 메일을 다시 보냈습니다.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {status === "success" ? (
+                  <div className="rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-4 text-sm text-emerald-100">
+                    <p className="inline-flex items-center gap-2 font-semibold">
+                      <CheckCircle2 size={16} />
+                      {message ?? "이메일 인증이 완료되었습니다."}
+                    </p>
+                  </div>
+                ) : null}
+
+                {status === "error" ? (
+                  <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-4 text-sm text-rose-100">
+                    <p className="inline-flex items-center gap-2 font-semibold">
+                      <AlertCircle size={16} />
+                      {message ?? "이메일 인증에 실패했습니다."}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                {status === "sent" && !!email ? (
+                  <button
+                    type="button"
+                    onClick={onResend}
+                    disabled={resending}
+                    className="h-11 rounded-xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white/85 hover:bg-white/[0.09] disabled:opacity-50"
+                  >
+                    {resending ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 size={14} className="animate-spin" />
+                        재발송 중...
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <RotateCcw size={14} />
+                        인증 메일 다시 보내기
+                      </span>
+                    )}
+                  </button>
+                ) : null}
+
+                {status === "success" ? (
+                  <button
+                    type="button"
+                    onClick={kind === "verify" ? onGoLogin : onClose}
+                    className="h-11 rounded-xl bg-[#c9b5d2] px-4 text-sm font-semibold text-[#111827] hover:brightness-95"
+                  >
+                    {kind === "verify" ? "로그인 하러가기" : "확인"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="h-11 rounded-xl bg-[#c9b5d2] px-4 text-sm font-semibold text-[#111827] hover:brightness-95"
+                  >
+                    닫기
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
     </AnimatePresence>
   );
 }
@@ -346,10 +705,6 @@ export function MainScreen({
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  // ✅ 비로그인 상단(히어로) = PickMovie 인기차트 Top10
-  const [anonHeroMovies, setAnonHeroMovies] = useState<TMDBMovie[]>([]);
-  const [anonHeroLoading, setAnonHeroLoading] = useState(false);
-
   // ✅ 하단 박스오피스 Top10(실제 박스오피스)
   const [boxOfficeMovies, setBoxOfficeMovies] = useState<TMDBMovie[]>([]);
   const [boxOfficeLoading, setBoxOfficeLoading] = useState(false);
@@ -375,6 +730,22 @@ export function MainScreen({
   );
 
   const [showAnalyzePrompt, setShowAnalyzePrompt] = useState(false);
+  const [showSignupSuccess, setShowSignupSuccess] = useState(false);
+  const [nicknameOnboardingOpen, setNicknameOnboardingOpen] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [nicknameTermsAgreed, setNicknameTermsAgreed] = useState(false);
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
+  const [nicknameSaving, setNicknameSaving] = useState(false);
+  const [nicknameFromNewSignup, setNicknameFromNewSignup] = useState(false);
+  const [emailStatusModal, setEmailStatusModal] = useState<EmailStatusModalState>({
+    open: false,
+    kind: "emailAuth",
+    status: "loading",
+    message: null,
+    email: "",
+  });
+  const [emailResending, setEmailResending] = useState(false);
+  const [emailResentDone, setEmailResentDone] = useState(false);
 
   const [trailerTarget, setTrailerTarget] = useState<{
     id: number;
@@ -525,102 +896,6 @@ export function MainScreen({
     homeChartsRef.current = null;
     return null;
   }, []);
-
-  const loadAnonHeroTop10 = useCallback(async () => {
-    if (currentSection !== "home") return;
-
-    setAnonHeroLoading(true);
-    try {
-      const r = await apiGet<{
-        items?: Array<{
-          tmdbId: number | null;
-          mediaType?: "movie" | "tv" | "anime";
-          tmdbType?: "movie" | "tv" | null;
-          rank: number;
-          score: number;
-        }>;
-      }>("/trends/kr", { limit: 20 });
-
-      const items = Array.isArray(r?.items) ? r.items : [];
-      const targets = items
-        .filter((x) => typeof x.tmdbId === "number" && x.tmdbId)
-        .slice(0, 10);
-
-      const details = await pMapLimit(
-        targets,
-        6,
-        async (it): Promise<any | null> => {
-          try {
-            const type: MediaType =
-              it.tmdbType === "tv"
-                ? "tv"
-                : it.tmdbType === "movie"
-                  ? "movie"
-                  : it.mediaType === "tv"
-                    ? "tv"
-                    : "movie";
-            const d = await fetchDetailCached(type, it.tmdbId as number);
-            if (!d) return null;
-            return {
-              ...(d as any),
-              media_type: type,
-              trendRank: it.rank,
-              trendScore: it.score,
-              recommendReason: PICK_REASON_TREND,
-            } as any;
-          } catch {
-            return null;
-          }
-        },
-      );
-
-      const picked = details.filter(Boolean) as any[];
-      if (picked.length > 0) {
-        setAnonHeroMovies(picked as any);
-        return;
-      }
-
-      const charts = await loadHomeChartsSnapshot();
-      const snapshotItems =
-        charts?.collections?.find((c) => c.key === "TRENDING_MOVIE")?.items ??
-        charts?.collections?.find((c) => c.key === "POPULAR_MOVIE")?.items ??
-        [];
-      const hydrated =
-        snapshotItems.length > 0
-          ? await hydrateSnapshotItems(snapshotItems.slice(0, 10))
-          : [];
-
-      if (hydrated.length > 0) {
-        setAnonHeroMovies(
-          hydrated.map((x) => ({
-            ...(x as any),
-            recommendReason: PICK_REASON_TREND,
-          })) as any,
-        );
-        return;
-      }
-
-      const fallback = popularMoviesPick.slice(0, 10).map((m) => ({
-        ...(m as any),
-        media_type: "movie",
-      }));
-      setAnonHeroMovies(fallback as any);
-    } catch {
-      const fallback = popularMoviesPick.slice(0, 10).map((m) => ({
-        ...(m as any),
-        media_type: "movie",
-      }));
-      setAnonHeroMovies(fallback as any);
-    } finally {
-      setAnonHeroLoading(false);
-    }
-  }, [
-    currentSection,
-    fetchDetailCached,
-    loadHomeChartsSnapshot,
-    hydrateSnapshotItems,
-    popularMoviesPick,
-  ]);
 
   const loadRealBoxOfficeTop10 = useCallback(async () => {
     if (currentSection !== "home") return;
@@ -809,6 +1084,232 @@ export function MainScreen({
     else navigate("/analyze");
   }, [dismissAnalyzePrompt, onReanalyze, navigate]);
 
+  useEffect(() => {
+    const path = location.pathname;
+    if (
+      path !== "/email-auth" &&
+      path !== "/verify-email" &&
+      path !== "/verify-email/sent"
+    ) {
+      return;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const token = String(params.get("token") ?? "").trim();
+    const stateEmail = String((location.state as any)?.email ?? "").trim();
+    const queryEmail = String(params.get("email") ?? "").trim();
+    const email = stateEmail || queryEmail;
+    let alive = true;
+
+    if (path === "/verify-email/sent") {
+      navigate("/", { replace: true });
+      return;
+    }
+
+    const run = async () => {
+      if (!token) {
+        setEmailStatusModal({
+          open: true,
+          kind: path === "/email-auth" ? "emailAuth" : "verify",
+          status: "error",
+          message: "유효하지 않은 링크입니다.",
+          email,
+        });
+        navigate("/", { replace: true });
+        return;
+      }
+
+      try {
+        if (path === "/email-auth") {
+          const res = await apiPost<{
+            user: StoredUser;
+            accessToken: string;
+            isNewUser?: boolean;
+          }>("/auth/email-auth/complete", { token });
+
+          if (!alive) return;
+
+          localStorage.setItem(AUTH_KEYS.ACCESS, res.accessToken);
+          localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(res.user));
+
+          const isNewUser = !!res?.isNewUser;
+          const hasNickname = !!String(res?.user?.nickname ?? "").trim();
+
+          if (!hasNickname) {
+            setEmailStatusModal((prev) => ({ ...prev, open: false }));
+            reloadAfterAuth(`/?onboard=nickname${isNewUser ? "&new=1" : ""}`);
+            return;
+          }
+
+          if (isNewUser) {
+            localStorage.setItem(NEW_USER_FLAG, "1");
+            localStorage.setItem(ANALYZE_PROMPT_SEEN, "0");
+            localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "0");
+          }
+
+          reloadAfterAuth("/");
+          return;
+        }
+
+        await apiPost<{ ok: true }>("/auth/email/verify", { token });
+        if (!alive) return;
+
+        navigate("/", { replace: true });
+        openAuthModal("login");
+      } catch (err: any) {
+        if (!alive) return;
+        setEmailStatusModal({
+          open: true,
+          kind: path === "/email-auth" ? "emailAuth" : "verify",
+          status: "error",
+          message: String(err?.message ?? "이메일 인증에 실패했습니다."),
+          email,
+        });
+        navigate("/", { replace: true });
+      }
+    };
+
+    void run();
+
+    return () => {
+      alive = false;
+    };
+  }, [location.pathname, location.search, location.state, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const shouldOpenNickname = params.get("onboard") === "nickname";
+    if (!shouldOpenNickname || !loggedIn || currentSection !== "home") return;
+    const isNew = params.get("new") === "1";
+
+    let user: StoredUser | null = null;
+    try {
+      const raw = localStorage.getItem(AUTH_KEYS.USER);
+      user = raw ? (JSON.parse(raw) as StoredUser) : null;
+    } catch {
+      user = null;
+    }
+
+    setNicknameDraft(String(user?.nickname ?? "").trim());
+    setNicknameTermsAgreed(false);
+    setNicknameError(null);
+    setNicknameFromNewSignup(isNew);
+    setNicknameOnboardingOpen(true);
+  }, [currentSection, location.search, loggedIn]);
+
+  const submitNicknameOnboarding = useCallback(async () => {
+    const value = nicknameDraft.trim();
+    const inputError = validateNicknameInput(value);
+    if (inputError) {
+      setNicknameError(inputError);
+      return;
+    }
+    if (!nicknameTermsAgreed) {
+      setNicknameError("이용약관 및 개인정보 수집·이용 동의가 필요합니다.");
+      return;
+    }
+
+    setNicknameSaving(true);
+    setNicknameError(null);
+
+    try {
+      const nicknameForSignup = value || "Unknown";
+      const res = await apiPost<{ user?: StoredUser }>("/auth/profile", {
+        nickname: nicknameForSignup,
+      });
+      const user = res?.user;
+      if (user) {
+        localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(user));
+        dispatchAuthChanged();
+      }
+
+      const params = new URLSearchParams(location.search);
+      const isNewSignup = nicknameFromNewSignup;
+
+      if (isNewSignup) {
+        localStorage.setItem(NEW_USER_FLAG, "1");
+        localStorage.setItem(ANALYZE_PROMPT_SEEN, "0");
+        localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "0");
+      }
+
+      params.delete("onboard");
+      params.delete("new");
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : "",
+          hash: location.hash,
+        },
+        { replace: true, state: location.state },
+      );
+
+      setNicknameOnboardingOpen(false);
+      setNicknameFromNewSignup(false);
+
+      if (isNewSignup) {
+        setShowSignupSuccess(true);
+        setShowAnalyzePrompt(true);
+      }
+    } catch (err: any) {
+      setNicknameError(
+        String(err?.message ?? "닉네임 저장에 실패했습니다. 다시 시도해주세요."),
+      );
+    } finally {
+      setNicknameSaving(false);
+    }
+  }, [location, navigate, nicknameDraft, nicknameFromNewSignup, nicknameTermsAgreed]);
+
+  const cancelNicknameOnboarding = useCallback(async () => {
+    if (!nicknameFromNewSignup) {
+      setNicknameOnboardingOpen(false);
+      setNicknameError(null);
+      return;
+    }
+
+    setNicknameSaving(true);
+    setNicknameError(null);
+    try {
+      await apiPost("/auth/email-auth/cancel-signup", {});
+    } catch {
+      // ignore and force local sign-out anyway
+    } finally {
+      localStorage.removeItem(AUTH_KEYS.ACCESS);
+      localStorage.removeItem(AUTH_KEYS.USER);
+      setNicknameOnboardingOpen(false);
+      setNicknameFromNewSignup(false);
+      setNicknameTermsAgreed(false);
+      setNicknameSaving(false);
+      setNicknameDraft("");
+      setNicknameError(null);
+      reloadAfterAuth("/");
+    }
+  }, [navigate, nicknameFromNewSignup]);
+
+  const resendVerificationEmail = useCallback(async () => {
+    const email = String(emailStatusModal.email ?? "").trim();
+    if (!email) return;
+
+    setEmailResending(true);
+    setEmailResentDone(false);
+    setEmailStatusModal((prev) => ({ ...prev, message: null }));
+    try {
+      await apiPost<{ ok: true }>("/auth/email/request-verification", { email });
+      setEmailResentDone(true);
+    } catch (err: any) {
+      setEmailStatusModal((prev) => ({
+        ...prev,
+        message: String(err?.message ?? "재발송에 실패했습니다."),
+      }));
+    } finally {
+      setEmailResending(false);
+    }
+  }, [emailStatusModal.email]);
+
+  const goLoginFromEmailModal = useCallback(() => {
+    setEmailStatusModal((prev) => ({ ...prev, open: false }));
+    openAuthModal("login");
+  }, []);
+
   const loadFavoriteMoviesDetails = useCallback(async () => {
     if (!favorites.length) {
       setFavoriteMovies([]);
@@ -890,11 +1391,6 @@ export function MainScreen({
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
 
-  // ✅ 비로그인 히어로 Top10 로드
-  useEffect(() => {
-    void loadAnonHeroTop10();
-  }, [loadAnonHeroTop10]);
-
   // ✅ 박스오피스 Top10 로드 (home에서 항상)
   useEffect(() => {
     void loadRealBoxOfficeTop10();
@@ -905,7 +1401,7 @@ export function MainScreen({
     if (currentSection !== "home") return;
 
     let mounted = true;
-    if (loggedIn) setTrendLoading(true);
+    setTrendLoading(true);
 
     (async () => {
       try {
@@ -1004,22 +1500,20 @@ export function MainScreen({
         }
 
         if (!mounted) return;
-        if (loggedIn) {
-          setTrendMoviesRaw(
-            (picked as any[]).map((x) => ({
-              ...(x as any),
-              recommendReason: (x as any)?.recommendReason ?? PICK_REASON_TREND,
-            })) as any,
-          );
-        }
+        setTrendMoviesRaw(
+          (picked as any[]).map((x) => ({
+            ...(x as any),
+            recommendReason: (x as any)?.recommendReason ?? PICK_REASON_TREND,
+          })) as any,
+        );
       } catch {
         if (mounted) {
-          if (loggedIn) setTrendMoviesRaw([]);
+          setTrendMoviesRaw([]);
           setMovieTrendMap({});
           setTvTrendRankMap({});
         }
       } finally {
-        if (mounted && loggedIn) setTrendLoading(false);
+        if (mounted) setTrendLoading(false);
       }
     })();
 
@@ -1138,6 +1632,16 @@ export function MainScreen({
 
   const MIN_FAV_FOR_YOU = 5;
   const canBuildForYou = loggedIn && favorites.length >= MIN_FAV_FOR_YOU;
+  const onboardingEmail = (() => {
+    try {
+      const raw = localStorage.getItem(AUTH_KEYS.USER);
+      if (!raw) return "";
+      const user = JSON.parse(raw) as StoredUser;
+      return String(user?.email ?? "");
+    } catch {
+      return "";
+    }
+  })();
 
   return (
     <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
@@ -1145,10 +1649,42 @@ export function MainScreen({
         <Header currentSection={currentSection} />
       </Suspense>
 
+      <AuthSuccessModal
+        open={showSignupSuccess}
+        onClose={() => setShowSignupSuccess(false)}
+        message="회원가입이 완료되었습니다! 지금 분석하기를 시작해 보세요."
+      />
+
       <AnalyzePromptModal
         open={showAnalyzePrompt}
         onStart={startAnalyze}
         onLater={dismissAnalyzePrompt}
+      />
+
+      <NicknameOnboardingModal
+        open={nicknameOnboardingOpen}
+        email={onboardingEmail}
+        nickname={nicknameDraft}
+        termsAgreed={nicknameTermsAgreed}
+        error={nicknameError}
+        saving={nicknameSaving}
+        onNicknameChange={setNicknameDraft}
+        onToggleTerms={setNicknameTermsAgreed}
+        onOpenTerms={() => window.dispatchEvent(new Event(OPEN_TERMS_MODAL_EVENT))}
+        onOpenPrivacy={() =>
+          window.dispatchEvent(new Event(OPEN_PRIVACY_MODAL_EVENT))
+        }
+        onSubmit={submitNicknameOnboarding}
+        onCancel={cancelNicknameOnboarding}
+      />
+
+      <EmailStatusModal
+        state={emailStatusModal}
+        resending={emailResending}
+        resentDone={emailResentDone}
+        onClose={() => setEmailStatusModal((prev) => ({ ...prev, open: false }))}
+        onResend={resendVerificationEmail}
+        onGoLogin={goLoginFromEmailModal}
       />
 
       <Suspense fallback={null}>
@@ -1163,17 +1699,17 @@ export function MainScreen({
       {currentSection === "home" && (
         <section className="relative z-20 h-[80svh] min-h-[80svh] flex flex-col">
           <div className="flex-1 min-h-0 relative">
-            {!loggedIn && anonHeroLoading ? (
+            {!loggedIn && trendLoading ? (
               <div className="h-[80svh] flex items-center justify-center">
                 <Loader2 className="w-12 h-12 animate-spin text-purple-400" />
               </div>
             ) : (
               <FavoritesCarousel
-                movies={(loggedIn ? favoriteMovies : anonHeroMovies) as any}
+                movies={(loggedIn ? favoriteMovies : trendMoviesRaw) as any}
                 onMovieClick={openContentDetail as any}
                 onToggleFavorite={(id, type) => {
                   if (!loggedIn) {
-                    navigate("/login");
+                    openAuthModal("login");
                     return;
                   }
                   toggleFav(id, type);
@@ -1397,7 +1933,7 @@ export function MainScreen({
                       favoriteKeySet={favoriteKeySet}
                       onToggleFavorite={(id: number, type?: MediaType) => {
                         if (!loggedIn) {
-                          navigate("/login");
+                          openAuthModal("login");
                           return;
                         }
                         toggleFav(id, type);
