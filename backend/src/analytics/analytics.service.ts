@@ -42,17 +42,31 @@ export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createAnalyzeEvent(payload: AnalyzeEventPayload): Promise<void> {
-    const visitorId = String(payload.visitorId ?? '').trim().slice(0, 120);
+    const visitorId = String(payload.visitorId ?? '')
+      .trim()
+      .slice(0, 120);
     if (!visitorId) return;
 
     const genres = Array.from(
-      new Set((payload.genres ?? []).map((v) => String(v ?? '').trim()).filter(Boolean)),
+      new Set(
+        (payload.genres ?? [])
+          .map((v) => String(v ?? '').trim())
+          .filter(Boolean),
+      ),
     ).slice(0, 30);
     const moods = Array.from(
-      new Set((payload.moods ?? []).map((v) => String(v ?? '').trim()).filter(Boolean)),
+      new Set(
+        (payload.moods ?? [])
+          .map((v) => String(v ?? '').trim())
+          .filter(Boolean),
+      ),
     ).slice(0, 30);
     const excludes = Array.from(
-      new Set((payload.excludes ?? []).map((v) => String(v ?? '').trim()).filter(Boolean)),
+      new Set(
+        (payload.excludes ?? [])
+          .map((v) => String(v ?? '').trim())
+          .filter(Boolean),
+      ),
     ).slice(0, 30);
 
     const favoriteMovieIds = Array.from(
@@ -92,7 +106,9 @@ export class AnalyticsService {
     const tmdbId = Math.trunc(Number(payload.tmdbId));
     if (!Number.isFinite(tmdbId) || tmdbId <= 0) return;
 
-    const issueMessage = String(payload.issueMessage ?? '').trim().slice(0, 200);
+    const issueMessage = String(payload.issueMessage ?? '')
+      .trim()
+      .slice(0, 200);
     if (!issueMessage) return;
 
     const contentTitle = String(payload.contentTitle ?? '')
@@ -111,7 +127,8 @@ export class AnalyticsService {
       .trim()
       .slice(0, 120);
     const reporterUserId =
-      typeof payload.reporterUserId === 'number' && Number.isFinite(payload.reporterUserId)
+      typeof payload.reporterUserId === 'number' &&
+      Number.isFinite(payload.reporterUserId)
         ? Math.trunc(payload.reporterUserId)
         : null;
 
@@ -145,7 +162,10 @@ export class AnalyticsService {
     if (!Number.isFinite(uid) || uid <= 0) {
       return { unreadCount: 0, items: [] };
     }
-    const limit = Math.min(100, Math.max(1, Math.trunc(Number(limitRaw ?? 20))));
+    const limit = Math.min(
+      100,
+      Math.max(1, Math.trunc(Number(limitRaw ?? 20))),
+    );
 
     const [unreadRows, rows] = await Promise.all([
       this.prisma.$queryRawUnsafe<Array<{ value: bigint | number }>>(
@@ -190,9 +210,10 @@ export class AnalyticsService {
           AND "adminRepliedAt" IS NOT NULL
           AND "userDeletedAt" IS NULL
         ORDER BY "adminRepliedAt" DESC
-        LIMIT ${limit}
+        LIMIT $2
         `,
         uid,
+        limit,
       ),
     ]);
 
@@ -211,7 +232,10 @@ export class AnalyticsService {
     };
   }
 
-  async markMyIssueNotificationRead(userId: number, issueId: number): Promise<void> {
+  async markMyIssueNotificationRead(
+    userId: number,
+    issueId: number,
+  ): Promise<void> {
     const uid = Math.trunc(Number(userId));
     const iid = Math.trunc(Number(issueId));
     if (!Number.isFinite(uid) || uid <= 0) return;
@@ -230,7 +254,10 @@ export class AnalyticsService {
     );
   }
 
-  async deleteMyIssueNotification(userId: number, issueId: number): Promise<void> {
+  async deleteMyIssueNotification(
+    userId: number,
+    issueId: number,
+  ): Promise<void> {
     const uid = Math.trunc(Number(userId));
     const iid = Math.trunc(Number(issueId));
     if (!Number.isFinite(uid) || uid <= 0) return;

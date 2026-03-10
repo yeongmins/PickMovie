@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -82,7 +82,7 @@ function validateNicknameInput(value: string): string | null {
   return null;
 }
 
-export function MyPage() {
+export function SettingsPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -115,12 +115,6 @@ export function MyPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [skipLoginModalOnRedirect, setSkipLoginModalOnRedirect] = useState(false);
-
-  const displayName = useMemo(() => {
-    const u = me;
-    if (!u) return "";
-    return (u.nickname?.trim() || u.username || "").trim();
-  }, [me]);
 
   useEffect(() => {
     const sync = () => setMe(readStoredUser());
@@ -398,31 +392,34 @@ export function MyPage() {
     <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
       <Header currentSection="settings" />
 
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-800/16 via-[#0b0b12]/80 to-pink-800/12" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_60%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_left,rgba(168,85,247,0.09),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.07),transparent_50%)]" />
-      </div>
+      <main id="main-content" className="flex-1 pt-[84px] pb-20">
+        <div className="px-6">
+          <div className="flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold tracking-tight">설정</h1>
+              <p className="mt-1 text-sm text-white/60">
+                프로필, 로그인 기기, 계정 상태를 한 곳에서 관리할 수 있습니다.
+              </p>
+            </div>
+          </div>
 
-      <main className="pt-16 md:pt-20 px-4 md:px-6 pb-4 md:pb-6">
-        <div className="mx-auto w-full max-w-[980px]">
-          <h1 className="text-xl md:text-2xl font-extrabold text-white">설정</h1>
-          <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/55">
-            프로필, 로그인 기기, 계정 상태를 관리하세요.
-          </p>
+          <div className="mt-4">
+            <div className="h-px w-full bg-white/10" />
+          </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:gap-4">
-            <section className="rounded-xl md:rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
-              <div className="flex items-center gap-1.5 md:gap-2 text-white">
-                <UserRound className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
-                <h2 className="text-sm md:text-base font-bold">프로필 정보</h2>
+          <div className="space-y-8">
+            <section className="bg-[#0f131d]/90">
+              <div className="pt-5">
+                <div className="flex items-center gap-1.5 md:gap-2 text-white">
+                  <UserRound className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
+                  <h2 className="text-xl font-bold tracking-tight">프로필 정보</h2>
+                </div>
               </div>
 
-              <div className="mt-4 md:mt-5">
+              <div className="pb-5 mt-4">
                 <div className="space-y-3 md:space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-black/25 px-2 md:px-4 py-2.5 md:py-3">
-                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-start gap-1.5 md:gap-3">
+                  <div className="bg-black/25 rounded-lg py-3">
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)_56px] md:grid-cols-[140px_minmax(0,1fr)_64px] items-start gap-2 md:gap-3 px-3 md:px-4">
                       <div
                         className={`text-white text-xs md:text-sm font-semibold ${
                           nicknameEditing ? "pt-1" : "pt-0"
@@ -460,13 +457,13 @@ export function MyPage() {
                                 }}
                                 maxLength={15}
                                 placeholder="닉네임을 입력하세요"
-                                className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-purple-400/50"
+                                className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                               />
                               <Button
                                 type="button"
                                 onClick={onCheckNickname}
                                 disabled={nickCheckLoading || profileSaving}
-                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-white/5 hover:bg-white/10 text-white"
                               >
                                 {nickCheckLoading ? "확인 중..." : "중복확인"}
                               </Button>
@@ -474,7 +471,7 @@ export function MyPage() {
                                 type="button"
                                 onClick={onApplyNickname}
                                 disabled={profileSaving}
-                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                                className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white"
                               >
                                 {profileSaving ? "처리 중..." : "적용"}
                               </Button>
@@ -496,7 +493,7 @@ export function MyPage() {
                       </div>
                       <button
                         type="button"
-                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1"
+                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1 text-right justify-self-end"
                         onClick={() => {
                           if (nicknameEditing) {
                             setNicknameEditing(false);
@@ -515,8 +512,8 @@ export function MyPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-white/10 bg-black/25 px-2 md:px-4 py-2.5 md:py-3">
-                    <div className="grid grid-cols-[68px,1fr,auto] md:grid-cols-[120px,1fr,auto] items-start gap-1.5 md:gap-3">
+                  <div className="bg-black/25 rounded-lg py-3">
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)_56px] md:grid-cols-[140px_minmax(0,1fr)_64px] items-start gap-2 md:gap-3 px-3 md:px-4">
                       <div
                         className={`text-white text-xs md:text-sm font-semibold ${
                           emailEditing ? "pt-1" : "pt-0"
@@ -536,13 +533,13 @@ export function MyPage() {
                               value={emailDraft}
                               onChange={(e) => setEmailDraft(e.target.value)}
                               placeholder="변경할 이메일을 입력하세요"
-                              className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-purple-400/50"
+                              className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                             />
                             <Button
                               type="button"
                               onClick={onRequestEmailChange}
                               disabled={emailSending}
-                              className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white border-none rounded-xl"
+                              className="pick-cta !h-8 md:!h-10 min-w-[65px] md:min-w-[65px] !py-0 px-2 md:px-3 leading-none text-[11px] md:text-sm font-semibold bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white"
                             >
                               {emailSending ? "전송 중..." : "변경"}
                             </Button>
@@ -560,7 +557,7 @@ export function MyPage() {
                       </div>
                       <button
                         type="button"
-                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1"
+                        className="text-[11px] md:text-xs text-purple-200 hover:text-purple-100 pt-1 text-right justify-self-end"
                         onClick={() => {
                           if (emailEditing) {
                             setEmailEditing(false);
@@ -576,7 +573,7 @@ export function MyPage() {
                         {emailEditing ? "취소" : "변경"}
                       </button>
                     </div>
-                    <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/50">
+                    <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/50 px-3 md:px-4">
                       회원 인증 또는 시스템에서 발송하는 이메일을 수신하는 주소입니다.
                     </p>
                   </div>
@@ -591,81 +588,84 @@ export function MyPage() {
               </div>
             </section>
 
-            <section className="rounded-xl md:rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
-              <div className="flex items-center gap-1.5 md:gap-2 text-white">
-                <Shield className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
-                <h2 className="text-sm md:text-base font-bold">로그인 기기 및 세션</h2>
-              </div>
-              <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55">
-                현재 로그인된 기기를 확인하고, 다른 기기 또는 전체 세션을 종료할 수 있습니다.
-              </p>
-
-              <div className="mt-3 md:mt-4 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  onClick={onLogoutOthers}
-                  disabled={logoutOthersLoading || sessionsLoading}
-                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
-                >
-                  <Laptop className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
-                  {logoutOthersLoading ? "처리 중..." : "다른 기기 로그아웃"}
-                </Button>
-
-                <Button
-                  type="button"
-                  onClick={onLogoutAll}
-                  disabled={logoutAllLoading}
-                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/80 hover:bg-rose-600 text-white border-none rounded-xl"
-                >
-                  <LogOut className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
-                  {logoutAllLoading ? "처리 중..." : "전체 로그아웃"}
-                </Button>
+            <section className="bg-[#0f131d]/90">
+              <div className="pt-5">
+                <div className="flex items-center gap-1.5 md:gap-2 text-white">
+                  <Shield className="h-4 w-4 md:h-5 md:w-5 text-white/80" />
+                  <h2 className="text-xl font-bold tracking-tight">로그인 기기 및 세션</h2>
+                </div>
+                <p className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55">
+                  현재 로그인된 기기를 확인하고, 다른 기기 또는 전체 세션을 종료할 수 있습니다.
+                </p>
               </div>
 
-              {sessionsError ? (
-                <div className="mt-2.5 md:mt-3 text-xs md:text-sm text-rose-300">{sessionsError}</div>
-              ) : null}
+              <div className="pb-5 mt-3 md:mt-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={onLogoutOthers}
+                    disabled={logoutOthersLoading || sessionsLoading}
+                    className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white rounded-lg"
+                  >
+                    <Laptop className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                    {logoutOthersLoading ? "처리 중..." : "다른 기기 로그아웃"}
+                  </Button>
 
-              <div className="mt-3 md:mt-4 space-y-2">
-                {sessionsLoading ? (
-                  <div className="text-xs md:text-sm text-white/50">세션 정보를 불러오는 중...</div>
-                ) : sessions.length === 0 ? (
-                  <div className="text-xs md:text-sm text-white/45">활성 세션이 없습니다.</div>
-                ) : (
-                  sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className="rounded-xl border border-white/10 bg-black/25 p-2.5 md:p-3"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-xs md:text-sm font-semibold text-white">
-                          {parseDeviceLabel(s.userAgent)}
-                        </div>
-                        {s.isCurrent ? (
-                          <span className="rounded-full border border-purple-300/60 bg-purple-400/20 px-2 py-0.5 text-[11px] md:text-xs text-purple-100">
-                            현재 기기
-                          </span>
-                        ) : null}
-                      </div>
+                  <Button
+                    type="button"
+                    onClick={onLogoutAll}
+                    disabled={logoutAllLoading}
+                    className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg"
+                  >
+                    <LogOut className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
+                    {logoutAllLoading ? "처리 중..." : "전체 로그아웃"}
+                  </Button>
+                </div>
 
-                      <div className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55 space-y-1">
-                        <div>
-                          IP: <span className="text-white/75">{s.ip ?? "미확인"}</span>
-                        </div>
-                        <div>
-                          로그인: <span className="text-white/75">{formatDateTime(s.createdAt)}</span>
-                        </div>
-                        <div>
-                          만료: <span className="text-white/75">{formatDateTime(s.expiresAt)}</span>
+                {sessionsError ? (
+                  <div className="mt-2.5 md:mt-3 text-xs md:text-sm text-rose-300">{sessionsError}</div>
+                ) : null}
+
+                <div className="mt-3 md:mt-4 space-y-2">
+                  {sessionsLoading ? (
+                    <div className="text-xs md:text-sm text-white/50">세션 정보를 불러오는 중...</div>
+                  ) : sessions.length === 0 ? (
+                    <div className="text-xs md:text-sm text-white/45">활성 세션이 없습니다.</div>
+                  ) : (
+                    sessions.map((s) => (
+                      <div key={s.id} className="bg-black/25 rounded-lg py-3">
+                        <div className="px-3 md:px-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs md:text-sm font-semibold text-white">
+                              {parseDeviceLabel(s.userAgent)}
+                            </div>
+                            {s.isCurrent ? (
+                              <span className="bg-purple-400/20 rounded-md px-2 py-0.5 text-[11px] md:text-xs text-purple-100">
+                                현재 기기
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-1.5 md:mt-2 text-[11px] md:text-xs text-white/55 space-y-1">
+                            <div>
+                              IP: <span className="text-white/75">{s.ip ?? "미확인"}</span>
+                            </div>
+                            <div>
+                              로그인: <span className="text-white/75">{formatDateTime(s.createdAt)}</span>
+                            </div>
+                            <div>
+                              만료: <span className="text-white/75">{formatDateTime(s.expiresAt)}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
             </section>
 
-            <section className="rounded-xl md:rounded-2xl border border-rose-400/20 bg-rose-500/[0.06] backdrop-blur-xl shadow-[0_10px_50px_rgba(0,0,0,0.35)] p-4 md:p-6">
+            <section className="bg-rose-500/[0.06] p-5">
               <div className="flex items-center gap-1.5 md:gap-2 text-rose-200">
                 <AlertTriangle className="h-4 w-4 md:h-5 md:w-5" />
                 <h2 className="text-sm md:text-base font-bold">계정 탈퇴</h2>
@@ -681,7 +681,7 @@ export function MyPage() {
                     setDeleteOpen(true);
                     setDeleteError(null);
                   }}
-                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white border-none rounded-xl"
+                  className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white rounded-lg"
                 >
                   <Trash2 className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                   계정 탈퇴 진행
@@ -696,7 +696,7 @@ export function MyPage() {
 
       {deleteOpen ? (
         <div className="fixed inset-0 z-[80] px-4 py-6 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-[460px] rounded-xl md:rounded-2xl border border-white/10 bg-[#12121b] p-4 md:p-5">
+          <div className="w-full max-w-[460px] bg-[#12121b] rounded-lg p-4 md:p-5">
             <div className="text-base md:text-lg font-bold text-white">계정 탈퇴 확인</div>
             <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/65">
               계속하려면 확인 문구 <span className="font-semibold text-rose-300">계정 탈퇴</span> 를 입력하고,
@@ -710,7 +710,7 @@ export function MyPage() {
                   value={deleteConfirmText}
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
                   placeholder="계정 탈퇴"
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
+                  className="mt-1 w-full bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                 />
               </div>
 
@@ -724,7 +724,7 @@ export function MyPage() {
                   value={deleteEmail}
                   onChange={(e) => setDeleteEmail(e.target.value)}
                   placeholder="이메일을 입력하세요"
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none focus:border-rose-400/50"
+                  className="mt-1 w-full bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                 />
               </div>
             </div>
@@ -743,7 +743,7 @@ export function MyPage() {
                   setDeleteConfirmText("");
                   setDeleteError(null);
                 }}
-                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl"
+                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-white/5 hover:bg-white/10 text-white"
                 disabled={deleteLoading}
               >
                 취소
@@ -753,7 +753,7 @@ export function MyPage() {
                 type="button"
                 onClick={onDeleteAccount}
                 disabled={deleteLoading}
-                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white border-none rounded-xl"
+                className="pick-cta h-8 md:h-10 px-2.5 md:px-4 text-[11px] md:text-sm bg-rose-600/85 hover:bg-rose-600 text-white rounded-lg"
               >
                 {deleteLoading ? "처리 중..." : "탈퇴 확정"}
               </Button>

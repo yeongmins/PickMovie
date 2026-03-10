@@ -107,7 +107,9 @@ type InferResult = {
 };
 
 function toMediaTypeValue(v: unknown): MediaType | null {
-  const s = String(v ?? '').trim().toLowerCase();
+  const s = String(v ?? '')
+    .trim()
+    .toLowerCase();
   if (s === 'movie' || s === 'tv') return s;
   return null;
 }
@@ -195,7 +197,9 @@ export class SearchService {
   }): Promise<void> {
     const tmdbId = Math.trunc(Number(args.tmdbId));
     const mediaType = args.mediaType === 'tv' ? 'tv' : 'movie';
-    const title = String(args.title ?? '').trim().slice(0, 300);
+    const title = String(args.title ?? '')
+      .trim()
+      .slice(0, 300);
     if (!Number.isFinite(tmdbId) || tmdbId <= 0 || !title) return;
 
     await this.prisma.$executeRawUnsafe(
@@ -594,10 +598,15 @@ export class SearchService {
         const key = `${mt}:${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        if (isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts.viewerIsAdmin }))
+        if (
+          isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts.viewerIsAdmin })
+        )
           continue;
         if (!opts.viewerIsAdmin) {
-          const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(mt, Math.trunc(id));
+          const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
+            mt,
+            Math.trunc(id),
+          );
           if (blockedByKeyword) continue;
         }
 
@@ -871,7 +880,7 @@ export class SearchService {
     yearFrom?: number,
     yearTo?: number,
   ): { score: number; reasons: string[] } {
-    let score = 18; // ✅ 기본 점수 낮춤(인기작이 무조건 이기지 않게)
+    let score = 18; // 기본 점수 낮춤(인기작이 무조건 이기지 않게)
     const reasons: string[] = [];
 
     const title = isString(it.title)
@@ -882,7 +891,7 @@ export class SearchService {
     const overview = isString(it.overview) ? it.overview : '';
     const hayLower = `${title} ${overview}`.toLowerCase();
 
-    // ✅ 검색 소스 보너스: 실제 텍스트 검색 결과를 discover보다 우선
+    // 검색 소스 보너스: 실제 텍스트 검색 결과를 discover보다 우선
     if (it._searchSource === 'search') {
       score += 6;
       reasons.push('검색결과 +6');
@@ -897,12 +906,12 @@ export class SearchService {
       score += add;
       reasons.push(`키워드 일치 +${add}`);
     } else {
-      // ✅ 키워드가 0개면 인기 점수로만 올라오는 것을 방지
+      // 키워드가 0개면 인기 점수로만 올라오는 것을 방지
       score -= 8;
       reasons.push('키워드 미일치 -8');
     }
 
-    // ✅ 부정 토큰 포함 시 강하게 패널티
+    // 부정 토큰 포함 시 강하게 패널티
     const bad = containsAny(hayLower, notTokens);
     if (bad.length) {
       const sub = clamp(bad.length * 20, 0, 60);
@@ -925,7 +934,7 @@ export class SearchService {
       reasons.push('연도 일치 +10');
     }
 
-    // ✅ 인기도 가중치 하향
+    // 인기도 가중치 하향
     const voteAverage = isNumber(it.vote_average)
       ? it.vote_average
       : Number(it.vote_average ?? 0);
@@ -1071,17 +1080,17 @@ export class SearchService {
       const prompt = (dto.prompt ?? '').trim();
       if (!prompt) return { items: [] };
 
-      // ✅ 1) lexicon 기반 정규화/확장/부정어/힌트 추출
+      // 1) lexicon 기반 정규화/확장/부정어/힌트 추출
       const lex = expandWithLexicon(prompt);
 
-      // ✅ 2) 기존 휴리스틱 + 브랜드 사전 시그널
+      // 2) 기존 휴리스틱 + 브랜드 사전 시그널
       const inferred = this.inferFromPrompt(prompt);
       const signals = inferSearchSignals(prompt, dto.includeKeywords ?? [], {
         maxInclude: 24,
       });
       const preferredLanguageSet = new Set(['ko', 'ja', 'en']);
 
-      // ✅ 회사/네트워크/프랜차이즈/키워드 힌트를 적극 반영
+      // 회사/네트워크/프랜차이즈/키워드 힌트를 적극 반영
       const companyHintPool = uniqStrings([
         ...inferred.companyQueries,
         ...signals.companyQueries,
@@ -1118,7 +1127,7 @@ export class SearchService {
       const includeAdult = !!effective.includeAdult;
       const page = Number(effective.page ?? 1) || 1;
 
-      // ✅ 회사/키워드 ID 확보
+      // 회사/키워드 ID 확보
       const companyIds = uniqNums(
         await Promise.all(companyHintPool.map((c) => this.searchCompanyId(c))),
       ).slice(0, 10);
@@ -1126,7 +1135,7 @@ export class SearchService {
         await Promise.all(keywordHintPool.map((k) => this.searchKeywordId(k))),
       ).slice(0, 12);
 
-      // ✅ 3) search/multi 쿼리 강화 (한글 → 영문 aliases까지 포함)
+      // 3) search/multi 쿼리 강화 (한글 → 영문 aliases까지 포함)
       const expandedQueries = uniqStrings([
         prompt,
         ...expandQueriesByBrandLexicon(prompt, 8),
@@ -1144,7 +1153,7 @@ export class SearchService {
         viewerIsAdmin: !!opts?.viewerIsAdmin,
       });
 
-      // ✅ 4) discover 후보(필터 적용)
+      // 4) discover 후보(필터 적용)
       const mediaTypes: MediaType[] = effective.mediaTypes?.length
         ? effective.mediaTypes
         : inferred.mediaTypes;
@@ -1163,7 +1172,7 @@ export class SearchService {
 
       const discoverCands = discoverPages.flat();
 
-      // ✅ 5) merge + de-dup
+      // 5) merge + de-dup
       const merged: Array<
         JsonRecord & {
           mediaType: MediaType;
@@ -1175,10 +1184,14 @@ export class SearchService {
       for (const it of [...searchCands, ...discoverCands]) {
         const id: unknown = it.id;
         if (!isNumber(id)) continue;
-        if (isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts?.viewerIsAdmin }))
+        if (
+          isBlockedContentByPolicy(it, { viewerIsAdmin: !!opts?.viewerIsAdmin })
+        )
           continue;
         if (!opts?.viewerIsAdmin) {
-          const mt = toMediaTypeValue((it as Record<string, unknown>).mediaType);
+          const mt = toMediaTypeValue(
+            (it as Record<string, unknown>).mediaType,
+          );
           if (mt) {
             const blockedByKeyword = await this.hasSoftcoreKeywordByTmdb(
               mt,
@@ -1194,7 +1207,7 @@ export class SearchService {
         merged.push(it);
       }
 
-      // ✅ 6) 정말 아무것도 못 찾았을 때만 retry
+      // 6) 정말 아무것도 못 찾았을 때만 retry
       if (merged.length === 0) {
         const retry = await this.searchMultiCandidates({
           queries: [prompt, ...expandQueriesByBrandLexicon(prompt, 4)],
@@ -1237,7 +1250,7 @@ export class SearchService {
           ? preferredOnly
           : merged;
 
-      // ✅ 7) 점수화 토큰/부정 토큰 구성
+      // 7) 점수화 토큰/부정 토큰 구성
       const tokens = uniqStrings([
         ...(effective.includeKeywords ?? []),
         ...inferred.scoreTokens,
@@ -1253,7 +1266,7 @@ export class SearchService {
         .filter((t) => norm(t).length >= 2)
         .slice(0, 22);
 
-      // ✅ 8) 부정 토큰이 강하게 걸리면 아예 제외(“공포 빼고” 같은 케이스)
+      // 8) 부정 토큰이 강하게 걸리면 아예 제외(“공포 빼고” 같은 케이스)
       const filtered = scopedByLanguage.filter((it) => {
         const title = isString(it.title)
           ? it.title

@@ -20,7 +20,7 @@ export class MoviesService {
     return this.tmdb.getNowPlayingMovies(page, 'KR', 'ko-KR', viewerIsAdmin);
   }
 
-  // ✅ upcoming 추가 (정상 호출)
+  // upcoming 추가 (정상 호출)
   getUpcoming(
     page = 1,
     region = 'KR',

@@ -138,7 +138,10 @@ export class ForYouRecommendationService {
       this.library.getPlaylists(userId),
     ]);
 
-    const sourceItems = this.buildSourceItems(favorites, playlists).slice(0, 40);
+    const sourceItems = this.buildSourceItems(favorites, playlists).slice(
+      0,
+      40,
+    );
     if (sourceItems.length === 0) {
       return this.emptyGenreInsights();
     }

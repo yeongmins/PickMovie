@@ -19,7 +19,13 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError, apiGet, apiPost } from "../lib/apiClient";
-import { AUTH_KEYS, dispatchAuthChanged, openAuthModal } from "../lib/auth";
+import {
+  AUTH_KEYS,
+  consumeAuthIntent,
+  dispatchAuthChanged,
+  openAuthModal,
+  setAuthIntent,
+} from "../lib/auth";
 import { requestResolvedMetaBatch } from "../lib/metaClient";
 
 // 서버가 추론/확장/랭킹 전담 -> 프론트는 검색 호출 + 결과 렌더
@@ -80,6 +86,18 @@ function locationToPath(loc: any): string | null {
   const search = typeof loc.search === "string" ? loc.search : "";
   const hash = typeof loc.hash === "string" ? loc.hash : "";
   return `${pathname}${search}${hash}`;
+}
+
+function withSearchQuery(basePath: string, query: string): string {
+  const safeBase = basePath || "/search";
+  const q = query.trim();
+  if (!q) return safeBase;
+  const [pathWithoutHash, hash = ""] = safeBase.split("#");
+  const [pathname, currentQuery = ""] = pathWithoutHash.split("?");
+  const params = new URLSearchParams(currentQuery);
+  params.set("q", q);
+  const nextQuery = params.toString();
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
 function isAuthedLocal() {
@@ -192,6 +210,7 @@ export default function Search({
   const [trendFetchedAt, setTrendFetchedAt] = useState<Date | null>(null);
 
   const {
+    query: searchedQuery,
     loading: searchLoading,
     error: searchError,
     hasSearched,
@@ -203,6 +222,7 @@ export default function Search({
   } = useSearch();
 
   const [selectionMode, setSelectionMode] = useState(false);
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [selectedMap, setSelectedMap] = useState<Record<string, ResultItem>>({});
   const [playlistModalOpen, setPlaylistModalOpen] = useState(false);
   const [playlistName, setPlaylistName] = useState("");
@@ -327,17 +347,26 @@ export default function Search({
     return st?.rootLocation ?? st?.backgroundLocation ?? null;
   }, [location.state]);
 
+  const routeQuery = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return String(params.get("q") ?? "").trim();
+  }, [location.search]);
+
   const closeTargetPath = useMemo(() => {
     return locationToPath(overlayRootLocation) ?? null;
   }, [overlayRootLocation]);
 
   const doNavigateClose = useCallback(() => {
+    // Overlay로 열린 경우에만 배경 라우트로 복귀한다.
     if (closeTargetPath) {
       navigate(closeTargetPath, { replace: true });
       return;
     }
-    if (window.history.length > 1) navigate(-1);
-    else navigate("/", { replace: true });
+
+    // /search 단독 진입(이메일 인증 리다이렉트 포함)은
+    // 히스토리 back을 타면 외부/중간 라우트로 튀는 케이스가 있어
+    // 항상 메인으로 안정적으로 닫는다.
+    navigate("/", { replace: true });
   }, [closeTargetPath, navigate]);
 
   const requestClose = useCallback(() => {
@@ -380,14 +409,29 @@ export default function Search({
   }, [loadLiveChart]);
 
   useEffect(() => {
+    if (!routeQuery) return;
+    if ((searchQuery || "").trim()) return;
+    onSearchChange(routeQuery);
+  }, [routeQuery, searchQuery, onSearchChange]);
+
+  useEffect(() => {
     const q = (searchQuery || "").trim();
     if (!q) {
       setMode("start");
       clear();
+      setSubmittedQuery("");
       setSelectionMode(false);
       setSelectedMap({});
     }
   }, [searchQuery, clear]);
+
+  useEffect(() => {
+    if (!hasSearched) return;
+    if (submittedQuery.trim()) return;
+    const restored = (searchedQuery || "").trim();
+    if (!restored) return;
+    setSubmittedQuery(restored);
+  }, [hasSearched, searchedQuery, submittedQuery]);
 
   useEffect(() => {
     const q = (searchQuery || "").trim();
@@ -421,6 +465,7 @@ export default function Search({
       if (!query || searchLoading) return;
 
       setMode("results");
+      setSubmittedQuery(query);
       setSelectionMode(false);
       setSelectedMap({});
       setPlaylistModalOpen(false);
@@ -515,11 +560,23 @@ export default function Search({
   }, []);
 
   const enterSelectionMode = useCallback(() => {
-    if (!isAuthed) return;
+    if (!isAuthed) {
+      const returnPath = withSearchQuery(
+        locationToPath(location) ?? "/search",
+        searchQuery,
+      );
+      setAuthIntent({
+        type: "open_playlist_selection",
+        source: "search",
+        returnTo: returnPath,
+      });
+      openAuthModal("login");
+      return;
+    }
     setSelectionMode(true);
     setPlaylistNotice(null);
     setPlaylistError(null);
-  }, [isAuthed]);
+  }, [isAuthed, location, searchQuery]);
 
   const cancelSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -621,6 +678,19 @@ export default function Search({
     });
   }, [navigate]);
 
+  useEffect(() => {
+    if (!isAuthed) return;
+    const intent = consumeAuthIntent(
+      (it) =>
+        it.type === "open_playlist_selection" &&
+        it.source === "search",
+    );
+    if (!intent) return;
+    setSelectionMode(true);
+    setPlaylistError(null);
+    setPlaylistNotice("로그인되었습니다. 추가할 콘텐츠를 선택해 주세요.");
+  }, [isAuthed]);
+
   const containerClass = useMemo(() => {
     const base = ["mx-auto w-full", isTablet ? "px-4 pt-4" : "px-4 pt-6"].join(
       " ",
@@ -664,7 +734,11 @@ export default function Search({
         }}
       />
 
-      <div className="relative w-full h-full" onMouseDown={onRootMouseDown}>
+      <div
+        id={overlayRootLocation ? undefined : "main-content"}
+        className="relative w-full h-full"
+        onMouseDown={onRootMouseDown}
+      >
         <motion.div
           layout
           transition={{
@@ -676,18 +750,29 @@ export default function Search({
           className={containerClass}
         >
           <div ref={panelRef}>
+            <h1 className="sr-only">PickMovie 콘텐츠 검색</h1>
             <div className="h-12 rounded-2xl bg-white/10 backdrop-blur-xl flex items-center gap-2 px-3">
               <button
                 type="button"
                 onClick={requestClose}
                 className="h-9 w-9 rounded-xl hover:bg-white/10 transition flex items-center justify-center text-white/85"
                 aria-label="닫기"
+                title="검색 닫기"
               >
                 <span className="text-xl leading-none">←</span>
               </button>
 
-              <form onSubmit={onSubmit} className="flex-1 flex items-center">
+              <form
+                onSubmit={onSubmit}
+                role="search"
+                aria-label="PickMovie 콘텐츠 검색"
+                className="flex-1 flex items-center"
+              >
+                <label htmlFor="content-search-input" className="sr-only">
+                  작품명 검색
+                </label>
                 <input
+                  id="content-search-input"
                   ref={searchInputRef}
                   type="text"
                   inputMode="search"
@@ -695,6 +780,8 @@ export default function Search({
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
                   placeholder="작품명을 검색해보세요"
+                  autoComplete="off"
+                  spellCheck={false}
                   className="flex-1 bg-transparent outline-none text-white placeholder-white/50 text-sm"
                 />
 
@@ -752,7 +839,7 @@ export default function Search({
                 ) : (
                   <ResultsPanel
                     title="검색 결과"
-                    query={(searchQuery || "").trim()}
+                    query={submittedQuery}
                     isAuthed={isAuthed}
                     isAdmin={isAdmin}
                     loading={searchLoading}
@@ -852,12 +939,12 @@ function StartPanel({
             <div className="mt-3">로딩중입니다</div>
           </div>
         ) : isCollecting ? (
-          <div className="py-14 px-3">
-            <div className="mx-auto max-w-[560px] rounded-2xl border border-sky-300/35 bg-[linear-gradient(180deg,rgba(22,28,40,0.94),rgba(12,16,24,0.96))] px-6 py-7 text-center shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur">
-              <p className="text-base font-semibold text-sky-100">
+          <div className="py-6 px-3">
+            <div className="mx-auto max-w-[340px] px-2 py-2 text-center">
+              <p className="text-[16px] font-semibold text-white/92">
                 실시간 검색 데이터를 수집중입니다
               </p>
-              <p className="mt-2 text-sm text-sky-100/70">
+              <p className="mt-1.5 text-[13px] text-white/62">
                 인기 컨텐츠 Top 10이 집계되면 순위를 보여드릴게요.
               </p>
             </div>
@@ -1039,12 +1126,11 @@ function ResultsPanel({
             <button
               type="button"
               onClick={onEnterSelectionMode}
-              disabled={!isAuthed}
               className={[
                 "h-9 px-3 rounded-xl text-xs transition inline-flex items-center gap-2",
                 isAuthed
                   ? "bg-white/10 hover:bg-white/15 text-white/90"
-                  : "bg-white/5 text-white/45 cursor-not-allowed",
+                  : "bg-white/10 hover:bg-white/15 text-white/80",
               ].join(" ")}
               aria-label="플레이리스트 추가 모드 시작"
               title={

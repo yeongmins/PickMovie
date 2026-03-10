@@ -79,7 +79,7 @@ function toFavoriteItemsFromDtoItems(
   return Array.from(map.values());
 }
 
-// ✅ playlist 페이지용: tmdb 상세 캐시
+// playlist 페이지용: tmdb 상세 캐시
 const _plDetailCache = new Map<string, ContentCardItem | null>();
 const _plDetailInFlight = new Map<string, Promise<ContentCardItem | null>>();
 
@@ -450,7 +450,7 @@ export const PlaylistSection = forwardRef<
   };
 
   /**
-   * ✅ 드래프트 생성 중복 클릭 방지(Enter/더블클릭)
+   * 드래프트 생성 중복 클릭 방지(Enter/더블클릭)
    */
   const createLockRef = useRef(false);
 
@@ -502,7 +502,7 @@ export const PlaylistSection = forwardRef<
   const bottomSheetOpen = isEditing || draft.active;
 
   /**
-   * ✅ "편집-플레이리스트 추가-플레이리스트 생성" 흐름에서
+   * "편집-플레이리스트 추가-플레이리스트 생성" 흐름에서
    * 생성 중에는 다른 영역 클릭이 절대 되면 안됨.
    *
    * - 기존: BackgroundDimmer가 pointer-events-none이라 클릭이 다 통과했음
@@ -555,7 +555,7 @@ export const PlaylistSection = forwardRef<
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 12 }}
               transition={{ duration: 0.32, ease: "easeOut" }}
-              className="mb-10 relative z-[65]" // ✅ Shield 위로 올려서 입력/생성만 가능
+              className="mb-10 relative z-[65]" // Shield 위로 올려서 입력/생성만 가능
             >
               <div className={`${pad} flex items-center justify-between`}>
                 <div className="flex-1 min-w-0">
@@ -638,7 +638,7 @@ export const PlaylistSection = forwardRef<
               const isEditingThis = editingPlaylistId === pl.id;
               const isLastCarousel = idx === serverPlaylists.length - 1;
 
-            // ✅ 생성(draft) 중에는 모든 기존 섹션을 딤+비활성
+            // 생성(draft) 중에는 모든 기존 섹션을 딤+비활성
             const dimmed = draft.active
               ? true
               : bottomSheetOpen && !isEditingThis && !draft.active;

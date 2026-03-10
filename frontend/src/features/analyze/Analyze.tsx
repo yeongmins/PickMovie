@@ -1,9 +1,11 @@
 // src/features/analyze/Analyze.tsx
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useLocation } from "react-router-dom";
 import { Header } from "../../components/layout/Header";
 import { PageFooter } from "../../components/layout/Footer";
 import type { AddItemsToPlaylistResult } from "../../App";
+import { getAuthIntent } from "../../lib/auth";
 
 import { GenreStep } from "./components/GenreStep";
 import { MoodStep } from "./components/MoodStep";
@@ -40,6 +42,83 @@ export interface UserPreferences {
   excludes: string[];
 }
 
+const ANALYZE_RESUME_KEY = "pickmovie_analyze_resume_v1";
+const ANALYZE_RESUME_TTL_MS = 30 * 60 * 1000;
+
+type AnalyzeResumeSnapshot = {
+  step: number;
+  preferences: UserPreferences;
+  createdAt: number;
+  expiresAt: number;
+};
+
+const EMPTY_PREFERENCES: UserPreferences = {
+  genres: [],
+  moods: [],
+  runtime: "",
+  releaseYear: "",
+  country: "",
+  excludes: [],
+};
+
+function normalizePreferences(input: Partial<UserPreferences> | null | undefined): UserPreferences {
+  return {
+    genres: Array.isArray(input?.genres) ? input.genres.map((x) => String(x)) : [],
+    moods: Array.isArray(input?.moods) ? input.moods.map((x) => String(x)) : [],
+    runtime: String(input?.runtime ?? ""),
+    releaseYear: String(input?.releaseYear ?? ""),
+    country: String(input?.country ?? ""),
+    excludes: Array.isArray(input?.excludes) ? input.excludes.map((x) => String(x)) : [],
+  };
+}
+
+function readAnalyzeResumeSnapshot(): AnalyzeResumeSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ANALYZE_RESUME_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AnalyzeResumeSnapshot>;
+    const expiresAt = Number(parsed?.expiresAt ?? 0);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      localStorage.removeItem(ANALYZE_RESUME_KEY);
+      return null;
+    }
+    const step = Math.max(0, Math.min(4, Number(parsed?.step ?? 0)));
+    return {
+      step,
+      preferences: normalizePreferences(parsed?.preferences),
+      createdAt: Number(parsed?.createdAt ?? Date.now()),
+      expiresAt,
+    };
+  } catch {
+    try {
+      localStorage.removeItem(ANALYZE_RESUME_KEY);
+    } catch {}
+    return null;
+  }
+}
+
+function writeAnalyzeResumeSnapshot(step: number, preferences: UserPreferences) {
+  if (typeof window === "undefined") return;
+  try {
+    const now = Date.now();
+    const snapshot: AnalyzeResumeSnapshot = {
+      step: Math.max(0, Math.min(4, Number(step) || 0)),
+      preferences: normalizePreferences(preferences),
+      createdAt: now,
+      expiresAt: now + ANALYZE_RESUME_TTL_MS,
+    };
+    localStorage.setItem(ANALYZE_RESUME_KEY, JSON.stringify(snapshot));
+  } catch {}
+}
+
+function clearAnalyzeResumeSnapshot() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(ANALYZE_RESUME_KEY);
+  } catch {}
+}
+
 export function Analyze({
   onComplete,
   initialStep = 0,
@@ -53,18 +132,28 @@ export function Analyze({
   onAddItemsToPlaylist,
   onOpenDetail,
 }: AnalyzeProps) {
+  const location = useLocation();
+  const initialResume = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const resumeRequested = params.get("resume") === "1";
+    const intent = getAuthIntent();
+    const hasAnalyzeIntent =
+      !!intent &&
+      intent.type === "open_playlist_selection" &&
+      intent.source === "analyze";
+    if (!resumeRequested && !hasAnalyzeIntent) {
+      return null;
+    }
+    return readAnalyzeResumeSnapshot();
+  }, [location.search]);
+
   // 현재 온보딩 단계
-  const [step, setStep] = useState(initialStep);
+  const [step, setStep] = useState(() => initialResume?.step ?? initialStep);
 
   // 온보딩에서 수집하는 모든 취향 정보
-  const [preferences, setPreferences] = useState<UserPreferences>({
-    genres: [],
-    moods: [],
-    runtime: "",
-    releaseYear: "",
-    country: "",
-    excludes: [],
-  });
+  const [preferences, setPreferences] = useState<UserPreferences>(
+    () => initialResume?.preferences ?? EMPTY_PREFERENCES,
+  );
 
   // 취향 상태 업데이트 유틸
   const updatePreferences = (updates: Partial<UserPreferences>) => {
@@ -74,6 +163,11 @@ export function Analyze({
   const goToStep = (newStep: number) => {
     setStep(newStep);
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
 
   const handleGenreSelection = (genres: string[]) => {
     updatePreferences({ genres });
@@ -98,15 +192,13 @@ export function Analyze({
   // 추천 다시 시작 (취향 초기화 + 1단계로 이동)
   const handleRestart = () => {
     goToStep(0);
-    setPreferences({
-      genres: [],
-      moods: [],
-      runtime: "",
-      releaseYear: "",
-      country: "",
-      excludes: [],
-    });
+    setPreferences(EMPTY_PREFERENCES);
+    clearAnalyzeResumeSnapshot();
   };
+
+  useEffect(() => {
+    writeAnalyzeResumeSnapshot(step, preferences);
+  }, [step, preferences]);
 
   // 각 step 인덱스에 대응하는 JSX 구성
   const steps = [
@@ -163,9 +255,15 @@ export function Analyze({
   ];
 
   return (
-    <div className="min-h-screen bg-[#10131b] text-white">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      className="min-h-screen bg-[#10131b] text-white"
+    >
       <Header currentSection="home" />
-      <div
+      <main
+        id="main-content"
         className={[
           "pt-16",
           "pb-0",
@@ -183,9 +281,9 @@ export function Analyze({
             {steps[step]}
           </motion.div>
         </AnimatePresence>
-      </div>
+      </main>
       <PageFooter className="mt-0" />
-    </div>
+    </motion.div>
   );
 }
 

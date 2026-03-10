@@ -72,11 +72,11 @@ function hasAniGenre(item: ContentCardItem): boolean {
 }
 
 /**
- * ✅ Ani 캐러셀이 TV로 섞이는 원인:
+ * Ani 캐러셀이 TV로 섞이는 원인:
  * - 일부 meta에서는 content_kind가 "animation" / "animated" 등으로 들어오거나,
  *   Ani 뱃지는 다른 필드로 나오는데 이 함수가 못 잡아서 tv로 분류됨.
  *
- * ✅ 해결:
+ * 해결:
  * - content_kind/contentKind/... 값에 ani/anime 뿐 아니라 animation/animated/cartoon까지 폭넓게 인식
  * - 문자열 정규화 후 포함 여부로 판별
  */
@@ -114,7 +114,7 @@ function categoryTitle(k: CategoryGroupKey) {
   return "애니메이션";
 }
 
-// ✅ favorites 페이지용: tmdb 상세 캐시
+// favorites 페이지용: tmdb 상세 캐시
 const _favDetailCache = new Map<string, ContentCardItem | null>();
 const _favDetailInFlight = new Map<string, Promise<ContentCardItem | null>>();
 
@@ -171,7 +171,7 @@ export function FavoritesSection({
     styles,
   } = ui;
 
-  // ✅ favoritesKeySet은 "서버 favorites"를 기준으로 만든다 (카드 로딩 실패/지연과 무관)
+  // favoritesKeySet은 "서버 favorites"를 기준으로 만든다 (카드 로딩 실패/지연과 무관)
   const favoritesKeySet = useMemo(() => {
     const s = new Set<string>();
     for (const f of Array.isArray(favorites) ? favorites : []) {
@@ -187,7 +187,7 @@ export function FavoritesSection({
     onFavoritesKeySetChange(favoritesKeySet);
   }, [favoritesKeySet, onFavoritesKeySetChange]);
 
-  // ✅ favorites(id/mediaType) → TMDB 상세로 카드 아이템 변환
+  // favorites(id/mediaType) → TMDB 상세로 카드 아이템 변환
   const [favItems, setFavItems] = useState<ContentCardItem[]>([]);
 
   useEffect(() => {
@@ -270,7 +270,7 @@ export function FavoritesSection({
   const allUnique = useMemo(() => uniqueByKey(favItems), [favItems]);
   const hasFavorites = favoritesKeySet.size > 0;
 
-  // ✅ 카테고리 그룹핑(Movie/TV/Ani)
+  // 카테고리 그룹핑(Movie/TV/Ani)
   const grouped = useMemo(() => {
     const g: Record<CategoryGroupKey, ContentCardItem[]> = {
       movie: [],
@@ -284,7 +284,7 @@ export function FavoritesSection({
     return g;
   }, [allUnique]);
 
-  // ✅ 찜이 많은 순서대로 섹션 배치 (없으면 섹션 생성 X)
+  // 찜이 많은 순서대로 섹션 배치 (없으면 섹션 생성 X)
   const orderedCategories = useMemo(() => {
     const keys: CategoryGroupKey[] = ["movie", "tv", "ani"];
     const nonEmpty = keys
@@ -306,7 +306,7 @@ export function FavoritesSection({
   }, [grouped]);
 
   /** =========================
-   * ✅ 편집 상태: 한 번에 하나의 섹션만 편집(all / movie / tv / ani)
+   * 편집 상태: 한 번에 하나의 섹션만 편집(all / movie / tv / ani)
    * ========================= */
   const [editingGroup, setEditingGroup] = useState<FavoritesGroupKey | null>(
     null,
@@ -348,7 +348,7 @@ export function FavoritesSection({
     setPlaylistPickerOpen(false);
   };
 
-  // ✅ 섹션별 초기화
+  // 섹션별 초기화
   const [resetTarget, setResetTarget] = useState<FavoritesGroupKey | null>(
     null,
   );
@@ -378,7 +378,7 @@ export function FavoritesSection({
     setResetTarget(null);
   };
 
-  // ✅ 전체선택/전체취소 (편집 중인 섹션 기준)
+  // 전체선택/전체취소 (편집 중인 섹션 기준)
   const allSelected =
     editingOpen &&
     currentItems.length > 0 &&
@@ -396,7 +396,7 @@ export function FavoritesSection({
   };
 
   /** =========================
-   * ✅ 플레이리스트 추가 모달
+   * 플레이리스트 추가 모달
    * ========================= */
   const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
 
@@ -422,11 +422,11 @@ export function FavoritesSection({
   };
 
   /** =========================
-   * ✅ 편집 모드 배경 딤 (찜 스타일)
+   * 편집 모드 배경 딤 (찜 스타일)
    * ========================= */
   const BackgroundDimmer = <EditDimmer open={editingOpen} />;
 
-  // ✅ ESC: 모달>편집 순으로 닫기
+  // ESC: 모달>편집 순으로 닫기
   useEffect(() => {
     if (!editingOpen) return;
 
@@ -500,7 +500,7 @@ export function FavoritesSection({
             }
           />
 
-          {/* ✅ 찜이 없을 때 */}
+          {/* 찜이 없을 때 */}
           {favoritesKeySet.size === 0 ? (
             <div className={`${pad} min-h-[300px] flex items-center justify-center`}>
               <div className="w-full text-center">

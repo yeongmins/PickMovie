@@ -164,7 +164,9 @@ export class HomeChartsService {
     return blocked;
   }
 
-  async getCharts(opts?: { viewerIsAdmin?: boolean }): Promise<HomeChartsResponse> {
+  async getCharts(opts?: {
+    viewerIsAdmin?: boolean;
+  }): Promise<HomeChartsResponse> {
     const now = Date.now();
     if (this.chartsCache && now < this.chartsCacheExpiresAt) {
       return await this.applyContentPolicyToCharts(this.chartsCache, opts);

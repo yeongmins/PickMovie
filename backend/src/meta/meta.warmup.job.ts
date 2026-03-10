@@ -12,7 +12,7 @@ import type { ResolveRequest } from './meta.types';
 export class MetaWarmupJob implements OnModuleInit {
   private readonly logger = new Logger(MetaWarmupJob.name);
 
-  // ✅ HomeChartsScheduler처럼 advisory lock 사용 (서버 여러 개 떠도 1개만 실행)
+  // HomeChartsScheduler처럼 advisory lock 사용 (서버 여러 개 떠도 1개만 실행)
   private readonly lockId = 913_101;
 
   constructor(
@@ -28,7 +28,7 @@ export class MetaWarmupJob implements OnModuleInit {
   }
 
   /**
-   * ✅ 10분마다 “스냅샷” 갱신
+   * 10분마다 “스냅샷” 갱신
    * - env로 꺼둘 수 있게
    */
   @Cron('*/10 * * * *', { timeZone: 'Asia/Seoul' })
@@ -65,7 +65,7 @@ export class MetaWarmupJob implements OnModuleInit {
         `[${tag}] warmup start: targets=${reqs.length} (batch=${batch})`,
       );
 
-      // ✅ 핵심: resolveBatch가 캐시 없으면 computeAndUpsert로 DB를 채움
+      // 핵심: resolveBatch가 캐시 없으면 computeAndUpsert로 DB를 채움
       await this.meta.resolveBatch(reqs);
 
       this.logger.log(`[${tag}] warmup done`);
@@ -78,7 +78,7 @@ export class MetaWarmupJob implements OnModuleInit {
   }
 
   /**
-   * ✅ “No Image”를 줄이려면
+   * “No Image”를 줄이려면
    * 1) 이미 존재하는 캐시 중에서
    *    - expiresAt 임박/지남
    *    - metaVersion 낮음
@@ -106,7 +106,7 @@ export class MetaWarmupJob implements OnModuleInit {
           // 만료 임박/만료
           { expiresAt: { lte: new Date(Date.now() + 1000 * 60 * 60 * 24) } },
           // 버전 낮은 캐시
-          { metaVersion: { lt: 5 } }, // ✅ MetaService의 TARGET_META_VERSION(=5)와 맞춰줘
+          { metaVersion: { lt: 5 } }, // MetaService의 TARGET_META_VERSION(=5)와 맞춰줘
           // computed.contentCardPosterPath 누락 (sourcesUsed JSON)
           // Prisma JSON 필터는 프로젝트 설정마다 문법이 달라서 “raw”로 안전하게 처리
         ],

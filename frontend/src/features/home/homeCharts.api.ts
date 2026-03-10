@@ -57,7 +57,7 @@ export type ResolvedMeta = {
   sourcesUsed: unknown | null;
 };
 
-// ✅ TMDB 디테일(프록시)에서 카드에 필요한 최소만 씀
+// TMDB 디테일(프록시)에서 카드에 필요한 최소만 씀
 export type TmdbDetailLike = {
   id: number;
   title?: string;
@@ -86,7 +86,7 @@ export async function fetchMetaBatch(
 }
 
 /**
- * ✅ /tmdb/proxy/*path 가 TMDB v3 경로를 프록시한다고 가정:
+ * /tmdb/proxy/*path 가 TMDB v3 경로를 프록시한다고 가정:
  *   /tmdb/proxy/movie/550?language=ko-KR
  *   /tmdb/proxy/tv/1399?language=ko-KR
  */

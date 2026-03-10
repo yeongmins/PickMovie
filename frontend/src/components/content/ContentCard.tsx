@@ -1,5 +1,5 @@
 // frontend/src/components/content/ContentCard.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Heart, Star, X } from "lucide-react";
 import { getPosterUrl } from "../../lib/tmdb";
 
@@ -24,7 +24,7 @@ export type {
 } from "./contentCard.types";
 
 /**
- * ✅ 속도 최적화:
+ * 속도 최적화:
  * - 카드가 "보이기 전" meta 호출 X
  * - 화면 진입 시 meta lazy 로드
  */
@@ -63,7 +63,7 @@ function useInViewOnce<T extends Element>(opts?: {
 }
 
 /**
- * ✅ type 표시도 meta 단일 소스
+ * type 표시도 meta 단일 소스
  * - meta 없으면 “표시 안 함(—)”
  */
 function typeTextFromMeta(meta: ResolvedMeta | null) {
@@ -75,7 +75,7 @@ function typeTextFromMeta(meta: ResolvedMeta | null) {
 }
 
 /**
- * ✅ 프론트 추론 금지:
+ * 프론트 추론 금지:
  * - media_type이 명확할 때만 meta 요청
  */
 function mediaTypeFromItemStrict(item: any): "movie" | "tv" | null {
@@ -92,7 +92,6 @@ export function ContentCard({
   onClick,
   onToggleFavorite,
   onRemove,
-  context = "default",
   onPosterError,
   className,
   canFavorite,
@@ -165,7 +164,7 @@ export function ContentCard({
           ? "재개봉"
           : null;
 
-  // ✅ 시즌카드: __yearLabel이 있으면 그걸 우선 표시
+  // 시즌카드: __yearLabel이 있으면 그걸 우선 표시
   const yearLabel = useMemo(() => {
     const override = String((item as any).__yearLabel ?? "").trim();
     if (override) return override;
@@ -174,7 +173,7 @@ export function ContentCard({
     return y ? y : "—";
   }, [item, meta?.unifiedYearLabel]);
 
-  // ✅ 카드 포스터:
+  // 카드 포스터:
   // - 일반: meta.contentCardPosterPath 우선
   // - 시즌카드: __forceItemPoster=true면 item.poster_path 고정
   const effectivePosterPath = useMemo(() => {
@@ -221,7 +220,11 @@ export function ContentCard({
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick();
+        if (e.key === "Enter") onClick();
+        if (e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
       }}
       className={`group cursor-pointer select-none w-[200px] ${className ?? ""}`}
       aria-label={`${title} 상세 보기`}

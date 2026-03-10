@@ -53,7 +53,7 @@ type TmdbImagesResponse = {
 
 type LogoChoice = {
   filePath: string | null;
-  invert: boolean; // ✅ 흰 로고 우선, 검정만 있으면 invert로 흰색화
+  invert: boolean; // 흰 로고 우선, 검정만 있으면 invert로 흰색화
 };
 
 const _titleLogoCache = new Map<string, LogoChoice>();
@@ -78,7 +78,7 @@ function pickKoreanCandidates(logos?: TmdbImageAsset[]) {
 }
 
 /**
- * ✅ 로고 밝기 측정(가능할 때만):
+ * 로고 밝기 측정(가능할 때만):
  * - CORS/네트워크 등에 의해 실패할 수 있음 → 그 경우 fallback
  */
 async function measureLogoBrightness(filePath: string): Promise<number | null> {
@@ -150,7 +150,7 @@ async function pickBestKoreanLogoChoice(
 
     if (!candidates.length) return { filePath: null, invert: false };
 
-    // ✅ “흰색 로고 우선”
+    // “흰색 로고 우선”
     // - 후보 중 가장 밝은 로고 선택
     // - 측정 실패하면 1등 후보로 fallback
     const top = candidates.slice(0, 4);
@@ -267,7 +267,7 @@ function TitleLogoOrText({ movie }: { movie: any }) {
   const src1x = filePath ? titleLogoCdnUrl(filePath, "w500") : null;
   const src2x = filePath ? titleLogoCdnUrl(filePath, "w780") : null;
 
-  // ✅ 로고 로딩 실패 시 텍스트로 안전하게 fallback
+  // 로고 로딩 실패 시 텍스트로 안전하게 fallback
   const [logoReady, setLogoReady] = useState(false);
   const [forceText, setForceText] = useState(false);
 
@@ -306,7 +306,7 @@ function TitleLogoOrText({ movie }: { movie: any }) {
             onLoad={() => setLogoReady(true)}
             onError={() => {
               setLogoReady(false);
-              setForceText(true); // ✅ 로고가 안 뜨면 빈칸 방지
+              setForceText(true); // 로고가 안 뜨면 빈칸 방지
             }}
             initial={false}
             animate={{
@@ -380,7 +380,7 @@ function TitleLogoOrText({ movie }: { movie: any }) {
 }
 
 /**
- * ✅ (중요) Hooks 에러 방지:
+ * (중요) Hooks 에러 방지:
  * - useFavoritesHeroState 내부가 movies 길이에 따라 훅 흐름이 달라질 수 있어서
  * - "movies가 비어있을 때는 아예 훅을 호출하지 않고" (컴포넌트 자체를 안 마운트)
  * - movies가 준비된 이후에만 Inner를 마운트해서 훅 호출 순서를 안정화
@@ -389,7 +389,7 @@ function FavoritesCarouselInner(
   props: FavoritesCarouselProps & {
     layout?: CarouselLayout;
     onTrailerClick?: (movie: any) => void;
-    movies: any[]; // ✅ 여기서는 항상 배열(비어있지 않음) 보장
+    movies: any[]; // 여기서는 항상 배열(비어있지 않음) 보장
   },
 ) {
   const {
@@ -430,7 +430,7 @@ function FavoritesCarouselInner(
 
   const displayYearText = yearText && yearText !== "—" ? yearText : "";
 
-  // ✅ Inner에서는 movies가 존재하더라도, 필터 결과(activeMovies)가 0일 수는 있음(안전)
+  // Inner에서는 movies가 존재하더라도, 필터 결과(activeMovies)가 0일 수는 있음(안전)
   if (activeMovies.length === 0) {
     if (!loggedIn) {
       return (
@@ -725,11 +725,11 @@ export function FavoritesCarousel(
   const heightClass =
     layout === "embedded" ? "h-full min-h-0" : "h-[85svh] min-h-[85svh]";
 
-  // ✅ movies가 undefined/null로 들어오는 순간이 있으면 "로딩"으로 간주
+  // movies가 undefined/null로 들어오는 순간이 있으면 "로딩"으로 간주
   const trendLoading = movies == null;
   const moviesSafe = Array.isArray(movies) ? movies : [];
 
-  // ✅ movies가 비어있을 때는 Inner를 아예 마운트하지 않음 (Hooks 안정화)
+  // movies가 비어있을 때는 Inner를 아예 마운트하지 않음 (Hooks 안정화)
   if (moviesSafe.length === 0) {
     const loggedIn = isLoggedInFallback();
 

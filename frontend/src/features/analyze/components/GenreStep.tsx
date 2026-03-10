@@ -41,7 +41,7 @@ const MAX_SELECTION = 3;
 
 export function GenreStep({
   onNext,
-  onBack,
+  onBack: _onBack,
   selectedGenres,
   onGenresChange,
   currentPreferences,

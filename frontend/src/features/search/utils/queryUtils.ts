@@ -1,6 +1,6 @@
 // frontend/src/features/search/utils/queryUtils.ts
-// ✅ 이번 정리에서는 "컴파일 깨짐 방지"를 위해 기존 exports는 유지.
-// ✅ 다만 searchApi에서는 추론 로직(inferMediaTypes/inferYearRange/extractIncludeKeywords)을 더 이상 사용하지 않음.
+// 이번 정리에서는 "컴파일 깨짐 방지"를 위해 기존 exports는 유지.
+// 다만 searchApi에서는 추론 로직(inferMediaTypes/inferYearRange/extractIncludeKeywords)을 더 이상 사용하지 않음.
 
 export type MediaType = "movie" | "tv";
 
@@ -37,7 +37,7 @@ const STOP = new Set([
   "부탁",
 ]);
 
-// ✅ UI 표시용 태그 정도는 프론트에서 유지(칩/배지에 활용)
+// UI 표시용 태그 정도는 프론트에서 유지(칩/배지에 활용)
 export function extractTagsFromQuery(q: string) {
   const cleaned = q
     .replace(/[^\p{L}\p{N}\s]/gu, " ")

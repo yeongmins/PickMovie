@@ -7,7 +7,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-// ✅ Array.isArray는 타입이 any[]로 좁혀질 수 있어서, 직접 unknown[] 타입가드 제공
+// Array.isArray는 타입이 any[]로 좁혀질 수 있어서, 직접 unknown[] 타입가드 제공
 function isUnknownArray(v: unknown): v is unknown[] {
   return Array.isArray(v);
 }
@@ -35,7 +35,7 @@ function parseTmdbId(v: unknown): number | null {
 }
 
 /**
- * ✅ body가 다음 형태 모두 허용:
+ * body가 다음 형태 모두 허용:
  * 1) [ { mediaType, tmdbId }, ... ]
  * 2) { items: [...] }
  * 3) { reqs: [...] }
@@ -45,7 +45,7 @@ function extractArray(body: unknown): unknown[] | null {
   if (isUnknownArray(body)) return body;
   if (!isRecord(body)) return null;
 
-  // ✅ Record<string, unknown>에서 안전하게 접근 (dot 접근 대신 bracket)
+  // Record<string, unknown>에서 안전하게 접근 (dot 접근 대신 bracket)
   const candidates: unknown[] = [body['items'], body['reqs'], body['requests']];
 
   for (const c of candidates) {
@@ -78,7 +78,7 @@ export class MetaController {
       reqs.push({ mediaType, tmdbId });
     }
 
-    // ✅ 빈 요청도 프론트 안전하게 200 처리
+    // 빈 요청도 프론트 안전하게 200 처리
     if (reqs.length === 0) return { items: [] };
 
     const items = await this.meta.resolveBatch(reqs);

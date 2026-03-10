@@ -368,13 +368,13 @@ function SurveyJourneyPanel() {
   return (
     <div className="relative h-full overflow-hidden rounded-[2rem] border border-white/15 bg-[radial-gradient(circle_at_12%_8%,rgba(153,69,255,0.2),transparent_44%),linear-gradient(160deg,#050d25,#091836_45%,#0a1430_100%)] p-4 xl:p-6">
       <div className="w-full">
-        <div className="grid h-full min-h-[560px] min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(200px,28%,300px)]">
+        <div className="grid h-full min-h-[560px] min-w-0 items-center gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(200px,28%,300px)] lg:items-stretch">
           <motion.div
             key={activeStep.id}
             initial={{ opacity: 0, x: 16 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45, ease: "easeOut" }}
-            className="order-1 min-w-0 rounded-3xl border border-white/12 bg-black/18 p-3"
+            className="order-1 min-w-0 self-center rounded-3xl border border-white/12 bg-black/18 p-3 lg:self-auto"
           >
             <div className="mb-3">
               <div className="flex items-center gap-2.5 mb-1.5">
@@ -566,7 +566,7 @@ function SurveyJourneyPanel() {
             </div>
           </motion.div>
 
-          <div className="order-2 min-w-0 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-4">
+          <div className="order-2 hidden min-w-0 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-4 lg:block">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="w-3.5 h-3.5 text-purple-200" />
               <h3 className="text-white text-sm font-medium">선택한 취향</h3>
@@ -661,12 +661,12 @@ function SurveyJourneyPanel() {
                 </div>
               </div>
 
-              {displayedExcludes.length > 0 && (
-                <div className="pt-3 border-t border-white/10">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CircleX className="w-3 h-3 text-orange-300" />
-                    <span className="text-gray-300 text-xs">제외 요소</span>
-                  </div>
+              <div className="pt-3 border-t border-white/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <CircleX className="w-3 h-3 text-orange-300" />
+                  <span className="text-gray-300 text-xs">제외 요소</span>
+                </div>
+                {displayedExcludes.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
                     {displayedExcludes.map((exclude) => (
                       <span
@@ -677,8 +677,10 @@ function SurveyJourneyPanel() {
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-gray-500 text-xs">선택되지 않음</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -697,6 +699,7 @@ export function Info() {
       <Header currentSection="home" />
 
       <main
+        id="main-content"
         className={`relative overflow-hidden pt-16 text-white ${TITLE_FONT}`}
       >
         <div

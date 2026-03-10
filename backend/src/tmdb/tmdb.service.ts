@@ -17,7 +17,7 @@ import type { TmdbMovieResult, TmdbMultiResult } from './tmdb.types';
 
 export type MediaType = 'movie' | 'tv';
 
-/** ✅ controllers에서 import하는 타입(호환 유지) */
+/** controllers에서 import하는 타입(호환 유지) */
 export type TmdbQuery = Record<string, string | number | boolean | undefined>;
 
 type TmdbPagedResponse<T> = {
@@ -248,7 +248,10 @@ export class TmdbService {
     };
   }
 
-  private extractItemMediaType(item: unknown, fallback?: MediaTypeHint): MediaTypeHint {
+  private extractItemMediaType(
+    item: unknown,
+    fallback?: MediaTypeHint,
+  ): MediaTypeHint {
     if (fallback) return fallback;
     if (!isRecord(item)) return null;
     const mt = getString(item, 'media_type').toLowerCase();
@@ -266,25 +269,30 @@ export class TmdbService {
     id: number,
   ): Promise<boolean> {
     const cacheKey = `kw-softcore:${mediaType}:${id}`;
-    return await this.keywordPolicyCache.getOrSet<boolean>(cacheKey, async () => {
-      const path =
-        mediaType === 'movie' ? `/movie/${id}/keywords` : `/tv/${id}/keywords`;
-      const raw = await this.tmdbGetOrNull<unknown>(path);
-      if (!isRecord(raw)) return false;
+    return await this.keywordPolicyCache.getOrSet<boolean>(
+      cacheKey,
+      async () => {
+        const path =
+          mediaType === 'movie'
+            ? `/movie/${id}/keywords`
+            : `/tv/${id}/keywords`;
+        const raw = await this.tmdbGetOrNull<unknown>(path);
+        if (!isRecord(raw)) return false;
 
-      const listRaw = Array.isArray(raw['keywords'])
-        ? raw['keywords']
-        : Array.isArray(raw['results'])
-          ? raw['results']
-          : [];
+        const listRaw = Array.isArray(raw['keywords'])
+          ? raw['keywords']
+          : Array.isArray(raw['results'])
+            ? raw['results']
+            : [];
 
-      for (const it of listRaw) {
-        if (!isRecord(it)) continue;
-        const name = getString(it, 'name').toLowerCase();
-        if (name.includes('softcore')) return true;
-      }
-      return false;
-    });
+        for (const it of listRaw) {
+          if (!isRecord(it)) continue;
+          const name = getString(it, 'name').toLowerCase();
+          if (name.includes('softcore')) return true;
+        }
+        return false;
+      },
+    );
   }
 
   private async applyKeywordPolicyToPaged<T>(
@@ -329,7 +337,10 @@ export class TmdbService {
       if (!opts?.viewerIsAdmin && mediaTypeHint && isRecord(raw)) {
         const id = getNumber(raw, 'id');
         if (id) {
-          const blocked = await this.hasSoftcoreKeywordByTmdb(mediaTypeHint, id);
+          const blocked = await this.hasSoftcoreKeywordByTmdb(
+            mediaTypeHint,
+            id,
+          );
           if (blocked) return null;
         }
       }
@@ -366,7 +377,7 @@ export class TmdbService {
   }
 
   /**
-   * ✅ getImages 호환
+   * getImages 호환
    * - getImages(type, id, "ko-KR")
    * - getImages(type, id, { includeImageLanguage: "ko,en,null" })
    */
@@ -422,9 +433,12 @@ export class TmdbService {
       page,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: mt,
@@ -436,9 +450,12 @@ export class TmdbService {
     viewerIsAdmin = false,
   ): Promise<TmdbPagedResponse<unknown>> {
     const raw = await this.tmdbGetOrNull<unknown>('/discover/movie', query);
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'movie',
@@ -499,7 +516,7 @@ export class TmdbService {
     });
   }
 
-  /** ✅ movies.controller 가 찾는 이름 그대로 제공 */
+  /** movies.controller 가 찾는 이름 그대로 제공 */
   async searchMulti(params: {
     query: string;
     page?: number;
@@ -526,9 +543,12 @@ export class TmdbService {
       region,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'movie',
@@ -546,9 +566,12 @@ export class TmdbService {
       region,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'movie',
@@ -566,9 +589,12 @@ export class TmdbService {
       region,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'movie',
@@ -586,9 +612,12 @@ export class TmdbService {
       region,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'movie',
@@ -600,9 +629,12 @@ export class TmdbService {
       page,
       language,
     });
-    const textFiltered = this.applyContentPolicyToPaged(this.normalizePaged<unknown>(raw), {
-      viewerIsAdmin,
-    });
+    const textFiltered = this.applyContentPolicyToPaged(
+      this.normalizePaged<unknown>(raw),
+      {
+        viewerIsAdmin,
+      },
+    );
     return await this.applyKeywordPolicyToPaged(textFiltered, {
       viewerIsAdmin,
       mediaTypeHint: 'tv',
@@ -680,7 +712,7 @@ export class TmdbService {
     return String(row?.rating ?? '').trim();
   }
 
-  /** ✅ (신규) 객체 인자 버전 */
+  /** (신규) 객체 인자 버전 */
   async getMeta(params: {
     type: MediaType;
     id: number;
@@ -689,7 +721,7 @@ export class TmdbService {
     viewerIsAdmin?: boolean;
   }): Promise<TmdbMetaResponse | null>;
 
-  /** ✅ (호환) 기존 컨트롤러가 쓰던 4인자 버전 */
+  /** (호환) 기존 컨트롤러가 쓰던 4인자 버전 */
   async getMeta(
     type: MediaType,
     id: number,
@@ -720,8 +752,7 @@ export class TmdbService {
 
     const region = (typeof a === 'string' ? c : a.region) ?? 'KR';
     const language = (typeof a === 'string' ? d : a.language) ?? 'ko-KR';
-    const viewerIsAdmin =
-      typeof a === 'string' ? !!e : !!a.viewerIsAdmin;
+    const viewerIsAdmin = typeof a === 'string' ? !!e : !!a.viewerIsAdmin;
 
     const safeRegion = String(region).toUpperCase();
     const cacheKey = `meta:${type}:${id}:${safeRegion}:${language}:admin=${viewerIsAdmin ? '1' : '0'}`;
@@ -760,7 +791,7 @@ export class TmdbService {
           ageRating = this.pickTvAgeRatingKR(cr);
         }
 
-        // ✅ KOBIS 보강
+        // KOBIS 보강
         let kobisMovieCd: string | null = null;
         let kobisOpenDt: string | null = null;
 
@@ -781,7 +812,7 @@ export class TmdbService {
           kobisOpenDt = null;
         }
 
-        // ✅ TMDB + KOBIS 합집합 상영 플래그
+        // TMDB + KOBIS 합집합 상영 플래그
         let isNowPlaying: boolean | undefined = undefined;
         let isUpcoming: boolean | undefined = undefined;
 

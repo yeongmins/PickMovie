@@ -15,7 +15,7 @@ export class ApiError extends Error {
   }
 }
 
-// ✅ PickMovie에서 쓰는 access token 키 (Header.tsx에서 쓰던 키와 맞춰주세요)
+// PickMovie에서 쓰는 access token 키 (Header.tsx에서 쓰던 키와 맞춰주세요)
 const AUTH_KEYS = {
   ACCESS: "pickmovie_access_token",
 } as const;
@@ -34,7 +34,7 @@ function buildHeaders(extra?: Record<string, string>): HeadersInit {
     ...(extra ?? {}),
   };
 
-  // ✅ 토큰이 있으면 Bearer도 같이 전송 (쿠키 인증이어도 문제 없음)
+  // 토큰이 있으면 Bearer도 같이 전송 (쿠키 인증이어도 문제 없음)
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -79,7 +79,7 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
   const url = new URL(path, API_BASE_URL);
 
   if (params) {
-    // ✅ key 정렬로 URL을 안정화(= dedupe/cache hit 확률↑)
+    // key 정렬로 URL을 안정화(= dedupe/cache hit 확률↑)
     const keys = Object.keys(params).sort();
     for (const key of keys) {
       const normalized = normalizeParamValue(key, (params as any)[key]);
@@ -250,7 +250,7 @@ async function requestJson<T>(args: {
   const retry = Math.max(0, Number(options?.retry ?? 0));
   const retryDelayMs = Math.max(0, Number(options?.retryDelayMs ?? 200));
 
-  // ✅ GET 캐시 (fresh hit)
+  // GET 캐시 (fresh hit)
   if (method === "GET") {
     const ttl = Math.max(0, Number(options?.cacheTtlMs ?? 0));
     const cached = ttl > 0 ? GET_CACHE.get(url) : undefined;
@@ -258,7 +258,7 @@ async function requestJson<T>(args: {
       return cached.value as T;
     }
 
-    // ✅ stale-while-revalidate: 만료여도 즉시 반환 + 뒤에서 갱신
+    // stale-while-revalidate: 만료여도 즉시 반환 + 뒤에서 갱신
     if (cached && options?.staleWhileRevalidate) {
       // 백그라운드 갱신(실패는 조용히 무시)
       void (async () => {
@@ -275,7 +275,7 @@ async function requestJson<T>(args: {
       return cached.value as T;
     }
 
-    // ✅ GET dedupe
+    // GET dedupe
     const dedupe = options?.dedupe !== false; // 기본 true
     if (dedupe) {
       const inflight = GET_INFLIGHT.get(url);
@@ -301,7 +301,7 @@ async function requestJson<T>(args: {
 
       return await handleResponse<T>(res, path);
     } catch (e: any) {
-      // ✅ timeout/abort는 빠르게 fallback 갈 수 있게 408으로 통일
+      // timeout/abort는 빠르게 fallback 갈 수 있게 408으로 통일
       if (isAbortError(e)) {
         throw new ApiError("요청 시간이 초과되었습니다.", 408, null, path);
       }
@@ -318,7 +318,7 @@ async function requestJson<T>(args: {
       try {
         const data = await doFetch();
 
-        // ✅ GET 캐시 저장
+        // GET 캐시 저장
         if (method === "GET") {
           const ttl = Math.max(0, Number(options?.cacheTtlMs ?? 0));
           if (ttl > 0) {
@@ -347,7 +347,7 @@ async function requestJson<T>(args: {
     throw lastErr;
   })();
 
-  // ✅ GET inflight 등록/해제
+  // GET inflight 등록/해제
   if (method === "GET") {
     const dedupe = options?.dedupe !== false; // 기본 true
     if (dedupe) GET_INFLIGHT.set(url, runner as Promise<any>);

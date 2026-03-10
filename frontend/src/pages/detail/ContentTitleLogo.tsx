@@ -25,7 +25,7 @@ function titleLogoCdnUrl(filePath: string, size: "w500" | "w780" = "w780") {
 
 type LogoChoice = {
   filePath: string | null;
-  invert: boolean; // ✅ (가능하면) 흰색 로고 우선, 검정만 있으면 invert로 흰색화
+  invert: boolean; // (가능하면) 흰색 로고 우선, 검정만 있으면 invert로 흰색화
 };
 
 const _titleLogoCache = new Map<string, LogoChoice>();
@@ -63,7 +63,7 @@ async function fetchImagesSafe(
 }
 
 /**
- * ✅ 로고 밝기 측정(가능할 때만):
+ * 로고 밝기 측정(가능할 때만):
  * - CORS가 막히면 실패할 수 있음 → 그 경우엔 안전한 fallback 사용
  */
 async function measureLogoBrightness(filePath: string): Promise<number | null> {
@@ -351,8 +351,8 @@ export function TitleLogoOrText({
 }: {
   detail: DetailBase;
   mediaType: MediaType;
-  seasonNo?: number; // ✅ 이 값으로만 시즌 뱃지 표시
-  seasonBadgeText?: string; // ✅ 기존 prop 호환 유지 (사용 안 함)
+  seasonNo?: number; // 이 값으로만 시즌 뱃지 표시
+  seasonBadgeText?: string; // 기존 prop 호환 유지 (사용 안 함)
 }) {
   void seasonBadgeText;
 
@@ -361,7 +361,7 @@ export function TitleLogoOrText({
 
   const hasLogo = !!choice.filePath;
 
-  // ✅ 첫 진입에서도 시즌 뱃지 필요: seasonNo가 0이면 최신 시즌 번호로 보강
+  // 첫 진입에서도 시즌 뱃지 필요: seasonNo가 0이면 최신 시즌 번호로 보강
   const resolvedSeasonNo = useMemo(() => {
     const base = Number(seasonNo ?? 0);
     if (mediaType !== "tv") return 0;
@@ -377,7 +377,7 @@ export function TitleLogoOrText({
     return Math.max(...nums);
   }, [detail, mediaType, seasonNo]);
 
-  // ✅ 로고 로딩 실패 시 텍스트 fallback
+  // 로고 로딩 실패 시 텍스트 fallback
   const [logoReady, setLogoReady] = useState(false);
   const [forceText, setForceText] = useState(false);
 

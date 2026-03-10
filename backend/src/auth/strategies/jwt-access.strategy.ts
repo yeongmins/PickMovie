@@ -20,15 +20,20 @@ export class JwtAccessStrategy extends PassportStrategy(
   'jwt-access',
 ) {
   constructor(config: ConfigService) {
-    // ✅ ESLint(no-unsafe-*) 방지: ExtractJwt 타입을 명확하게 좁힘
+    // ESLint(no-unsafe-*) 방지: ExtractJwt 타입을 명확하게 좁힘
     const extractJwt = ExtractJwt as unknown as {
       fromAuthHeaderAsBearerToken: () => JwtFromRequestFunction;
     };
 
     super({
       jwtFromRequest: extractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey:
-        config.get<string>('JWT_ACCESS_SECRET') ?? 'dev_access_secret',
+      secretOrKey: (() => {
+        const secret = config.get<string>('JWT_ACCESS_SECRET')?.trim();
+        if (!secret) {
+          throw new Error('JWT_ACCESS_SECRET is required');
+        }
+        return secret;
+      })(),
     });
   }
 

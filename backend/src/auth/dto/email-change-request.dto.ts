@@ -5,4 +5,3 @@ export class EmailChangeRequestDto {
   @MaxLength(320)
   email!: string;
 }
-

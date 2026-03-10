@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { SearchService } from './search.service';
-import { SearchRecommendDto } from './dto/search.dto'; // ✅ 반드시 value import
+import { SearchRecommendDto } from './dto/search.dto'; // 반드시 value import
 import type { SearchRecommendResponse } from './dto/search.dto';
 import { getViewerAccessFromAuthHeader } from '../common/viewer-access';
 import { SearchPolicyService } from './search-policy.service';
@@ -40,7 +40,7 @@ export class SearchController {
     @Req() req: Request,
     @Body() dto: SearchRecommendDto,
   ): Promise<SearchRecommendResponse> {
-    // ✅ 이건 “터미널”이 아니라 “여기(코드)”에 써야 함
+    // 이건 “터미널”이 아니라 “여기(코드)”에 써야 함
     // console.log('[search/recommend] dto =', dto);
     return await this.searchService.recommend(dto, {
       viewerIsAdmin: this.viewerIsAdmin(req),
@@ -127,7 +127,9 @@ export class SearchController {
     },
   ): Promise<{ ok: true }> {
     const tmdbId = Number(body?.tmdbId);
-    const mediaRaw = String(body?.mediaType ?? '').toLowerCase().trim();
+    const mediaRaw = String(body?.mediaType ?? '')
+      .toLowerCase()
+      .trim();
     const title = String(body?.title ?? '').trim();
 
     if (!Number.isFinite(tmdbId) || tmdbId <= 0) {

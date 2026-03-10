@@ -10,7 +10,7 @@ import {
   Bell,
   Trash2,
 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Logo } from "../icons/Logo";
 import { Button } from "../ui/button";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/apiClient";
@@ -375,13 +375,13 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
 
         <div className="relative z-10 w-full flex items-center justify-between [text-shadow:0_1px_2px_rgba(0,0,0,0.65)]">
           <div className="flex items-center gap-4 h-full">
-            <button
-              onClick={() => go("home")}
-              className="flex-shrink-0"
+            <Link
+              to="/"
+              className="flex-shrink-0 [text-shadow:none]"
               aria-label="PickMovie 홈"
             >
-              <Logo size="sm" />
-            </button>
+              <Logo size="sm" className="[text-shadow:none]" />
+            </Link>
 
             <AnimatePresence initial={false}>
               {isMdUp ? (
@@ -396,11 +396,13 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                     label="홈"
                     isActive={active === "home"}
                     onClick={() => go("home")}
+                    ariaCurrent={active === "home" ? "page" : undefined}
                   />
                   <NavItem
                     label="찜/플레이리스트"
                     isActive={active === "favorites"}
                     onClick={() => go("favorites")}
+                    ariaCurrent={active === "favorites" ? "page" : undefined}
                   />
                   {isAdmin ? (
                     <NavItem
@@ -412,6 +414,11 @@ export function Header({ onNavigate, currentSection }: HeaderProps) {
                           window.scrollTo({ top: 0, behavior: "auto" });
                         });
                       }}
+                      ariaCurrent={
+                        location.pathname.startsWith("/admin/settings")
+                          ? "page"
+                          : undefined
+                      }
                     />
                   ) : null}
                 </motion.nav>
@@ -719,14 +726,18 @@ function NavItem({
   label,
   isActive,
   onClick,
+  ariaCurrent,
 }: {
   label: string;
   isActive: boolean;
   onClick: () => void;
+  ariaCurrent?: "page";
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-current={ariaCurrent}
       className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
         isActive
           ? "text-white"

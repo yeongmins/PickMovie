@@ -49,7 +49,7 @@ export function buildTvSeasonMeta(
 }
 
 /**
- * ✅ TV 상세 첫 진입 시 "최신 시즌 기준 연도"를 releaseYear로 쓰기 위한 헬퍼
+ * TV 상세 첫 진입 시 "최신 시즌 기준 연도"를 releaseYear로 쓰기 위한 헬퍼
  * - buildTvSeasonMeta는 이미 최신 시즌이 앞에 오도록 정렬하므로, 첫 항목을 사용
  */
 export function getLatestSeasonYearFromDetail(

@@ -136,7 +136,7 @@ function YouTubeTrailer({
   );
 }
 
-/* ✅ ORIGINAL만 유지 (TMDB 로고만 사용) */
+/* ORIGINAL만 유지 (TMDB 로고만 사용) */
 function ProviderPill({ provider }: { provider: ProviderItem | null }) {
   if (!provider) return null;
 
@@ -234,7 +234,7 @@ export function ContentDetailHero({
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportCompleteOpen, setReportCompleteOpen] = useState(false);
 
-  // ✅ TV 시즌 선택 상태(쿼리 기반)
+  // TV 시즌 선택 상태(쿼리 기반)
   const seasonNo = useMemo(() => {
     if (mediaType !== "tv") return 0;
     return getSeasonNoFromSearch(location.search);
@@ -245,7 +245,7 @@ export function ContentDetailHero({
     return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
   }, [location.state]);
 
-  // ✅ meta 단일 소스(백엔드 값 우선)
+  // meta 단일 소스(백엔드 값 우선)
   const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
     return peekResolvedMeta(mediaType as any, detail.id) ?? null;
   });
@@ -369,7 +369,7 @@ export function ContentDetailHero({
     };
   }, [reportOpen, reportCompleteOpen, reportBusy]);
 
-  // ✅ (요구사항) 히어로 년도: 시즌 선택 시 선택 시즌 년도 표시
+  // (요구사항) 히어로 년도: 시즌 선택 시 선택 시즌 년도 표시
   // - TV 시즌 선택: seasonContext.year 우선
   // - 그 외: 기존 yearText 그대로
   const heroYearText = useMemo(() => {
@@ -381,7 +381,7 @@ export function ContentDetailHero({
     return yearText;
   }, [mediaType, seasonNo, seasonContext?.year, yearText]);
 
-  // ✅ (요구사항) 히어로 평점: 시즌 선택 시 시즌 평점이 있으면 그걸 표시
+  // (요구사항) 히어로 평점: 시즌 선택 시 시즌 평점이 있으면 그걸 표시
   const heroVoteAverage = useMemo(() => {
     if (mediaType !== "tv") return detail.vote_average ?? 0;
     if (seasonNo > 0 && typeof seasonContext?.vote_average === "number") {
@@ -390,7 +390,7 @@ export function ContentDetailHero({
     return detail.vote_average ?? 0;
   }, [mediaType, seasonNo, seasonContext?.vote_average, detail.vote_average]);
 
-  // ✅ (요구사항) 포스터: 시즌 선택이면 선택 시즌 포스터 우선
+  // (요구사항) 포스터: 시즌 선택이면 선택 시즌 포스터 우선
   // - 시즌 선택: seasonContext.poster_path (SeriesSeasonCards에서 전달)
   // - 첫 진입: meta.contentCardPosterPath (최신 시즌 포스터)
   // - fallback: detail.poster_path

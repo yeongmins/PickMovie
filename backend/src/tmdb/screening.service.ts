@@ -79,7 +79,7 @@ export class ScreeningService {
     return res.data;
   }
 
-  /** ✅ 컨트롤러가 찾는 메서드(호환) */
+  /** 컨트롤러가 찾는 메서드(호환) */
   async getScreeningSets(params?: {
     region?: string;
     language?: string;
@@ -163,7 +163,7 @@ export class ScreeningService {
   }
 
   /**
-   * ✅ TMDB + KOBIS 합집합(현실 버전)
+   * TMDB + KOBIS 합집합(현실 버전)
    * - 예정(upcoming) 우선
    * - nowPlaying은:
    *   (TMDB now) OR (KOBIS 박스오피스 등장) OR (KOBIS 개봉일이 최근 N일 이내)
@@ -220,7 +220,7 @@ export class ScreeningService {
       if (diffDays >= 0 && diffDays <= nowWindowDays) kobisNowByWindow = true;
     }
 
-    // ✅ 합집합(예정 우선)
+    // 합집합(예정 우선)
     const isUpcoming = tmdbUp || kobisUp;
     const isNowPlaying =
       !isUpcoming && (tmdbNow || kobisNowByBoxOffice || kobisNowByWindow);

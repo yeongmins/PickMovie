@@ -7,6 +7,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="application-name" content="PickMovie" />
 
     <!-- 파비콘 & 앱 아이콘 -->
     <link rel="icon" href="/pickmovie-icon.png" />
@@ -19,18 +22,29 @@
       content="PickMovie는 간단한 취향 설문과 TMDB 데이터를 기반으로, 나에게 꼭 맞는 영화와 TV 콘텐츠를 추천해주는 맞춤형 영화 추천 서비스입니다."
     />
     <meta name="robots" content="index,follow" />
+    <meta name="googlebot" content="index,follow,max-image-preview:large" />
+    <meta name="bingbot" content="index,follow,max-image-preview:large" />
+    <meta name="Yeti" content="index,follow" />
+    <meta name="NaverBot" content="index,follow" />
     <link rel="canonical" href="https://pickmovie.net/" />
+    <link rel="alternate" hreflang="ko-KR" href="https://pickmovie.net/" />
+    <link rel="alternate" hreflang="x-default" href="https://pickmovie.net/" />
     <meta
       name="keywords"
       content="PickMovie, 픽무비, 영화 추천, 영화 찾기, OTT 추천, 취향 분석, TMDB, 넷플릭스 영화 추천"
     />
     <meta name="author" content="PickMovie Team" />
+    <meta name="google-site-verification" content="" />
+    <meta name="naver-site-verification" content="" />
+    <meta name="msvalidate.01" content="" />
+    <meta name="y_key" content="" />
 
     <!-- 성능 최적화: TMDB 이미지 도메인 프리커넥트 -->
     <link rel="preconnect" href="https://image.tmdb.org" />
 
     <!-- Open Graph (카카오톡, 페북, 디스코드 등 메신저 썸네일) -->
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ko_KR" />
     <meta property="og:site_name" content="PickMovie" />
     <meta property="og:title" content="PickMovie - 내 취향에 맞는 영화 추천" />
     <meta
@@ -60,9 +74,36 @@
       name="twitter:image"
       content="https://pickmovie.net/pickmovie-og.png"
     />
+    <meta
+      name="twitter:image:alt"
+      content="PickMovie 영화 및 TV 추천 서비스"
+    />
 
     <!-- 브라우저 상단 테마 색 (모바일에서 상단 바 색상) -->
     <meta name="theme-color" content="#10131b" />
+    <script type="application/ld+json">
+      [
+        {
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          "name": "PickMovie",
+          "url": "https://pickmovie.net/",
+          "logo": "https://pickmovie.net/pickmovie-icon.png"
+        },
+        {
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          "name": "PickMovie",
+          "url": "https://pickmovie.net/",
+          "inLanguage": "ko-KR",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://pickmovie.net/search?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    </script>
   </head>
 
   <body>

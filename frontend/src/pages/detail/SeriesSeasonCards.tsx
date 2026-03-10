@@ -41,7 +41,7 @@ type SeasonNavContext = {
   vote_average?: number | null;
   year?: number | null;
 
-  // ✅ DetailSections로 전달할 "시리즈 원본 first_air_date"
+  // DetailSections로 전달할 "시리즈 원본 first_air_date"
   original_first_air_date?: string;
 };
 
@@ -323,7 +323,7 @@ export function SeriesSeasonCards({
                 : null,
             year: year ?? null,
 
-            // ✅ [핵심] 항상 유지되는 원본 first_air_date를 다음 페이지 state로 전달
+            // [핵심] 항상 유지되는 원본 first_air_date를 다음 페이지 state로 전달
             original_first_air_date: originalFirstAirDate,
           },
 

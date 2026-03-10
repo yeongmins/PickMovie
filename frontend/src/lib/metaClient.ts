@@ -4,7 +4,7 @@ export type MediaType = "movie" | "tv";
 /** 백엔드 meta.types.ts 기준 */
 export type StatusKind = "now" | "upcoming" | "rerun" | null;
 
-/** ✅ 프론트는 백엔드 값을 그대로 표시(추론/변환 금지) */
+/** 프론트는 백엔드 값을 그대로 표시(추론/변환 금지) */
 export type AgeRating = "ALL" | "12" | "15" | "18" | "19" | "UNKNOWN" | string;
 
 export type WatchProviderItem = {
@@ -53,17 +53,17 @@ export type ResolvedMeta = {
   unifiedYearLabel: string | null;
   providers: WatchProviderItem[];
 
-  // ✅ 카드 포스터(백엔드에서 계산해서 내려주는 값)
+  // 카드 포스터(백엔드에서 계산해서 내려주는 값)
   contentCardPosterPath: string | null;
 
   theatrical: TheatricalInfo | null;
 
-  // ✅ 백엔드가 "아예 숨김" 판정 내려줌
+  // 백엔드가 "아예 숨김" 판정 내려줌
   hidden?: boolean;
-  // ✅ 관리자 수동 비노출 토글 상태
+  // 관리자 수동 비노출 토글 상태
   adminHidden?: boolean;
 
-  // ✅ TV 상세 시즌 메타(프론트 계산 X)
+  // TV 상세 시즌 메타(프론트 계산 X)
   seasons?: SeasonMeta[] | null;
 
   contentInfoReleaseYear?: number | string | null;
@@ -159,7 +159,7 @@ async function postBatch(
   const json = (await r.json()) as { items?: ResolvedMeta[] };
   const list = Array.isArray(json?.items) ? json.items : [];
 
-  // ✅ 프론트는 변환/계산 없이 그대로 캐시
+  // 프론트는 변환/계산 없이 그대로 캐시
   return list;
 }
 

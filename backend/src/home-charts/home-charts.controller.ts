@@ -19,7 +19,7 @@ export class HomeChartsController {
     return this.service.getCharts({ viewerIsAdmin: this.viewerIsAdmin(req) });
   }
 
-  // ✅ 운영에서 공개되면 위험(무한 호출로 TMDB rate-limit)
+  // 운영에서 공개되면 위험(무한 호출로 TMDB rate-limit)
   // → 관리자 토큰 필수
   @UseGuards(AdminTokenGuard)
   @Post('/refresh')

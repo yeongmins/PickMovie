@@ -131,7 +131,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ 쿠키 파서(req.cookies) 의존 제거
+   * 쿠키 파서(req.cookies) 의존 제거
    */
   private getRefreshFromCookie(req: Request): string | null {
     const header = req.headers.cookie;
@@ -423,7 +423,7 @@ export class AuthController {
   }
 
   // =========================
-  // ✅ Favorites (DB)
+  // Favorites (DB)
   // =========================
   @UseGuards(JwtAccessGuard)
   @Get('favorites')
@@ -463,7 +463,7 @@ export class AuthController {
   }
 
   // =========================
-  // ✅ Playlists (DB)
+  // Playlists (DB)
   // =========================
   @UseGuards(JwtAccessGuard)
   @Get('playlists')

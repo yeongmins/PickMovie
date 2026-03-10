@@ -32,7 +32,7 @@ export function toIsoYmd(v: unknown): string | null {
   return s.length >= 10 ? s.slice(0, 10) : null;
 }
 
-/** ✅ 월 단위 gap(프론트 diffFullMonths와 동일 방식) */
+/** 월 단위 gap(프론트 diffFullMonths와 동일 방식) */
 export function diffFullMonths(fromYmd?: string | null, toYmd?: string | null) {
   const a = new Date(String(fromYmd || '').slice(0, 10));
   const b = new Date(String(toYmd || '').slice(0, 10));
@@ -59,7 +59,7 @@ export function hasAnimationGenre(genres: unknown): boolean {
 }
 
 /**
- * ✅ Module에서 provider로 쓰고 있으니 export 보장
+ * Module에서 provider로 쓰고 있으니 export 보장
  */
 @Injectable()
 export class MetaResolver {}

@@ -29,7 +29,7 @@ type FavoritesPlaylistPageProps = {
   onToggleFavorite: (id: number, mediaType?: "movie" | "tv") => void;
   onResetFavorites: () => void;
 
-  // ✅ playlists db handlers
+  // playlists db handlers
   onCreatePlaylist: (name: string, items: FavoriteItem[]) => void;
   onDeletePlaylist: (playlistId: number) => void;
   onRenamePlaylist: (playlistId: number, name: string) => void;
@@ -76,7 +76,7 @@ function toFavoriteItemsFromCardItems(
 }
 
 /** =========================
- * ✅ 공용 Bottom Confirm Sheet
+ * 공용 Bottom Confirm Sheet
  * - 찜/플레이리스트 공통 스타일로 사용
  * ========================= */
 function SharedBottomConfirmSheet(props: {
@@ -136,7 +136,7 @@ function SharedBottomConfirmSheet(props: {
             transition={{ type: "spring", stiffness: 420, damping: 38 }}
             className="fixed bottom-0 left-0 right-0 z-[90] px-6 pb-4"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#0b0b10]/95 p-5 shadow-2xl backdrop-blur">
+            <div className="rounded-2xl bg-[#0b0b10]/95 p-5 shadow-2xl backdrop-blur">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-white">{title}</div>
@@ -195,9 +195,9 @@ function SharedBottomConfirmSheet(props: {
 }
 
 /** =========================
- * ✅ 섹션 헤더 공통 (찜 스타일 기준)
+ * 섹션 헤더 공통 (찜 스타일 기준)
  * =========================
- * ✅ FIX: title을 ReactNode로 변경 (input 같은 엘리먼트도 허용)
+ * FIX: title을 ReactNode로 변경 (input 같은 엘리먼트도 허용)
  */
 function SharedSectionHeader(props: {
   padClass: string;
@@ -231,7 +231,7 @@ function SharedSectionHeader(props: {
 }
 
 /** =========================
- * ✅ 플레이리스트 목록 모달(팝오버) - 공통
+ * 플레이리스트 목록 모달(팝오버) - 공통
  * ========================= */
 function SharedPlaylistPickerPopover(props: {
   open: boolean;
@@ -355,7 +355,7 @@ function SharedEditDimmer(props: { open: boolean; zIndex?: number }) {
 }
 
 /** =========================
- * ✅ Editable Carousel Row (공통)
+ * Editable Carousel Row (공통)
  * - 좌/우 버튼 hover 때만 표시
  * - 편집 시 체크만 표시 (링/아웃라인 제거)
  * ========================= */
@@ -691,7 +691,7 @@ export default function FavoritesPlaylistPage({
     <div className="min-h-screen bg-[#10131b] text-white overflow-x-hidden flex flex-col">
       <Header />
 
-      <main className="flex-1 pt-[84px] relative">
+      <main id="main-content" className="flex-1 pt-[84px] relative">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -725,7 +725,7 @@ export default function FavoritesPlaylistPage({
             onOpenDetail={openDetail}
             onFavoritesKeySetChange={setFavoritesKeySet}
             onRequestCreatePlaylistFromItems={(items) => {
-              // ✅ 선택 아이템으로 "생성 플로우" 진입은 그대로 유지
+              // 선택 아이템으로 "생성 플로우" 진입은 그대로 유지
               setViewMode("playlists");
               requestAnimationFrame(() => {
                 requestAnimationFrame(() => {

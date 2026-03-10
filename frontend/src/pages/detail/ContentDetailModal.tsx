@@ -28,6 +28,7 @@ import {
   type ResolvedMeta,
 } from "../../lib/metaClient";
 import { apiDelete, apiPatch, apiPost } from "../../lib/apiClient";
+import { applySeo } from "../../lib/seo";
 
 function locationToPath(loc: any): string | null {
   if (!loc) return null;
@@ -51,7 +52,7 @@ function getSeasonNoFromSearch(search: string): number {
   }
 }
 
-/** ✅ 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
+/** 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
 function lockBodyScroll() {
   if (typeof document === "undefined") return () => {};
   const attr = "data-pm-scroll-lock";
@@ -78,7 +79,7 @@ type ReleaseStatusKind = "now" | "upcoming" | "rerun" | null;
 
 type FavoriteItem = { id: number; mediaType: "movie" | "tv" };
 
-// ✅ SeriesSeasonCards에서 전달하는 seed
+// SeriesSeasonCards에서 전달하는 seed
 type SeasonNavContext = {
   seasonNo: number;
   name?: string;
@@ -315,13 +316,13 @@ export default function ContentDetailModal({
     [mediaType, location.search],
   );
 
-  // ✅ underlay 모드: 배우 모달 아래에 깔릴 때 backdrop을 투명 처리
+  // underlay 모드: 배우 모달 아래에 깔릴 때 backdrop을 투명 처리
   const isUnderPersonOverlay = useMemo(() => {
     const st = location.state as any;
     return st?.__underlay === "person";
   }, [location.state]);
 
-  // ✅ Search 위에서 열린 상세는 배경을 최대한 유지
+  // Search 위에서 열린 상세는 배경을 최대한 유지
   const isOverSearchOverlay = useMemo(() => {
     const st = location.state as any;
     const bg = st?.backgroundLocation;
@@ -352,7 +353,7 @@ export default function ContentDetailModal({
   const heroYearMenuRef = useRef<HTMLDivElement | null>(null);
   const infoYearMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ meta (단일 소스)
+  // meta (단일 소스)
   const [meta, setMeta] = useState<ResolvedMeta | null>(() => {
     if (!Number.isFinite(id) || id <= 0) return null;
     return peekResolvedMeta(mediaType as any, id) ?? null;
@@ -383,7 +384,7 @@ export default function ContentDetailModal({
     contentInfoReleaseYear: "",
   });
 
-  // ✅ 시즌 상세 (TV)
+  // 시즌 상세 (TV)
   const [seasonDetail, setSeasonDetail] = useState<TmdbTvSeasonDetail | null>(
     null,
   );
@@ -447,7 +448,7 @@ export default function ContentDetailModal({
     requestAnimationFrame(() => setShakeField(field));
   }, []);
 
-  // ✅ 중첩 모달 스크롤락 안전 처리
+  // 중첩 모달 스크롤락 안전 처리
   useEffect(() => {
     const unlock = lockBodyScroll();
     return () => unlock();
@@ -488,7 +489,7 @@ export default function ContentDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [requestClose, trailerOpen, editOpen, resetConfirmOpen, yearMenuOpen]);
 
-  // ✅ base detail + meta 로딩
+  // base detail + meta 로딩
   useEffect(() => {
     let alive = true;
 
@@ -544,7 +545,7 @@ export default function ContentDetailModal({
     return () => void (alive = false);
   }, [mediaType, id]);
 
-  // ✅ season query가 바뀌면 시즌 상세 로딩
+  // season query가 바뀌면 시즌 상세 로딩
   useEffect(() => {
     let alive = true;
 
@@ -564,7 +565,7 @@ export default function ContentDetailModal({
     return () => void (alive = false);
   }, [mediaType, id, seasonNo, location.state]);
 
-  // ✅ 시즌 선택이면 렌더용 detail을 시즌 값으로 덮어씌움 (기존 기능 유지)
+  // 시즌 선택이면 렌더용 detail을 시즌 값으로 덮어씌움 (기존 기능 유지)
   const renderDetail: DetailBase | null = useMemo(() => {
     if (!detail) return null;
     if (mediaType !== "tv" || !seasonNo || !seasonDetail)
@@ -588,7 +589,7 @@ export default function ContentDetailModal({
     return applyDetailOverride(seasonMerged, mediaType, meta);
   }, [detail, mediaType, seasonNo, seasonDetail, meta]);
 
-  // ✅ statusKind/year/age/type: meta 단일 소스
+  // statusKind/year/age/type: meta 단일 소스
   const statusKind: ReleaseStatusKind = useMemo(() => {
     return (meta?.statusKind ?? null) as ReleaseStatusKind;
   }, [meta?.statusKind]);
@@ -614,7 +615,7 @@ export default function ContentDetailModal({
     requestClose();
   }, [hiddenForViewer, requestClose, isAdmin]);
 
-  // ✅ providers: meta.providers 기반으로만 (detectOriginalProvider 유지)
+  // providers: meta.providers 기반으로만 (detectOriginalProvider 유지)
   const providersKRFromMeta: WatchProviderRegion | null = useMemo(() => {
     const list = meta?.providers;
     if (!Array.isArray(list) || !list.length) return null;
@@ -900,6 +901,43 @@ export default function ContentDetailModal({
   const renderKey = `${mediaType}:${id}:${seasonNo || 0}`;
   const heroKey = `${mediaType}:${id}`;
 
+  useEffect(() => {
+    const contentTitle = String(
+      renderDetail?.title || renderDetail?.name || "콘텐츠",
+    ).trim();
+    const overview = String(renderDetail?.overview || "").trim();
+    const dateText = String(
+      renderDetail?.release_date || renderDetail?.first_air_date || "",
+    ).trim();
+    const schemaType = mediaType === "tv" ? "TVSeries" : "Movie";
+
+    applySeo({
+      title: `${contentTitle} 상세 정보 | PickMovie`,
+      description:
+        overview ||
+        "PickMovie에서 콘텐츠 상세 정보, 출연진, 리뷰, 시청 가능 OTT 정보를 확인하세요.",
+      path: `/title/${mediaType}/${id}`,
+      keywords: `PickMovie, 픽무비, ${contentTitle}, ${mediaType === "tv" ? "TV" : "영화"} 상세 정보`,
+      type: "article",
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": schemaType,
+        name: contentTitle,
+        description: overview || undefined,
+        datePublished: dateText || undefined,
+        url: `https://pickmovie.net/title/${mediaType}/${id}`,
+      },
+    });
+  }, [
+    id,
+    mediaType,
+    renderDetail?.first_air_date,
+    renderDetail?.name,
+    renderDetail?.overview,
+    renderDetail?.release_date,
+    renderDetail?.title,
+  ]);
+
   return (
     <div className="fixed inset-0 z-[999]" data-pm-detail-modal="true">
       <motion.div
@@ -928,6 +966,9 @@ export default function ContentDetailModal({
           "rounded-t-[10px] rounded-b-none",
         ].join(" ")}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="콘텐츠 상세 정보"
         initial={{ y: 90, opacity: 0 }}
         animate={{ y: closing ? 60 : 0, opacity: closing ? 0 : 1 }}
         transition={
@@ -937,7 +978,7 @@ export default function ContentDetailModal({
         }
         onAnimationComplete={() => {
           if (!closing) return;
-          // ✅ 중첩 상세(시즌/시리즈)에서도 항상 루트 목적지로 복귀
+          // 중첩 상세(시즌/시리즈)에서도 항상 루트 목적지로 복귀
           // - navigate(-1)은 이전 history가 또 다른 /title 인 경우 overlay가 남아 터치가 막힐 수 있음
           navigate(closeTarget.path, {
             replace: true,

@@ -31,7 +31,7 @@ type RankedTrendItem = {
   tmdbId: number | null;
   year: number | null;
 
-  // ✅ v2(Topic) 정보는 “옵션”으로만 내려줌 (UI에 100% 강제 반영 X)
+  // v2(Topic) 정보는 “옵션”으로만 내려줌 (UI에 100% 강제 반영 X)
   topicId: number | null;
   topicTitle: string | null;
 };
@@ -109,7 +109,7 @@ function zScore(value: number, mean: number, std: number): number {
   return (value - mean) / (std || 1);
 }
 
-// ✅ ESLint no-unsafe-assignment 방지: new Array<R>()
+// ESLint no-unsafe-assignment 방지: new Array<R>()
 async function mapLimit<T, R>(
   items: T[],
   limit: number,
@@ -172,7 +172,7 @@ export class TrendsService {
   private readonly ALGO_VERSION = 'kr.daily.v1';
 
   /**
-   * ✅ “후보군(유니크) 50개”를 만들기 위해 windowDays를 늘림
+   * “후보군(유니크) 50개”를 만들기 위해 windowDays를 늘림
    * - KOBIS가 실제로 일별 Top10만 내려오는 케이스를 커버
    * - 유니크 후보가 50개 채워지면 windowDays를 다 돌기 전에 조기 종료
    */
@@ -181,7 +181,7 @@ export class TrendsService {
   private readonly KOBIS_CANDIDATE_LIMIT = 50;
 
   /**
-   * ✅ 비용(외부 API 호출) 고정:
+   * 비용(외부 API 호출) 고정:
    * - 후보군이 50이어도 네이버/유튜브/데이터랩은 상위 N개만 호출
    * - 나머지는 외부 신호 0으로 처리(점수는 KOBIS 중심)
    */
@@ -202,7 +202,7 @@ export class TrendsService {
     }
   }
 
-  // ✅ KST 04:20 자동 실행(어제 기준)
+  // KST 04:20 자동 실행(어제 기준)
   @Cron('0 20 4 * * *', { timeZone: 'Asia/Seoul' })
   async cronDailyIngest(): Promise<void> {
     try {
@@ -237,7 +237,7 @@ export class TrendsService {
         seed: {
           source: 'kobis',
           mediaType: 'movie',
-          tmdbId: { not: null }, // ✅ tmdbId 없으면 완전 제외
+          tmdbId: { not: null }, // tmdbId 없으면 완전 제외
         },
       },
       orderBy: [{ score: 'desc' }, { rank: 'asc' }],
@@ -439,7 +439,7 @@ export class TrendsService {
     return out;
   }
 
-  // ✅ 기존 컨트롤러 엔드포인트 유지용 래퍼
+  // 기존 컨트롤러 엔드포인트 유지용 래퍼
   async ingestKobisDaily(
     targetDt?: string,
   ): Promise<{ date: string; total: number }> {
@@ -447,7 +447,7 @@ export class TrendsService {
   }
 
   /**
-   * ✅ v1(기존) 기능 유지 + v2(고도화) 저장(Topic/Metric/Score)
+   * v1(기존) 기능 유지 + v2(고도화) 저장(Topic/Metric/Score)
    *
    * 변경 포인트:
    * - KOBIS 후보군: windowDays(21) 동안 daily top10을 합쳐 유니크 50개까지 확장
@@ -623,7 +623,7 @@ export class TrendsService {
       for (const s of seeds) {
         if (!s.topicId) continue;
 
-        // ✅ 외부 대상이 아니면 맵에서 못 찾음 → 0 처리(비용 고정)
+        // 외부 대상이 아니면 맵에서 못 찾음 → 0 처리(비용 고정)
         const ns = naverSearch.get(s.keyword) ?? { blog: 0, cafe: 0, news: 0 };
         const dl = naverDatalab.get(s.keyword) ?? 0;
         const yt = youtube.get(s.keyword) ?? { totalResults: 0, itemsCount: 0 };
@@ -682,7 +682,7 @@ export class TrendsService {
 
       const topics = Array.from(topicAgg.values());
 
-      // ✅ “외부 신호 커버리지”에 따라 KOBIS 비중 자동 하향
+      // “외부 신호 커버리지”에 따라 KOBIS 비중 자동 하향
       const externalCoveredCount = topics.filter((t) => {
         const naverTotal = t.naverBlogBest + t.naverCafeBest + t.naverNewsBest;
         return (
@@ -802,7 +802,7 @@ export class TrendsService {
             ytLog,
             zYt,
 
-            // ✅ TS2339 방지(존재 보장)
+            // TS2339 방지(존재 보장)
             audiAcc: t.audiAccBest,
           },
         };
@@ -1533,7 +1533,7 @@ export class TrendsService {
           continue;
         }
 
-        // ✅ window 내에서 “더 좋은 rank / 더 큰 누적관객”으로 갱신
+        // window 내에서 “더 좋은 rank / 더 큰 누적관객”으로 갱신
         const betterRank = rankNum < prev._rankNum;
         const betterAudi = audiAccNum > prev._audiAccNum;
 
@@ -1550,7 +1550,7 @@ export class TrendsService {
         }
       }
 
-      // ✅ 유니크 후보가 50개 채워지면 더 이상 KOBIS 호출 X
+      // 유니크 후보가 50개 채워지면 더 이상 KOBIS 호출 X
       if (byMovieCd.size >= this.KOBIS_CANDIDATE_LIMIT) break;
     }
 

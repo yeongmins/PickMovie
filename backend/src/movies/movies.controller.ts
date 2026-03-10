@@ -84,7 +84,7 @@ export class MoviesController {
     return this.movies.getNowPlaying(toPage(page), this.viewerIsAdmin(req));
   }
 
-  // ✅ upcoming 라우트 추가 (반드시 :id 보다 위)
+  // upcoming 라우트 추가 (반드시 :id 보다 위)
   @Get('upcoming')
   getUpcoming(
     @Req() req: Request,
@@ -127,7 +127,7 @@ export class MoviesController {
     return this.movies.discover(query, this.viewerIsAdmin(req));
   }
 
-  // ✅ 반드시 :id 보다 위
+  // 반드시 :id 보다 위
   @Get('search/multi')
   searchMulti(
     @Req() req: Request,
@@ -145,7 +145,7 @@ export class MoviesController {
     });
   }
 
-  // ✅ 반드시 :id 보다 위 (정규식 제거)
+  // 반드시 :id 보다 위 (정규식 제거)
   @Get(':id/similar')
   similar(
     @Req() req: Request,
@@ -167,7 +167,7 @@ export class MoviesController {
     );
   }
 
-  // ✅ 맨 마지막 (정규식 제거)
+  // 맨 마지막 (정규식 제거)
   @Get(':id')
   getDetails(
     @Req() req: Request,

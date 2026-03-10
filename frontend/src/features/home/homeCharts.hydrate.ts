@@ -25,7 +25,7 @@ export type HomeCardItem = {
   release_date?: string;
   first_air_date?: string;
 
-  // ✅ 필요하면 UI에서 meta값 사용
+  // 필요하면 UI에서 meta값 사용
   __meta?: ResolvedMeta | null;
 };
 

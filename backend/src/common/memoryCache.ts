@@ -104,7 +104,7 @@ export class MemoryCache {
       }
     })();
 
-    // ✅ Promise<T> 는 Promise<unknown> 에 그대로 들어갈 수 있음(불필요 캐스팅 제거)
+    // Promise<T> 는 Promise<unknown> 에 그대로 들어갈 수 있음(불필요 캐스팅 제거)
     this.inflight.set(key, p);
     return await p;
   }

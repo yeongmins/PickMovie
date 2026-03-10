@@ -28,7 +28,7 @@ export type TheatricalInfo = {
   rerunTheatricalDate: string | null; // YYYY-MM-DD
 
   /**
-   * ✅ KOBIS는 메타데이터에 절대 적용하지 않음.
+   * KOBIS는 메타데이터에 절대 적용하지 않음.
    * - 메인화면 하단 Top10 차트 용도로만 사용
    * - 따라서 메타에서는 항상 null로 유지
    */
@@ -57,11 +57,11 @@ export type ResolvedMeta = {
   mediaType: MediaType;
   tmdbId: number;
 
-  // ✅ 모든 화면에서 동일하게 쓰는 “통일 필드”
+  // 모든 화면에서 동일하게 쓰는 “통일 필드”
   contentKind: string; // MOVIE | TV | ANI
   releaseStatus: string; // UPCOMING | NOW_SHOWING | RE_RELEASE | NONE
   ageRating: AgeRating;
-  releaseYear: number | null; // ✅ 컨텐츠카드/내찜/상세 히어로 출시년도 = 이 값으로 통일
+  releaseYear: number | null; // 컨텐츠카드/내찜/상세 히어로 출시년도 = 이 값으로 통일
   watchProviders: WatchProviders | null;
 
   statusKind: StatusKind;
@@ -70,19 +70,19 @@ export type ResolvedMeta = {
   providers: WatchProviderItem[];
   theatrical: TheatricalInfo | null;
 
-  // ✅ 컨텐츠카드 이미지(영화/TV/ANI 통일)
+  // 컨텐츠카드 이미지(영화/TV/ANI 통일)
   contentCardPosterPath: string | null;
 
-  // ✅ 백엔드가 “아예 숨김” 판정 내려줌
+  // 백엔드가 “아예 숨김” 판정 내려줌
   hidden?: boolean;
-  // ✅ 관리자 수동 비노출 토글 상태
+  // 관리자 수동 비노출 토글 상태
   adminHidden?: boolean;
 
-  // ✅ TV/Ani 상세 시즌 메타(프론트 계산 X)
+  // TV/Ani 상세 시즌 메타(프론트 계산 X)
   seasons?: SeasonMeta[] | null;
 
   /**
-   * ✅ 상세 히어로 “첫 진입” (TV/Ani)
+   * 상세 히어로 “첫 진입” (TV/Ani)
    * - 시즌뱃지 = heroSeasonYear
    * - 포스터   = heroPosterPath
    */
@@ -90,7 +90,7 @@ export type ResolvedMeta = {
   heroPosterPath?: string | null;
 
   /**
-   * ✅ 상세 컨텐츠정보(처음 개봉/처음 방영)
+   * 상세 컨텐츠정보(처음 개봉/처음 방영)
    * - 출시년도 = contentInfoReleaseYear (KR 기준 “처음”)
    * - 개봉일   = contentInfoLatestReleaseYmd (KR 기준 “가장 최근”)
    * - 재개봉일 = contentInfoRerunYmd (재개봉 상태일 때만)

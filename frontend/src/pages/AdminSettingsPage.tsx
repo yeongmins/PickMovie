@@ -15,7 +15,10 @@ import {
   Download,
   EyeOff,
   FileText,
+  Search,
   Sparkles,
+  Shield,
+  Trash2,
   X,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -151,6 +154,16 @@ type ContentIssueResponse = {
   items: ContentIssueItem[];
 };
 
+type AdminManagedUser = {
+  id: number;
+  username: string;
+  nickname: string | null;
+  email: string | null;
+  role: "USER" | "ADMIN";
+  createdAt: string;
+  lastLoginAt: string | null;
+};
+
 type EditScope = "hidden" | "edited" | null;
 
 type ConfirmState = {
@@ -161,7 +174,8 @@ type ConfirmState = {
   action: (() => Promise<void>) | null;
 };
 
-type AdminShortcutKey = "hidden" | "edited" | "search" | "analyze" | "issues";
+type AdminShortcutKey = "hidden" | "edited" | "search" | "analyze" | "users" | "issues";
+const ADMIN_GRANT_EMAIL = "yeongmins123@gmail.com";
 
 function readStoredUser(): StoredUser | null {
   try {
@@ -210,7 +224,7 @@ export default function AdminSettingsPage() {
 
   const [me, setMe] = useState<StoredUser | null>(() => readStoredUser());
 
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [overrides, setOverrides] = useState<OverrideItem[]>([]);
@@ -233,7 +247,7 @@ export default function AdminSettingsPage() {
   const [policySaveNotice, setPolicySaveNotice] = useState<"success" | "error" | null>(null);
   const [analyzeDays, setAnalyzeDays] = useState(30);
   const [analyzeDetailed, setAnalyzeDetailed] = useState<AnalyzeStatsDetailed | null>(null);
-  const [analyzeDetailLoading, setAnalyzeDetailLoading] = useState(false);
+  const [, setAnalyzeDetailLoading] = useState(false);
   const [issueFilter, setIssueFilter] = useState<"all" | IssueReportStatus>("all");
   const [issueQuery, setIssueQuery] = useState("");
   const [issueLoading, setIssueLoading] = useState(false);
@@ -250,6 +264,14 @@ export default function AdminSettingsPage() {
   const [issueDraftReplyMap, setIssueDraftReplyMap] = useState<Record<number, string>>({});
   const [issueSavingId, setIssueSavingId] = useState<number | null>(null);
   const [issueNotice, setIssueNotice] = useState<"success" | "error" | null>(null);
+  const [recentLoginUsers, setRecentLoginUsers] = useState<AdminManagedUser[]>([]);
+  const [userQuery, setUserQuery] = useState("");
+  const [userSearchSubmittedQuery, setUserSearchSubmittedQuery] = useState("");
+  const [userSearchItems, setUserSearchItems] = useState<AdminManagedUser[]>([]);
+  const [userSearchBusy, setUserSearchBusy] = useState(false);
+  const [userActionBusyId, setUserActionBusyId] = useState<number | null>(null);
+  const [userNotice, setUserNotice] = useState<"success" | "error" | null>(null);
+  const [recentUsersExpanded, setRecentUsersExpanded] = useState(false);
   const [activeShortcut, setActiveShortcut] = useState<AdminShortcutKey>("hidden");
   const [shortcutMenuOpen, setShortcutMenuOpen] = useState(false);
 
@@ -266,10 +288,12 @@ export default function AdminSettingsPage() {
   });
   const policySavedTimerRef = useRef<number | null>(null);
   const issueNoticeTimerRef = useRef<number | null>(null);
+  const userNoticeTimerRef = useRef<number | null>(null);
   const hiddenSectionRef = useRef<HTMLElement | null>(null);
   const editedSectionRef = useRef<HTMLElement | null>(null);
   const searchSectionRef = useRef<HTMLElement | null>(null);
   const analyzeSectionRef = useRef<HTMLElement | null>(null);
+  const usersSectionRef = useRef<HTMLElement | null>(null);
   const issuesSectionRef = useRef<HTMLElement | null>(null);
   const shortcutMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -290,6 +314,9 @@ export default function AdminSettingsPage() {
       }
       if (issueNoticeTimerRef.current !== null) {
         window.clearTimeout(issueNoticeTimerRef.current);
+      }
+      if (userNoticeTimerRef.current !== null) {
+        window.clearTimeout(userNoticeTimerRef.current);
       }
     };
   }, []);
@@ -414,18 +441,60 @@ export default function AdminSettingsPage() {
     }
   }, [issueFilter, issueQuery, me]);
 
+  const loadRecentLoginUsers = useCallback(async () => {
+    if (!isAdminUser(me)) return;
+    try {
+      const res = await apiGet<{ items?: AdminManagedUser[] }>("/admin/meta/users/recent-logins", {
+        limit: 10,
+      });
+      const items = Array.isArray(res?.items) ? res.items : [];
+      setRecentLoginUsers(items);
+    } catch {
+      setRecentLoginUsers([]);
+    }
+  }, [me]);
+
+  const runUserSearch = useCallback(
+    async (rawQuery: string) => {
+      if (!isAdminUser(me)) return;
+      const q = rawQuery.trim();
+      if (!q) {
+        setUserSearchSubmittedQuery("");
+        setUserSearchItems([]);
+        return;
+      }
+      setUserSearchSubmittedQuery(q);
+      setUserSearchBusy(true);
+      try {
+        const res = await apiGet<{ items?: AdminManagedUser[] }>("/admin/meta/users/search", {
+          q,
+          limit: 20,
+        });
+        const items = Array.isArray(res?.items) ? res.items : [];
+        setUserSearchItems(items);
+      } catch {
+        setUserSearchItems([]);
+      } finally {
+        setUserSearchBusy(false);
+      }
+    },
+    [me],
+  );
+
   useEffect(() => {
     void loadOverrides();
     void loadSearchPolicy();
     void loadAnalyzeStats();
     void loadAnalyzeDetailed();
     void loadContentIssues();
+    void loadRecentLoginUsers();
   }, [
     loadOverrides,
     loadSearchPolicy,
     loadAnalyzeStats,
     loadAnalyzeDetailed,
     loadContentIssues,
+    loadRecentLoginUsers,
   ]);
 
   const isAniOverride = useCallback(
@@ -440,15 +509,20 @@ export default function AdminSettingsPage() {
     [detailMap],
   );
 
+  const tvOverrides = useMemo(
+    () => overrides.filter((o) => o.mediaType === "tv"),
+    [overrides],
+  );
+
   const baseOverrides = useMemo(() => {
+    if (mediaFilter === "all") return overrides;
+    if (mediaFilter === "tv") return tvOverrides;
     return overrides.filter((o) => {
-      if (mediaFilter === "all") return true;
-      if (mediaFilter === "tv") return o.mediaType === "tv";
       if (mediaFilter === "ani") return isAniOverride(o);
       if (mediaFilter === "movie") return o.mediaType === "movie" && !isAniOverride(o);
       return true;
     });
-  }, [overrides, mediaFilter, isAniOverride]);
+  }, [overrides, tvOverrides, mediaFilter, isAniOverride]);
 
   const getOverrideTitle = useCallback(
     (o: OverrideItem): string => {
@@ -499,8 +573,8 @@ export default function AdminSettingsPage() {
     );
 
     if (union.length === 0) {
-      setDetailsLoading(false);
-      setDetailMap({});
+      setDetailsLoading((prev) => (prev ? false : prev));
+      setDetailMap((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
 
@@ -528,7 +602,22 @@ export default function AdminSettingsPage() {
           if (!r) continue;
           next[r.key] = r.value;
         }
-        setDetailMap(next);
+        setDetailMap((prev) => {
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(next);
+          if (prevKeys.length !== nextKeys.length) return next;
+          for (const k of nextKeys) {
+            const a = prev[k] as any;
+            const b = next[k] as any;
+            if (!a || !b) return next;
+            if (a.id !== b.id) return next;
+            if (a.media_type !== b.media_type) return next;
+            if (a.title !== b.title) return next;
+            if (a.name !== b.name) return next;
+            if (a.poster_path !== b.poster_path) return next;
+          }
+          return prev;
+        });
       })
       .finally(() => {
         if (!alive) return;
@@ -715,6 +804,10 @@ export default function AdminSettingsPage() {
   const topGenreBars = (analyzeDetailed?.genres ?? analyzeStats?.topGenres ?? []).slice(0, 8);
   const topMoodBars = (analyzeDetailed?.moods ?? analyzeStats?.topMoods ?? []).slice(0, 8);
   const topCountryBars = (analyzeDetailed?.countries ?? analyzeStats?.topCountries ?? []).slice(0, 8);
+  const visibleRecentLoginUsers = useMemo(
+    () => recentLoginUsers.filter((u) => Number(u.id) !== Number(me?.id ?? 0)),
+    [recentLoginUsers, me?.id],
+  );
 
   const exportJson = useCallback(() => {
     try {
@@ -838,6 +931,72 @@ export default function AdminSettingsPage() {
     [issueDraftReplyMap, issueDraftStatusMap, loadContentIssues, me?.username],
   );
 
+  const updateUserRole = useCallback(
+    async (user: AdminManagedUser, role: "USER" | "ADMIN") => {
+      setUserActionBusyId(user.id);
+      try {
+        await apiPatch<{ ok: true }>(`/admin/meta/users/${user.id}/role`, { role });
+        setUserNotice("success");
+        if (userNoticeTimerRef.current !== null) {
+          window.clearTimeout(userNoticeTimerRef.current);
+        }
+        userNoticeTimerRef.current = window.setTimeout(() => {
+          setUserNotice(null);
+          userNoticeTimerRef.current = null;
+        }, 1800);
+        await loadRecentLoginUsers();
+        if (userSearchSubmittedQuery.trim()) {
+          await runUserSearch(userSearchSubmittedQuery);
+        }
+      } catch {
+        setUserNotice("error");
+        if (userNoticeTimerRef.current !== null) {
+          window.clearTimeout(userNoticeTimerRef.current);
+        }
+        userNoticeTimerRef.current = window.setTimeout(() => {
+          setUserNotice(null);
+          userNoticeTimerRef.current = null;
+        }, 1800);
+      } finally {
+        setUserActionBusyId(null);
+      }
+    },
+    [loadRecentLoginUsers, runUserSearch, userSearchSubmittedQuery],
+  );
+
+  const deleteUserAccount = useCallback(
+    async (user: AdminManagedUser) => {
+      setUserActionBusyId(user.id);
+      try {
+        await apiDelete<{ ok: true }>(`/admin/meta/users/account/${user.id}`);
+        setUserNotice("success");
+        if (userNoticeTimerRef.current !== null) {
+          window.clearTimeout(userNoticeTimerRef.current);
+        }
+        userNoticeTimerRef.current = window.setTimeout(() => {
+          setUserNotice(null);
+          userNoticeTimerRef.current = null;
+        }, 1800);
+        await loadRecentLoginUsers();
+        if (userSearchSubmittedQuery.trim()) {
+          await runUserSearch(userSearchSubmittedQuery);
+        }
+      } catch {
+        setUserNotice("error");
+        if (userNoticeTimerRef.current !== null) {
+          window.clearTimeout(userNoticeTimerRef.current);
+        }
+        userNoticeTimerRef.current = window.setTimeout(() => {
+          setUserNotice(null);
+          userNoticeTimerRef.current = null;
+        }, 1800);
+      } finally {
+        setUserActionBusyId(null);
+      }
+    },
+    [loadRecentLoginUsers, runUserSearch, userSearchSubmittedQuery],
+  );
+
   const moveToSection = useCallback((key: AdminShortcutKey) => {
     setActiveShortcut(key);
     setShortcutMenuOpen(false);
@@ -847,12 +1006,14 @@ export default function AdminSettingsPage() {
         : key === "edited"
           ? editedSectionRef.current
           : key === "search"
-            ? searchSectionRef.current
-            : key === "analyze"
-              ? analyzeSectionRef.current
+          ? searchSectionRef.current
+          : key === "analyze"
+            ? analyzeSectionRef.current
+            : key === "users"
+              ? usersSectionRef.current
               : issuesSectionRef.current;
     if (!target) return;
-    if (key === "analyze" || key === "issues") {
+    if (key === "analyze" || key === "users" || key === "issues") {
       const top =
         target.getBoundingClientRect().top + window.scrollY - 132;
       window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
@@ -926,6 +1087,7 @@ export default function AdminSettingsPage() {
                   { key: "edited", label: "편집됨" },
                   { key: "search", label: "검색 키워드" },
                   { key: "analyze", label: "분석 통계" },
+                  { key: "users", label: "사용자 관리" },
                   { key: "issues", label: "오류 제보" },
                 ] as Array<{ key: AdminShortcutKey; label: string }>
               ).map((item) => (
@@ -948,7 +1110,7 @@ export default function AdminSettingsPage() {
         </AnimatePresence>
       </div>
 
-      <main className="flex-1 pt-[84px] pb-20">
+      <main id="main-content" className="flex-1 pt-[84px] pb-20">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -963,6 +1125,10 @@ export default function AdminSettingsPage() {
                   컨텐츠 노출/편집 관리, 검색 운영 정책, 분석 통계를 한 곳에서 운영할 수 있습니다.
                 </p>
               </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="h-px w-full bg-white/10" />
             </div>
 
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1297,6 +1463,219 @@ export default function AdminSettingsPage() {
                 ) : null}
               </>
             )}
+          </div>
+        </section>
+
+        <section ref={usersSectionRef} className="mt-10">
+          <SectionHeader
+            title="사용자 관리"
+            desc="최근 로그인 사용자와 사용자 검색 결과를 기반으로 권한/계정을 관리합니다."
+          />
+          <div className="px-6 mt-4">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+              <div className="relative min-w-0 w-full">
+                <span className="pointer-events-none absolute inset-y-0 left-3 inline-flex items-center">
+                  <Search className="h-4 w-4 text-white/45" />
+                </span>
+                <input
+                  value={userQuery}
+                  onChange={(e) => {
+                    setUserQuery(e.target.value);
+                    setUserSearchSubmittedQuery("");
+                    setUserSearchItems([]);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    void runUserSearch(userQuery);
+                  }}
+                  placeholder="아이디/닉네임 검색 (예: 1024 또는 hong)"
+                  className="h-9 w-full rounded-lg bg-white/10 pl-9 pr-3 text-sm outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                className="h-9 w-[64px] sm:w-auto sm:px-3 rounded-lg bg-white text-black hover:bg-white/90 text-sm font-semibold whitespace-nowrap"
+                onClick={() => void runUserSearch(userQuery)}
+              >
+                검색
+              </button>
+              <button
+                type="button"
+                className="h-9 w-[72px] sm:w-auto sm:px-3 rounded-lg bg-white/10 hover:bg-white/15 text-sm font-semibold whitespace-nowrap"
+                onClick={() => {
+                  setUserQuery("");
+                  setUserSearchSubmittedQuery("");
+                  setUserSearchItems([]);
+                }}
+              >
+                초기화
+              </button>
+            </div>
+            {userNotice === "success" ? (
+              <div className="mt-2 text-xs text-emerald-300">처리되었습니다</div>
+            ) : null}
+            {userNotice === "error" ? (
+              <div className="mt-2 text-xs text-rose-300">처리에 실패했습니다</div>
+            ) : null}
+
+            <div className="mt-3 space-y-2">
+              {userSearchBusy ? (
+                <div className="rounded-xl bg-black/20 p-4 text-sm text-white/60">
+                  사용자 검색 중입니다...
+                </div>
+              ) : null}
+              {!userSearchBusy &&
+              !!userSearchSubmittedQuery.trim() &&
+              userSearchItems.length === 0 ? (
+                <div className="rounded-xl bg-black/20 p-4 text-sm text-white/60">
+                  검색 결과가 없습니다.
+                </div>
+              ) : null}
+              {!userSearchBusy &&
+                userSearchItems.map((u) => {
+                  const isMe = Number(me?.id ?? 0) === u.id;
+                  const canAct = !isMe && userActionBusyId !== u.id;
+                  const canGrantAdmin =
+                    u.role === "ADMIN" ||
+                    String(u.email ?? "").trim().toLowerCase() === ADMIN_GRANT_EMAIL;
+                  return (
+                    <div key={`managed-user:${u.id}`} className="rounded-xl bg-black/20 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-white/95">
+                          #{u.id} {u.nickname?.trim() || u.username}
+                          {isMe ? <span className="ml-2 text-xs text-white/55">(내 계정)</span> : null}
+                        </div>
+                        <span
+                          className={[
+                            "text-[11px] px-2 py-1 rounded-full",
+                            u.role === "ADMIN"
+                              ? "bg-emerald-400/20 text-emerald-200"
+                              : "bg-white/10 text-white/75",
+                          ].join(" ")}
+                        >
+                          {u.role}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-white/65">
+                        아이디: @{u.username} · 닉네임: {u.nickname?.trim() || "-"} · 이메일:{" "}
+                        {u.email?.trim() || "-"}
+                      </div>
+                      <div className="mt-1 text-xs text-white/60">
+                        최근 로그인:{" "}
+                        {u.lastLoginAt
+                          ? new Date(u.lastLoginAt).toLocaleString("ko-KR", { hour12: false })
+                          : "-"}{" "}
+                        · 가입일: {new Date(u.createdAt).toLocaleDateString("ko-KR")}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className={[
+                            "h-9 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5",
+                            u.role === "ADMIN"
+                              ? "bg-white/10 hover:bg-white/15 text-white"
+                              : "bg-emerald-300 text-black hover:bg-emerald-200",
+                          ].join(" ")}
+                          disabled={!canAct || !canGrantAdmin}
+                          title={
+                            !canGrantAdmin && u.role !== "ADMIN"
+                              ? `${ADMIN_GRANT_EMAIL} 계정만 관리자 권한 부여 가능`
+                              : undefined
+                          }
+                          onClick={() =>
+                            askConfirm(
+                              u.role === "ADMIN"
+                                ? "일반 권한으로 변경할까요?"
+                                : "관리자 권한을 부여할까요?",
+                              `대상: #${u.id} @${u.username}`,
+                              u.role === "ADMIN" ? "일반 권한" : "권한 부여",
+                              async () => {
+                                await updateUserRole(u, u.role === "ADMIN" ? "USER" : "ADMIN");
+                              },
+                            )
+                          }
+                        >
+                          <Shield className="h-4 w-4" />
+                          {u.role === "ADMIN" ? "일반 권한 변경" : "관리자 권한 부여"}
+                        </button>
+                        <button
+                          type="button"
+                          className="h-9 px-3 rounded-lg bg-rose-400/90 text-black hover:bg-rose-300 text-sm font-semibold inline-flex items-center gap-1.5"
+                          disabled={!canAct}
+                          onClick={() =>
+                            askConfirm(
+                              "사용자를 삭제할까요?",
+                              `삭제 대상: #${u.id} @${u.username} (되돌릴 수 없습니다)`,
+                              "삭제",
+                              async () => {
+                                await deleteUserAccount(u);
+                              },
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          계정 삭제
+                        </button>
+                        {userActionBusyId === u.id ? (
+                          <span className="text-xs text-white/60">처리 중...</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <div className="text-sm font-semibold text-white/90">최근 로그인 (최대 10명)</div>
+              {visibleRecentLoginUsers.length > 2 ? (
+                <button
+                  type="button"
+                  className="ml-1 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold whitespace-nowrap"
+                  onClick={() => setRecentUsersExpanded((v) => !v)}
+                >
+                  {recentUsersExpanded ? "접기" : "펼치기"}
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {visibleRecentLoginUsers.length === 0 ? (
+                <div className="rounded-xl bg-black/20 p-4 text-sm text-white/60">
+                  최근 로그인 데이터가 없습니다.
+                </div>
+              ) : (
+                visibleRecentLoginUsers
+                  .slice(0, recentUsersExpanded ? 10 : 2)
+                  .map((u) => (
+                  <div key={`recent-user:${u.id}`} className="rounded-xl bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-white/95">
+                        #{u.id} {u.nickname?.trim() || u.username}
+                      </div>
+                      <span
+                        className={[
+                          "text-[11px] px-2 py-1 rounded-full",
+                          u.role === "ADMIN"
+                            ? "bg-emerald-400/20 text-emerald-200"
+                            : "bg-white/10 text-white/75",
+                        ].join(" ")}
+                      >
+                        {u.role}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-white/65">@{u.username}</div>
+                    <div className="mt-1 text-xs text-white/60">
+                      최근 로그인:{" "}
+                      {u.lastLoginAt
+                        ? new Date(u.lastLoginAt).toLocaleString("ko-KR", { hour12: false })
+                        : "-"}
+                    </div>
+                  </div>
+                  ))
+              )}
+            </div>
+
           </div>
         </section>
 
@@ -1906,7 +2285,7 @@ function BottomConfirmSheet(props: {
             transition={{ type: "spring", stiffness: 420, damping: 38 }}
             className="fixed bottom-0 left-0 right-0 z-[96] px-6 pb-4"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#0b0b10]/95 p-5 shadow-2xl backdrop-blur">
+            <div className="rounded-2xl bg-[#0b0b10]/95 p-5 shadow-2xl backdrop-blur">
               <h3 className="text-lg font-bold">{title}</h3>
               {desc ? <p className="mt-2 text-sm text-white/65">{desc}</p> : null}
 

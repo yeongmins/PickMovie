@@ -98,7 +98,7 @@ function shuffle<T>(arr: T[]) {
 }
 
 /**
- * ✅ extra(트렌드 키워드 등)를 섞어서 랜덤 픽
+ * extra(트렌드 키워드 등)를 섞어서 랜덤 픽
  */
 export function pickRandomKeywords(count = 8, extra?: string[]) {
   const merged = [

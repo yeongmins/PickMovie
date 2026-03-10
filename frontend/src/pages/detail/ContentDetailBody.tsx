@@ -17,7 +17,7 @@ export function ContentDetailBody({
   isAuthed?: boolean;
   statusKindOverride?: ReleaseStatusKind | null;
 }) {
-  // ✅ 중복 제거:
+  // 중복 제거:
   // - meta fetch/캐시/보정은 DetailSections 단일 책임
   // - 시즌 선택 시 출시년도 동기화도 DetailSections가 location 기반으로 처리
   return (

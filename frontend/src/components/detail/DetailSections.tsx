@@ -33,7 +33,7 @@ type SeasonNavContext = {
   vote_average?: number | null;
   year?: number | null;
 
-  // ✅ 시리즈 원본(first_air_date) - 시즌 이동에도 고정
+  // 시리즈 원본(first_air_date) - 시즌 이동에도 고정
   original_first_air_date?: string;
 };
 
@@ -182,7 +182,7 @@ export function DetailSections({
     return (st?.seasonContext as SeasonNavContext | undefined) ?? undefined;
   }, [location.state]);
 
-  // ✅ [핵심 수정] "원본 first_air_date"는 아래 우선순위로 항상 유지
+  // [핵심 수정] "원본 first_air_date"는 아래 우선순위로 항상 유지
   // 1) 현재 location.state(=이전 시즌 이동에서 들고 온 값)
   // 2) 시리즈 디테일(=seasons가 있는 detail) first_air_date
   // 3) 최후 fallback: detail.first_air_date
@@ -204,7 +204,7 @@ export function DetailSections({
     return fallback || undefined;
   }, [detail, mediaType, seasonContext]);
 
-  // ✅ 출시년도 계산에 사용할 "고정 first_air_date"
+  // 출시년도 계산에 사용할 "고정 first_air_date"
   const fixedFirstAirDate = useMemo(() => {
     if (mediaType === "tv") return safeText(stableOriginalFirstAirDate);
     return safeText((detail as any)?.release_date);
@@ -398,7 +398,7 @@ export function DetailSections({
           ? `${d.runtime}분`
           : "";
 
-    // ✅ 컨텐츠정보 "출시년도"는 contentInfoReleaseYear(최초 기준) 우선
+    // 컨텐츠정보 "출시년도"는 contentInfoReleaseYear(최초 기준) 우선
     const yearFromMeta = Number(meta?.contentInfoReleaseYear);
     const contentInfoYear =
       Number.isFinite(yearFromMeta) && yearFromMeta > 0
@@ -604,7 +604,7 @@ export function DetailSections({
           tvId={(detail as any).id}
           tvTitle={(detail as any).name || ""}
           seasons={(detail as any).seasons}
-          // ✅ [핵심] 시즌 페이지에서도 state에 있던 원본 first_air_date를 계속 전달
+          // [핵심] 시즌 페이지에서도 state에 있던 원본 first_air_date를 계속 전달
           originalFirstAirDate={stableOriginalFirstAirDate}
         />
       ) : null}

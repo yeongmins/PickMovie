@@ -87,7 +87,7 @@ type FrontBoxOfficeResponse = {
   rawItems: FrontBoxOfficeRawItem[];
 };
 
-// ✅ TMDB search/movie 응답 타입
+// TMDB search/movie 응답 타입
 type TmdbSearchMovieResult = {
   id?: number;
   title?: string;
@@ -134,7 +134,7 @@ function normTitle(s: string): string {
 }
 
 /**
- * ✅ KST 기준 "YYYYMMDD" 생성
+ * KST 기준 "YYYYMMDD" 생성
  */
 function toYmdKST(date: Date): string {
   const KST_OFFSET_MIN = 9 * 60;
@@ -204,7 +204,7 @@ function weekdayKoreanFromYmd(targetDt: string): string {
   const m = Number(s.slice(4, 6));
   const d = Number(s.slice(6, 8));
 
-  // ✅ KST 기준으로 날짜 고정
+  // KST 기준으로 날짜 고정
   const dt = new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + 9 * 60 * 60 * 1000);
   const w = dt.getUTCDay(); // 0=일
   const map = ['일', '월', '화', '수', '목', '금', '토'];
@@ -228,7 +228,7 @@ export class KobisService {
     'https://www.kobis.or.kr/kobisopenapi/webservice/rest';
   private readonly key: string;
 
-  // ✅ TMDB 검색용
+  // TMDB 검색용
   private readonly tmdbKey: string;
   private readonly tmdbBase = 'https://api.themoviedb.org/3';
 
@@ -238,7 +238,7 @@ export class KobisService {
     set: Set<string>;
   } | null = null;
 
-  // ✅ 박스오피스(TMDB 매핑) 캐시
+  // 박스오피스(TMDB 매핑) 캐시
   private boxOfficeTop10Cache: {
     fetchedAt: number;
     targetDt: string;
@@ -362,7 +362,7 @@ export class KobisService {
   }
 
   /**
-   * ✅ 프론트 메인 "박스오피스 TOP 10" 용
+   * 프론트 메인 "박스오피스 TOP 10" 용
    * - KOBIS: 오늘(KST) → 없으면 어제(KST)
    * - TMDB: movieNm로 검색해서 tmdbId 매핑
    * - ✅ displayDateLabel 추가(프론트 계산 금지)

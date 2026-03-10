@@ -1,5 +1,5 @@
 // frontend/src/features/search/hooks/useSearch.ts
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AiSearchResponse, ResultItem } from "../api/searchApi";
 import { runSearch } from "../api/searchApi";
 
@@ -26,12 +26,53 @@ type SearchSnapshot = {
   tags: string[];
   results: ResultItem[];
   aiAnalysis: AiSearchResponse["aiAnalysis"] | null;
+  createdAt: number;
+  expiresAt: number;
 };
+
+const SEARCH_SNAPSHOT_KEY = "pickmovie_search_snapshot_v1";
+const SEARCH_SNAPSHOT_TTL_MS = 30 * 60 * 1000;
+
+function readSearchSnapshotFromStorage(): SearchSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SEARCH_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SearchSnapshot>;
+    const expiresAt = Number(parsed?.expiresAt ?? 0);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      localStorage.removeItem(SEARCH_SNAPSHOT_KEY);
+      return null;
+    }
+    return {
+      query: String(parsed?.query ?? ""),
+      hasSearched: !!parsed?.hasSearched,
+      error: typeof parsed?.error === "string" ? parsed.error : null,
+      tags: Array.isArray(parsed?.tags) ? parsed.tags : [],
+      results: Array.isArray(parsed?.results) ? parsed.results : [],
+      aiAnalysis: parsed?.aiAnalysis ?? null,
+      createdAt: Number(parsed?.createdAt ?? Date.now()),
+      expiresAt,
+    };
+  } catch {
+    try {
+      localStorage.removeItem(SEARCH_SNAPSHOT_KEY);
+    } catch {}
+    return null;
+  }
+}
+
+function clearSearchSnapshotFromStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(SEARCH_SNAPSHOT_KEY);
+  } catch {}
+}
 
 let searchSnapshot: SearchSnapshot | null = null;
 
 export function useSearch(initialQuery = ""): UseSearchState {
-  const snapshot = searchSnapshot;
+  const snapshot = searchSnapshot ?? readSearchSnapshotFromStorage();
 
   const [query, setQuery] = useState(() => snapshot?.query ?? initialQuery);
   const [loading, setLoading] = useState(false);
@@ -65,6 +106,7 @@ export function useSearch(initialQuery = ""): UseSearchState {
     setResults([]);
     setAiAnalysis(null);
     searchSnapshot = null;
+    clearSearchSnapshotFromStorage();
   }, [cancel]);
 
   const search = useCallback(
@@ -135,7 +177,31 @@ export function useSearch(initialQuery = ""): UseSearchState {
     tags,
     results,
     aiAnalysis,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SEARCH_SNAPSHOT_TTL_MS,
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (!hasSearched || !query.trim()) {
+        clearSearchSnapshotFromStorage();
+        return;
+      }
+      const now = Date.now();
+      const payload: SearchSnapshot = {
+        query,
+        hasSearched,
+        error,
+        tags,
+        results,
+        aiAnalysis,
+        createdAt: now,
+        expiresAt: now + SEARCH_SNAPSHOT_TTL_MS,
+      };
+      localStorage.setItem(SEARCH_SNAPSHOT_KEY, JSON.stringify(payload));
+    } catch {}
+  }, [query, hasSearched, error, tags, results, aiAnalysis]);
 
   return state;
 }

@@ -44,7 +44,7 @@ export type DetailBase = {
     poster_path?: string | null;
   }>;
 
-  // ✅ backend meta가 내려주면 채워서 UI에서 사용 가능
+  // backend meta가 내려주면 채워서 UI에서 사용 가능
   kr_release_date?: string;
   kr_first_release_date?: string;
 

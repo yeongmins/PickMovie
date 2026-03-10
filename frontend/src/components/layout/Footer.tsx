@@ -418,7 +418,7 @@ export function Footer({ compact = false }: { compact?: boolean }) {
               type="button"
               onClick={() => setModalType("privacy")}
               className={cn(
-                "cursor-pointer transition-transform duration-100 hover:-translate-y-0.5 hover:text-white",
+                "cursor-pointer transition-transform duration-100 hover:-translate-y-0.5 hover:text-white font-bold",
                 footerTextClass,
               )}
             >

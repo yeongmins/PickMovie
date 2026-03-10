@@ -79,7 +79,7 @@ export const TMDB_LOGO_CDN = "https://image.tmdb.org/t/p/";
 export const logoUrl = (path: string, size: "w92" | "w185" = "w92") =>
   `${TMDB_LOGO_CDN}${size}${path}`;
 
-// ✅ (이전 호환) 외부에서 import하던 코드가 있을 수 있어 안전하게 유지
+// (이전 호환) 외부에서 import하던 코드가 있을 수 있어 안전하게 유지
 export type ScreeningSets = null;
 export const loadScreeningSets = async () => null;
 
@@ -246,13 +246,6 @@ const detailCache = new Map<number, any>();
 const TRAILER_OPEN_EVENT = "pickmovie-trailer-open";
 const TRAILER_CLOSE_EVENT = "pickmovie-trailer-close";
 
-function yearFromDate(d?: string | null) {
-  const raw = String(d ?? "").trim();
-  if (!raw) return "";
-  const y = raw.slice(0, 4);
-  return /^\d{4}$/.test(y) ? y : "";
-}
-
 export function useFavoritesHeroState(movies: Movie[]) {
   const [loggedIn, setLoggedIn] = useState<boolean>(() => isLoggedInFallback());
   const [trendMovies, setTrendMovies] = useState<Movie[]>([]);
@@ -286,7 +279,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     };
   }, []);
 
-  // ✅ 비로그인 트렌드 로딩 (기존 유지)
+  // 비로그인 트렌드 로딩 (기존 유지)
   useEffect(() => {
     if (loggedIn) return;
     if (Array.isArray(movies) && movies.length > 0) return;
@@ -416,7 +409,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     setIndex(index, "thumb");
   };
 
-  // ✅ meta 단일 소스: providers/age/status/year 모두 여기서
+  // meta 단일 소스: providers/age/status/year 모두 여기서
   useEffect(() => {
     let mounted = true;
 
@@ -438,7 +431,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     return () => void (mounted = false);
   }, [currentMovie?.id, (currentMovie as any)?.media_type]);
 
-  // ✅ meta.providers만 사용 (프론트 계산/추론 X)
+  // meta.providers만 사용 (프론트 계산/추론 X)
   const providers: WatchProviderItem[] = (meta?.providers ?? []) as any;
 
   const providerLogos = providers
@@ -479,7 +472,7 @@ export function useFavoritesHeroState(movies: Movie[]) {
     currentMovie?.backdrop_path || currentMovie?.poster_path
   );
 
-  // ✅ ✅ 핵심 수정:
+  // ✅ 핵심 수정:
   // - useMemo 안에서 useMemo 호출(훅 중첩) 제거
   // - 프론트 계산 금지: meta.unifiedYearLabel만 사용
   const yearText = useMemo(() => {

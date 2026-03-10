@@ -25,7 +25,7 @@ export class TrendsController {
     @Body() body?: IngestKobisBody,
   ) {
     this.trends.assertIngestToken(token);
-    // ✅ 기존 엔드포인트 유지, 내부는 “KOBIS + NAVER + YOUTUBE”까지 포함한 daily ingest로 수행
+    // 기존 엔드포인트 유지, 내부는 “KOBIS + NAVER + YOUTUBE”까지 포함한 daily ingest로 수행
     return this.trends.ingestKobisDaily(body?.targetDt);
   }
 }

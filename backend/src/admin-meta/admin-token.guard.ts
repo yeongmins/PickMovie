@@ -18,7 +18,7 @@ export class AdminTokenGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<ReqLike>();
 
-    // ✅ ConfigService가 못 읽는 경우 대비해서 process.env도 함께 확인
+    // ConfigService가 못 읽는 경우 대비해서 process.env도 함께 확인
     const expected = String(
       this.config.get('ADMIN_TOKEN') ?? process.env.ADMIN_TOKEN ?? '',
     ).trim();

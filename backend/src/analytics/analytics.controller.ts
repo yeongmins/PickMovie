@@ -44,7 +44,9 @@ export class AnalyticsController {
       genres: Array.isArray(body?.preferences?.genres)
         ? body.preferences.genres
         : [],
-      moods: Array.isArray(body?.preferences?.moods) ? body.preferences.moods : [],
+      moods: Array.isArray(body?.preferences?.moods)
+        ? body.preferences.moods
+        : [],
       runtime: String(body?.preferences?.runtime ?? ''),
       releaseYear: String(body?.preferences?.releaseYear ?? ''),
       country: String(body?.preferences?.country ?? ''),
@@ -127,7 +129,10 @@ export class AnalyticsController {
       100,
       Math.max(1, Math.trunc(Number(limitRaw ?? 20) || 20)),
     );
-    return this.analytics.getMyIssueNotifications(Number(user?.sub ?? 0), limit);
+    return this.analytics.getMyIssueNotifications(
+      Number(user?.sub ?? 0),
+      limit,
+    );
   }
 
   @Patch('content-issues/my-notifications/:id/read')
@@ -140,7 +145,10 @@ export class AnalyticsController {
     if (!Number.isFinite(id) || id <= 0) {
       throw new BadRequestException('id must be a positive number');
     }
-    await this.analytics.markMyIssueNotificationRead(Number(user?.sub ?? 0), id);
+    await this.analytics.markMyIssueNotificationRead(
+      Number(user?.sub ?? 0),
+      id,
+    );
     return { ok: true };
   }
 

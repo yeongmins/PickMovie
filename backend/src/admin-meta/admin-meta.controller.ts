@@ -2,8 +2,10 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
   Param,
@@ -60,7 +62,12 @@ function asBooleanOrNull(v: unknown): boolean | null | undefined {
   return v;
 }
 
-function parsePositiveInt(v: unknown, fallback: number, min: number, max: number): number {
+function parsePositiveInt(
+  v: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const n = Number(String(v ?? '').trim());
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(n)));
@@ -75,6 +82,8 @@ function csvEscape(v: unknown): string {
 }
 
 type IssueReportStatus = 'received' | 'in_progress' | 'answered';
+type UserAdminRole = 'USER' | 'ADMIN';
+const ADMIN_GRANT_EMAIL = 'yeongmins123@gmail.com';
 
 function parseIssueReportStatus(v: unknown): IssueReportStatus {
   const s = String(v ?? '')
@@ -86,6 +95,14 @@ function parseIssueReportStatus(v: unknown): IssueReportStatus {
   throw new BadRequestException(
     'status must be one of "received", "in_progress", "answered"',
   );
+}
+
+function parseUserRole(v: unknown): UserAdminRole {
+  const s = String(v ?? '')
+    .trim()
+    .toUpperCase();
+  if (s === 'USER' || s === 'ADMIN') return s;
+  throw new BadRequestException('role must be one of "USER", "ADMIN"');
 }
 
 @Controller('admin/meta')
@@ -154,9 +171,7 @@ export class AdminMetaController {
   }
 
   @Get('overrides')
-  async listOverrides(
-    @Query('limit') limitRaw?: string,
-  ): Promise<{
+  async listOverrides(@Query('limit') limitRaw?: string): Promise<{
     items: Array<{
       mediaType: MediaType;
       tmdbId: number;
@@ -240,23 +255,23 @@ export class AdminMetaController {
     const items = rows.map((r) => {
       const hasDetailEdits = Boolean(
         r.overrideTitle ??
-          r.overrideOriginalTitle ??
-          r.overrideOverview ??
-          r.overrideRuntime ??
-          r.overrideReleaseDate,
+        r.overrideOriginalTitle ??
+        r.overrideOverview ??
+        r.overrideRuntime ??
+        r.overrideReleaseDate,
       );
       const hasMetaEdits = Boolean(
         r.contentKind ??
-          r.releaseStatus ??
-          r.ageRating ??
-          r.releaseYear ??
-          r.contentInfoReleaseYear ??
-          r.watchProviders ??
-          r.statusKind ??
-          r.unifiedYearLabel ??
-          r.originalTheatricalDate ??
-          r.rerunTheatricalDate ??
-          r.hasMultipleTheatrical,
+        r.releaseStatus ??
+        r.ageRating ??
+        r.releaseYear ??
+        r.contentInfoReleaseYear ??
+        r.watchProviders ??
+        r.statusKind ??
+        r.unifiedYearLabel ??
+        r.originalTheatricalDate ??
+        r.rerunTheatricalDate ??
+        r.hasMultipleTheatrical,
       );
 
       return {
@@ -265,7 +280,8 @@ export class AdminMetaController {
         contentKind: typeof r.contentKind === 'string' ? r.contentKind : null,
         overrideTitle: (r as any).overrideTitle ?? null,
         overrideOriginalTitle: (r as any).overrideOriginalTitle ?? null,
-        forceHidden: (r as { forceHidden?: boolean | null }).forceHidden === true,
+        forceHidden:
+          (r as { forceHidden?: boolean | null }).forceHidden === true,
         hasDetailEdits,
         hasMetaEdits,
         updatedAt: r.updatedAt.toISOString(),
@@ -354,7 +370,10 @@ export class AdminMetaController {
   }
 
   @Get('search-policy')
-  async getSearchPolicy(): Promise<{ keywords: string[]; updatedAt: string | null }> {
+  async getSearchPolicy(): Promise<{
+    keywords: string[];
+    updatedAt: string | null;
+  }> {
     return await this.searchPolicy.getSensitiveKeywords();
   }
 
@@ -365,9 +384,7 @@ export class AdminMetaController {
   ): Promise<{ ok: true; keywords: string[]; updatedAt: string | null }> {
     const rec = isRecord(body) ? body : {};
     const raw = Array.isArray(rec['keywords']) ? rec['keywords'] : [];
-    const keywords = raw
-      .map((x) => String(x ?? '').trim())
-      .filter(Boolean);
+    const keywords = raw.map((x) => String(x ?? '').trim()).filter(Boolean);
 
     const saved = await this.searchPolicy.setSensitiveKeywords({
       keywords,
@@ -391,33 +408,50 @@ export class AdminMetaController {
     topReleaseYears: Array<{ name: string; count: number }>;
   }> {
     const scalar = async (sql: string) => {
-      const rows = await this.prisma.$queryRawUnsafe<Array<{ value: bigint | number }>>(sql);
+      const rows =
+        await this.prisma.$queryRawUnsafe<Array<{ value: bigint | number }>>(
+          sql,
+        );
       return Number(rows?.[0]?.value ?? 0);
     };
 
-    const [total, authedCount, guestCount, uniqueVisitors, last7DaysCount] = await Promise.all([
-      scalar(`SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent"`),
-      scalar(`SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "isAuthed" = true`),
-      scalar(`SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "isAuthed" = false`),
-      scalar(`SELECT COUNT(DISTINCT "visitorId")::bigint AS value FROM "AnalyzeEvent"`),
-      scalar(
-        `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "createdAt" >= NOW() - INTERVAL '7 days'`,
-      ),
-    ]);
+    const [total, authedCount, guestCount, uniqueVisitors, last7DaysCount] =
+      await Promise.all([
+        scalar(`SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent"`),
+        scalar(
+          `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "isAuthed" = true`,
+        ),
+        scalar(
+          `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "isAuthed" = false`,
+        ),
+        scalar(
+          `SELECT COUNT(DISTINCT "visitorId")::bigint AS value FROM "AnalyzeEvent"`,
+        ),
+        scalar(
+          `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" WHERE "createdAt" >= NOW() - INTERVAL '7 days'`,
+        ),
+      ]);
 
     const asTop = async (sql: string) => {
-      const rows = await this.prisma.$queryRawUnsafe<
-        Array<{ name: string; count: bigint | number }>
-      >(sql);
+      const rows =
+        await this.prisma.$queryRawUnsafe<
+          Array<{ name: string; count: bigint | number }>
+        >(sql);
       return rows.map((r) => ({
         name: String(r.name ?? ''),
         count: Number(r.count ?? 0),
       }));
     };
 
-    const [topGenres, topMoods, topExcludes, topCountries, topRuntimes, topReleaseYears] =
-      await Promise.all([
-        asTop(`
+    const [
+      topGenres,
+      topMoods,
+      topExcludes,
+      topCountries,
+      topRuntimes,
+      topReleaseYears,
+    ] = await Promise.all([
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("genres") AS v
           WHERE COALESCE(v, '') <> ''
@@ -425,7 +459,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-        asTop(`
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("moods") AS v
           WHERE COALESCE(v, '') <> ''
@@ -433,7 +467,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-        asTop(`
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("excludes") AS v
           WHERE COALESCE(v, '') <> ''
@@ -441,7 +475,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-        asTop(`
+      asTop(`
           SELECT "country" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           WHERE COALESCE("country", '') <> ''
@@ -449,7 +483,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-        asTop(`
+      asTop(`
           SELECT "runtime" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           WHERE COALESCE("runtime", '') <> ''
@@ -457,7 +491,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-        asTop(`
+      asTop(`
           SELECT "releaseYear" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           WHERE COALESCE("releaseYear", '') <> ''
@@ -465,7 +499,7 @@ export class AdminMetaController {
           ORDER BY count DESC
           LIMIT 10
         `),
-      ]);
+    ]);
 
     return {
       total,
@@ -528,119 +562,175 @@ export class AdminMetaController {
   }> {
     const days = parsePositiveInt(daysRaw, 30, 1, 365);
     const limit = parsePositiveInt(limitRaw, 300, 50, 2000);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const baseFilter = `WHERE "createdAt" >= NOW() - INTERVAL '${days} days'`;
+    const baseFilter = `WHERE "createdAt" >= $1`;
 
-    const scalar = async (sql: string) => {
-      const rows = await this.prisma.$queryRawUnsafe<Array<{ value: bigint | number }>>(sql);
+    const scalar = async (
+      sql: string,
+      ...params: Array<string | number | Date>
+    ) => {
+      const rows =
+        await this.prisma.$queryRawUnsafe<Array<{ value: bigint | number }>>(
+          sql,
+          ...params,
+        );
       return Number(rows?.[0]?.value ?? 0);
     };
 
-    const [total, authedCount, guestCount, uniqueVisitors, firstEventAt, lastEventAt] =
-      await Promise.all([
-        scalar(`SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter}`),
-        scalar(
-          `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter} AND "isAuthed" = true`,
-        ),
-        scalar(
-          `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter} AND "isAuthed" = false`,
-        ),
-        scalar(
-          `SELECT COUNT(DISTINCT "visitorId")::bigint AS value FROM "AnalyzeEvent" ${baseFilter}`,
-        ),
-        (async () => {
-          const rows = await this.prisma.$queryRawUnsafe<Array<{ value: Date | string | null }>>(
-            `SELECT MIN("createdAt") AS value FROM "AnalyzeEvent" ${baseFilter}`,
-          );
-          const v = rows?.[0]?.value;
-          return v ? new Date(v).toISOString() : null;
-        })(),
-        (async () => {
-          const rows = await this.prisma.$queryRawUnsafe<Array<{ value: Date | string | null }>>(
-            `SELECT MAX("createdAt") AS value FROM "AnalyzeEvent" ${baseFilter}`,
-          );
-          const v = rows?.[0]?.value;
-          return v ? new Date(v).toISOString() : null;
-        })(),
-      ]);
+    const [
+      total,
+      authedCount,
+      guestCount,
+      uniqueVisitors,
+      firstEventAt,
+      lastEventAt,
+    ] = await Promise.all([
+      scalar(
+        `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter}`,
+        since,
+      ),
+      scalar(
+        `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter} AND "isAuthed" = true`,
+        since,
+      ),
+      scalar(
+        `SELECT COUNT(*)::bigint AS value FROM "AnalyzeEvent" ${baseFilter} AND "isAuthed" = false`,
+        since,
+      ),
+      scalar(
+        `SELECT COUNT(DISTINCT "visitorId")::bigint AS value FROM "AnalyzeEvent" ${baseFilter}`,
+        since,
+      ),
+      (async () => {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{ value: Date | string | null }>
+        >(
+          `SELECT MIN("createdAt") AS value FROM "AnalyzeEvent" ${baseFilter}`,
+          since,
+        );
+        const v = rows?.[0]?.value;
+        return v ? new Date(v).toISOString() : null;
+      })(),
+      (async () => {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{ value: Date | string | null }>
+        >(
+          `SELECT MAX("createdAt") AS value FROM "AnalyzeEvent" ${baseFilter}`,
+          since,
+        );
+        const v = rows?.[0]?.value;
+        return v ? new Date(v).toISOString() : null;
+      })(),
+    ]);
 
-    const asTop = async (sql: string) => {
-      const rows = await this.prisma.$queryRawUnsafe<
-        Array<{ name: string; count: bigint | number }>
-      >(sql);
+    const asTop = async (
+      sql: string,
+      ...params: Array<string | number | Date>
+    ) => {
+      const rows =
+        await this.prisma.$queryRawUnsafe<
+          Array<{ name: string; count: bigint | number }>
+        >(sql, ...params);
       return rows.map((r) => ({
         name: String(r.name ?? ''),
         count: Number(r.count ?? 0),
       }));
     };
 
-    const [genres, moods, excludes, countries, runtimes, releaseYears, daily, recentEvents] =
-      await Promise.all([
-        asTop(`
+    const [
+      genres,
+      moods,
+      excludes,
+      countries,
+      runtimes,
+      releaseYears,
+      daily,
+      recentEvents,
+    ] = await Promise.all([
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("genres") AS v
           ${baseFilter}
             AND COALESCE(v, '') <> ''
           GROUP BY v
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        asTop(`
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("moods") AS v
           ${baseFilter}
             AND COALESCE(v, '') <> ''
           GROUP BY v
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        asTop(`
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      asTop(`
           SELECT v AS name, COUNT(*) AS count
           FROM "AnalyzeEvent", jsonb_array_elements_text("excludes") AS v
           ${baseFilter}
             AND COALESCE(v, '') <> ''
           GROUP BY v
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        asTop(`
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      asTop(`
           SELECT "country" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           ${baseFilter}
             AND COALESCE("country", '') <> ''
           GROUP BY "country"
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        asTop(`
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      asTop(`
           SELECT "runtime" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           ${baseFilter}
             AND COALESCE("runtime", '') <> ''
           GROUP BY "runtime"
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        asTop(`
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      asTop(`
           SELECT "releaseYear" AS name, COUNT(*) AS count
           FROM "AnalyzeEvent"
           ${baseFilter}
             AND COALESCE("releaseYear", '') <> ''
           GROUP BY "releaseYear"
           ORDER BY count DESC
-          LIMIT ${limit}
-        `),
-        (async () => {
-          const rows = await this.prisma.$queryRawUnsafe<
-            Array<{
-              date: string;
-              count: bigint | number;
-              authedCount: bigint | number;
-              guestCount: bigint | number;
-              uniqueVisitors: bigint | number;
-            }>
-          >(
-            `
+          LIMIT $2
+        `,
+        since,
+        limit,
+      ),
+      (async () => {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{
+            date: string;
+            count: bigint | number;
+            authedCount: bigint | number;
+            guestCount: bigint | number;
+            uniqueVisitors: bigint | number;
+          }>
+        >(
+          `
             SELECT
               TO_CHAR(DATE("createdAt"), 'YYYY-MM-DD') AS date,
               COUNT(*) AS count,
@@ -652,34 +742,35 @@ export class AdminMetaController {
             GROUP BY DATE("createdAt")
             ORDER BY DATE("createdAt") DESC
             `,
-          );
-          return rows.map((r) => ({
-            date: String(r.date ?? ''),
-            count: Number(r.count ?? 0),
-            authedCount: Number(r.authedCount ?? 0),
-            guestCount: Number(r.guestCount ?? 0),
-            uniqueVisitors: Number(r.uniqueVisitors ?? 0),
-          }));
-        })(),
-        (async () => {
-          const rows = await this.prisma.$queryRawUnsafe<
-            Array<{
-              id: string;
-              createdAt: Date | string;
-              isAuthed: boolean;
-              userId: number | null;
-              visitorId: string;
-              country: string | null;
-              runtime: string | null;
-              releaseYear: string | null;
-              favoriteCount: number;
-              genres: unknown;
-              moods: unknown;
-              excludes: unknown;
-              favoriteMovieIds: unknown;
-            }>
-          >(
-            `
+          since,
+        );
+        return rows.map((r) => ({
+          date: String(r.date ?? ''),
+          count: Number(r.count ?? 0),
+          authedCount: Number(r.authedCount ?? 0),
+          guestCount: Number(r.guestCount ?? 0),
+          uniqueVisitors: Number(r.uniqueVisitors ?? 0),
+        }));
+      })(),
+      (async () => {
+        const rows = await this.prisma.$queryRawUnsafe<
+          Array<{
+            id: string;
+            createdAt: Date | string;
+            isAuthed: boolean;
+            userId: number | null;
+            visitorId: string;
+            country: string | null;
+            runtime: string | null;
+            releaseYear: string | null;
+            favoriteCount: number;
+            genres: unknown;
+            moods: unknown;
+            excludes: unknown;
+            favoriteMovieIds: unknown;
+          }>
+        >(
+          `
             SELECT
               "id",
               "createdAt",
@@ -697,38 +788,42 @@ export class AdminMetaController {
             FROM "AnalyzeEvent"
             ${baseFilter}
             ORDER BY "createdAt" DESC
-            LIMIT ${limit}
+            LIMIT $2
             `,
-          );
-          return rows.map((r) => ({
-            id: String(r.id ?? ''),
-            createdAt: new Date(r.createdAt).toISOString(),
-            isAuthed: !!r.isAuthed,
-            userId:
-              typeof r.userId === 'number' && Number.isFinite(r.userId)
-                ? Math.trunc(r.userId)
-                : null,
-            visitorId: String(r.visitorId ?? ''),
-            country: r.country ? String(r.country) : null,
-            runtime: r.runtime ? String(r.runtime) : null,
-            releaseYear: r.releaseYear ? String(r.releaseYear) : null,
-            favoriteCount: Number(r.favoriteCount ?? 0),
-            genres: Array.isArray(r.genres)
-              ? r.genres.map((x) => String(x ?? ''))
-              : [],
-            moods: Array.isArray(r.moods) ? r.moods.map((x) => String(x ?? '')) : [],
-            excludes: Array.isArray(r.excludes)
-              ? r.excludes.map((x) => String(x ?? ''))
-              : [],
-            favoriteMovieIds: Array.isArray(r.favoriteMovieIds)
-              ? r.favoriteMovieIds
-                  .map((x) => Number(x))
-                  .filter((n) => Number.isFinite(n))
-                  .map((n) => Math.trunc(n))
-              : [],
-          }));
-        })(),
-      ]);
+          since,
+          limit,
+        );
+        return rows.map((r) => ({
+          id: String(r.id ?? ''),
+          createdAt: new Date(r.createdAt).toISOString(),
+          isAuthed: !!r.isAuthed,
+          userId:
+            typeof r.userId === 'number' && Number.isFinite(r.userId)
+              ? Math.trunc(r.userId)
+              : null,
+          visitorId: String(r.visitorId ?? ''),
+          country: r.country ? String(r.country) : null,
+          runtime: r.runtime ? String(r.runtime) : null,
+          releaseYear: r.releaseYear ? String(r.releaseYear) : null,
+          favoriteCount: Number(r.favoriteCount ?? 0),
+          genres: Array.isArray(r.genres)
+            ? r.genres.map((x) => String(x ?? ''))
+            : [],
+          moods: Array.isArray(r.moods)
+            ? r.moods.map((x) => String(x ?? ''))
+            : [],
+          excludes: Array.isArray(r.excludes)
+            ? r.excludes.map((x) => String(x ?? ''))
+            : [],
+          favoriteMovieIds: Array.isArray(r.favoriteMovieIds)
+            ? r.favoriteMovieIds
+                .map((x) => Number(x))
+                .filter((n) => Number.isFinite(n))
+                .map((n) => Math.trunc(n))
+            : [],
+        }));
+      })(),
+    ]);
 
     const now = new Date();
     const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -765,6 +860,7 @@ export class AdminMetaController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
     const days = parsePositiveInt(daysRaw, 30, 1, 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const rows = await this.prisma.$queryRawUnsafe<
       Array<{
         id: string;
@@ -798,9 +894,10 @@ export class AdminMetaController {
         "favoriteCount",
         "favoriteMovieIds"
       FROM "AnalyzeEvent"
-      WHERE "createdAt" >= NOW() - INTERVAL '${days} days'
+      WHERE "createdAt" >= $1
       ORDER BY "createdAt" DESC
       `,
+      since,
     );
 
     const filename = `pickmovie-analyze-events-${days}d-${Date.now()}.csv`;
@@ -825,7 +922,9 @@ export class AdminMetaController {
       const genres = Array.isArray(r.genres) ? r.genres : [];
       const moods = Array.isArray(r.moods) ? r.moods : [];
       const excludes = Array.isArray(r.excludes) ? r.excludes : [];
-      const favoriteMovieIds = Array.isArray(r.favoriteMovieIds) ? r.favoriteMovieIds : [];
+      const favoriteMovieIds = Array.isArray(r.favoriteMovieIds)
+        ? r.favoriteMovieIds
+        : [];
       return [
         csvEscape(r.id),
         csvEscape(new Date(r.createdAt).toISOString()),
@@ -843,6 +942,223 @@ export class AdminMetaController {
       ].join(',');
     });
     return [header.join(','), ...lines].join('\n');
+  }
+
+  @Get('users/recent-logins')
+  async listRecentLoginUsers(
+    @Query('limit') limitRaw?: string,
+  ): Promise<{
+    items: Array<{
+      id: number;
+      username: string;
+      nickname: string | null;
+      email: string | null;
+      role: UserAdminRole;
+      createdAt: string;
+      lastLoginAt: string | null;
+    }>;
+  }> {
+    const limit = parsePositiveInt(limitRaw, 5, 1, 20);
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: number;
+        username: string;
+        nickname: string | null;
+        email: string | null;
+        role: string | null;
+        createdAt: Date | string;
+        lastLoginAt: Date | string | null;
+      }>
+    >(
+      `
+      SELECT
+        u."id",
+        u."username",
+        u."nickname",
+        u."email",
+        u."role"::text AS "role",
+        u."createdAt",
+        MAX(rt."createdAt") AS "lastLoginAt"
+      FROM "User" u
+      JOIN "RefreshToken" rt ON rt."userId" = u."id"
+      GROUP BY
+        u."id",
+        u."username",
+        u."nickname",
+        u."email",
+        u."role",
+        u."createdAt"
+      ORDER BY MAX(rt."createdAt") DESC
+      LIMIT $1
+      `,
+      limit,
+    );
+
+    return {
+      items: rows.map((r) => ({
+        id: Math.trunc(Number(r.id ?? 0)),
+        username: String(r.username ?? ''),
+        nickname: r.nickname ? String(r.nickname) : null,
+        email: r.email ? String(r.email) : null,
+        role: String(r.role ?? '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
+        createdAt: new Date(r.createdAt).toISOString(),
+        lastLoginAt: r.lastLoginAt ? new Date(r.lastLoginAt).toISOString() : null,
+      })),
+    };
+  }
+
+  @Get('users/search')
+  async searchUsers(
+    @Query('q') qRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ): Promise<{
+    items: Array<{
+      id: number;
+      username: string;
+      nickname: string | null;
+      email: string | null;
+      role: UserAdminRole;
+      createdAt: string;
+      lastLoginAt: string | null;
+    }>;
+  }> {
+    const q = String(qRaw ?? '')
+      .trim()
+      .slice(0, 80);
+    const limit = parsePositiveInt(limitRaw, 20, 1, 50);
+    if (!q) return { items: [] };
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: number;
+        username: string;
+        nickname: string | null;
+        email: string | null;
+        role: string | null;
+        createdAt: Date | string;
+        lastLoginAt: Date | string | null;
+      }>
+    >(
+      `
+      SELECT
+        u."id",
+        u."username",
+        u."nickname",
+        u."email",
+        u."role"::text AS "role",
+        u."createdAt",
+        MAX(rt."createdAt") AS "lastLoginAt"
+      FROM "User" u
+      LEFT JOIN "RefreshToken" rt ON rt."userId" = u."id"
+      WHERE
+        LOWER(u."username") = LOWER($1)
+        OR LOWER(SPLIT_PART(u."username", '-', 1)) = LOWER($1)
+        OR LOWER(SPLIT_PART(u."username", '_', 1)) = LOWER($1)
+        OR LOWER(COALESCE(u."nickname", '')) = LOWER($1)
+        OR ($2 <> '' AND CAST(u."id" AS TEXT) = $2)
+      GROUP BY
+        u."id",
+        u."username",
+        u."nickname",
+        u."email",
+        u."role",
+        u."createdAt"
+      ORDER BY COALESCE(MAX(rt."createdAt"), u."createdAt") DESC
+      LIMIT $3
+      `,
+      q,
+      q,
+      limit,
+    );
+
+    return {
+      items: rows.map((r) => ({
+        id: Math.trunc(Number(r.id ?? 0)),
+        username: String(r.username ?? ''),
+        nickname: r.nickname ? String(r.nickname) : null,
+        email: r.email ? String(r.email) : null,
+        role: String(r.role ?? '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
+        createdAt: new Date(r.createdAt).toISOString(),
+        lastLoginAt: r.lastLoginAt ? new Date(r.lastLoginAt).toISOString() : null,
+      })),
+    };
+  }
+
+  @Patch('users/:id/role')
+  async updateUserRole(
+    @Param('id') idRaw: string,
+    @Body()
+    body: {
+      role?: unknown;
+    },
+  ): Promise<{ ok: true }> {
+    const id = parsePositiveInt(idRaw, 0, 1, Number.MAX_SAFE_INTEGER);
+    if (!id) throw new BadRequestException('id must be a positive number');
+    const nextRole = parseUserRole(body?.role);
+
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, role: true, email: true },
+    });
+    if (!target) throw new BadRequestException('user not found');
+
+    const currentRole =
+      String(target.role ?? '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER';
+    if (currentRole === nextRole) return { ok: true };
+
+    if (currentRole !== 'ADMIN' && nextRole === 'ADMIN') {
+      const targetEmail = String(target.email ?? '')
+        .trim()
+        .toLowerCase();
+      if (targetEmail !== ADMIN_GRANT_EMAIL) {
+        throw new ForbiddenException(
+          `${ADMIN_GRANT_EMAIL} 계정에만 관리자 권한을 부여할 수 있습니다.`,
+        );
+      }
+    }
+
+    if (currentRole === 'ADMIN' && nextRole !== 'ADMIN') {
+      const adminCount = await this.prisma.user.count({
+        where: { role: 'ADMIN' },
+      });
+      if (adminCount <= 1) {
+        throw new ConflictException('마지막 관리자는 일반 권한으로 변경할 수 없습니다.');
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id },
+      data: { role: nextRole },
+    });
+
+    return { ok: true };
+  }
+
+  @Delete('users/account/:id')
+  async deleteUser(@Param('id') idRaw: string): Promise<{ ok: true }> {
+    const id = parsePositiveInt(idRaw, 0, 1, Number.MAX_SAFE_INTEGER);
+    if (!id) throw new BadRequestException('id must be a positive number');
+
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, role: true },
+    });
+    if (!target) throw new BadRequestException('user not found');
+
+    if (String(target.role ?? '').toUpperCase() === 'ADMIN') {
+      const adminCount = await this.prisma.user.count({
+        where: { role: 'ADMIN' },
+      });
+      if (adminCount <= 1) {
+        throw new ConflictException('마지막 관리자는 삭제할 수 없습니다.');
+      }
+    }
+
+    await this.prisma.user.delete({
+      where: { id },
+    });
+
+    return { ok: true };
   }
 
   @Get('content-issues')
@@ -880,7 +1196,10 @@ export class AdminMetaController {
   }> {
     const days = parsePositiveInt(daysRaw, 365, 1, 3650);
     const limit = parsePositiveInt(limitRaw, 100, 1, 500);
-    const q = String(qRaw ?? '').trim().slice(0, 120).toLowerCase();
+    const q = String(qRaw ?? '')
+      .trim()
+      .slice(0, 120)
+      .toLowerCase();
     const status =
       String(statusRaw ?? '')
         .trim()
@@ -898,7 +1217,7 @@ export class AdminMetaController {
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const conditions: string[] = [`"createdAt" >= $1`];
-    const values: Array<string | Date> = [since];
+    const values: Array<string | Date | number> = [since];
 
     if (status !== 'all') {
       values.push(status);
@@ -909,19 +1228,19 @@ export class AdminMetaController {
       values.push(`%${q}%`);
       const p = `$${values.length}`;
       conditions.push(
-        `(${
-          [
+        `(${[
           `LOWER(COALESCE("contentTitle", '')) LIKE ${p}`,
           `CAST("tmdbId" AS TEXT) LIKE ${p}`,
           `LOWER(COALESCE("issueMessage", '')) LIKE ${p}`,
           `LOWER(COALESCE("issueDetail", '')) LIKE ${p}`,
           `LOWER(COALESCE("adminReply", '')) LIKE ${p}`,
-          ].join(' OR ')
-        })`,
+        ].join(' OR ')})`,
       );
     }
 
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
+    values.push(limit);
+    const limitPlaceholder = `$${values.length}`;
 
     const [summaryRows, rows] = await Promise.all([
       this.prisma.$queryRawUnsafe<
@@ -992,7 +1311,7 @@ export class AdminMetaController {
             ELSE 2
           END ASC,
           "createdAt" DESC
-        LIMIT ${limit}
+        LIMIT ${limitPlaceholder}
         `,
         ...values,
       ),
@@ -1020,7 +1339,8 @@ export class AdminMetaController {
         issueMessage: String(r.issueMessage ?? ''),
         issueDetail: r.issueDetail ? String(r.issueDetail) : null,
         reporterUserId:
-          typeof r.reporterUserId === 'number' && Number.isFinite(r.reporterUserId)
+          typeof r.reporterUserId === 'number' &&
+          Number.isFinite(r.reporterUserId)
             ? Math.trunc(r.reporterUserId)
             : null,
         reporterName: r.reporterName ? String(r.reporterName) : null,
@@ -1037,7 +1357,9 @@ export class AdminMetaController {
           : null,
         adminRepliedBy: r.adminRepliedBy ? String(r.adminRepliedBy) : null,
         createdAt: new Date(r.createdAt).toISOString(),
-        updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : new Date(r.createdAt).toISOString(),
+        updatedAt: r.updatedAt
+          ? new Date(r.updatedAt).toISOString()
+          : new Date(r.createdAt).toISOString(),
       })),
     };
   }
@@ -1065,7 +1387,9 @@ export class AdminMetaController {
         ? 'answered'
         : 'in_progress';
     if (status === 'answered' && !hasReply) {
-      throw new BadRequestException('adminReply is required when status is answered');
+      throw new BadRequestException(
+        'adminReply is required when status is answered',
+      );
     }
 
     const adminRepliedBy = String(body?.adminRepliedBy ?? '')

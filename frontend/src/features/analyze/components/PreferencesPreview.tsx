@@ -167,12 +167,12 @@ export function PreferencesPreview({
           </div>
 
           {/* 제외 요소 칩 목록 */}
-          {excludes.length > 0 && (
-            <div className="pt-3 border-t border-white/10">
-              <div className="flex items-center gap-2 mb-2">
-                <XCircle className="w-3 h-3 text-orange-300" />
-                <span className="text-gray-300 text-xs">제외 요소</span>
-              </div>
+          <div className="pt-3 border-t border-white/10">
+            <div className="flex items-center gap-2 mb-2">
+              <XCircle className="w-3 h-3 text-orange-300" />
+              <span className="text-gray-300 text-xs">제외 요소</span>
+            </div>
+            {excludes.length > 0 ? (
               <div className="flex flex-wrap gap-1">
                 {excludes.map((exclude) => (
                   <motion.span
@@ -184,8 +184,10 @@ export function PreferencesPreview({
                   </motion.span>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-gray-500 text-xs">선택되지 않음</p>
+            )}
+          </div>
         </div>
       </motion.div>
     </div>

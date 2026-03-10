@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +16,7 @@ import {
   ContentCard,
   type ContentCardItem,
 } from "../../../components/content/ContentCard";
+import { consumeAuthIntent, openAuthModal, setAuthIntent } from "../../../lib/auth";
 
 interface RecommendationStepProps {
   preferences: UserPreferences;
@@ -106,7 +107,7 @@ async function loadDiscoverPages(args: {
 
 export function RecommendationStep({
   preferences,
-  onComplete,
+  onComplete: _onComplete,
   onRestart,
   initialFavorites,
   isAuthed = false,
@@ -120,6 +121,7 @@ export function RecommendationStep({
 }: RecommendationStepProps) {
   const navigate = useNavigate();
   const canSaveActions = isAuthed && (!!onCreatePlaylist || !!onAddItemsToPlaylist);
+  const canStartPlaylistMode = isAuthed ? canSaveActions : true;
   const API_BASE =
     (import.meta as any).env?.VITE_API_BASE_URL ?? "http://localhost:3000";
   const ANALYZE_VISITOR_KEY = "pickmovie_analyze_visitor_id";
@@ -326,6 +328,15 @@ export function RecommendationStep({
   };
 
   const onEnterSelectionMode = () => {
+    if (!isAuthed) {
+      setAuthIntent({
+        type: "open_playlist_selection",
+        source: "analyze",
+        returnTo: "/analyze?resume=1",
+      });
+      openAuthModal("login");
+      return;
+    }
     if (!canSaveActions) return;
     setSelectionMode(true);
     setSelectedMap({});
@@ -512,6 +523,19 @@ export function RecommendationStep({
     }
   };
 
+  useEffect(() => {
+    if (!isAuthed) return;
+    const intent = consumeAuthIntent(
+      (it) =>
+        it.type === "open_playlist_selection" &&
+        it.source === "analyze",
+    );
+    if (!intent) return;
+    setSelectionMode(true);
+    setPlaylistError(null);
+    setPlaylistNotice("로그인되었습니다. 추가할 콘텐츠를 선택해 주세요.");
+  }, [isAuthed]);
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center p-6">
@@ -606,17 +630,21 @@ export function RecommendationStep({
               <button
                 type="button"
                 onClick={onEnterSelectionMode}
-                disabled={!canSaveActions}
+                disabled={!canStartPlaylistMode}
                 className={[
                   "h-9 px-3 rounded-xl text-xs transition inline-flex items-center gap-2 shrink-0",
-                  canSaveActions
+                  canStartPlaylistMode
                     ? "bg-white/10 hover:bg-white/15 text-white/90"
                     : "bg-white/10 text-white/45 cursor-not-allowed",
                 ].join(" ")}
                 aria-label="플레이리스트 추가 모드 시작"
               >
                 <Plus className="h-4 w-4" />
-                {canSaveActions ? "플레이리스트 추가" : "로그인 후 플레이리스트 가능"}
+                {isAuthed
+                  ? canSaveActions
+                    ? "플레이리스트 추가"
+                    : "플레이리스트 기능 사용 불가"
+                  : "로그인 후 플레이리스트 추가"}
               </button>
             ) : (
               <button

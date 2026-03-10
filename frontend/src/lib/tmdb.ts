@@ -1,12 +1,12 @@
 // frontend/src/lib/tmdb.ts
-// ✅ 백엔드 API 주소 (Vite 환경변수 또는 로컬호스트)
+// 백엔드 API 주소 (Vite 환경변수 또는 로컬호스트)
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
 
 // 이미지는 여전히 TMDB CDN에서 직접 가져옵니다.
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/";
 
-// ✅ 기본값: “한국 기준”
+// 기본값: “한국 기준”
 const DEFAULT_REGION = "KR";
 const DEFAULT_LANGUAGE = "ko-KR";
 
@@ -52,7 +52,7 @@ export interface TMDBMovie {
   adult?: boolean;
   video?: boolean;
 
-  // ✅ UI에서 쓰는 확장 필드(있어도 되고 없어도 됨)
+  // UI에서 쓰는 확장 필드(있어도 되고 없어도 됨)
   isNowPlaying?: boolean;
   ageRating?: string;
   providers?: any[];
@@ -245,7 +245,7 @@ export function getBackdropUrl(
 }
 
 // =========================
-// ✅ 상세페이지 “최신 포스터(ko 우선 → en)” 선택
+// 상세페이지 “최신 포스터(ko 우선 → en)” 선택
 // =========================
 
 export type TmdbImageAsset = {
@@ -420,7 +420,7 @@ export function calculateMatchScore(
 }
 
 // =========================
-// ✅ 리스트 API 공통 옵션
+// 리스트 API 공통 옵션
 // =========================
 
 type ListOptions = {
@@ -446,7 +446,7 @@ function normalizeListArg(arg?: number | ListOptions): Required<ListOptions> {
 }
 
 // =========================
-// ✅ 핵심: TV 결과를 항상 “UI 공통 포맷”으로 정규화
+// 핵심: TV 결과를 항상 “UI 공통 포맷”으로 정규화
 // =========================
 
 function normalizeTvResult<T extends Record<string, any>>(tv: T): T {
@@ -627,7 +627,7 @@ export function normalizeTVToMovie(tv: any): TMDBMovie {
 }
 
 // =========================
-// ✅ Providers / Age Rating (TMDB 직접 호출 + 캐시)
+// Providers / Age Rating (TMDB 직접 호출 + 캐시)
 // =========================
 
 export type ProviderBadge = {
@@ -708,7 +708,7 @@ export async function getAgeRating(
   }
 }
 
-// ✅ TV 시즌 상세(별점 계산용) + 캐시
+// TV 시즌 상세(별점 계산용) + 캐시
 export type TmdbTvSeasonEpisode = {
   vote_average?: number;
 };

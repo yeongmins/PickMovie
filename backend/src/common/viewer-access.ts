@@ -26,10 +26,12 @@ export function getViewerAccessFromAuthHeader(
   const rawHeader = Array.isArray(authHeader) ? authHeader[0] : authHeader;
   const token = pickBearerToken(rawHeader);
   if (!token) return { isAdmin: false };
+  const secret = String(process.env.JWT_ACCESS_SECRET ?? '').trim();
+  if (!secret) return { isAdmin: false };
 
   try {
     const jwt = new JwtService({
-      secret: process.env.JWT_ACCESS_SECRET ?? 'dev_access_secret',
+      secret,
     });
     const payload = jwt.verify<JwtPayloadLike>(token);
     return { isAdmin: isAdminRole(payload?.role) };

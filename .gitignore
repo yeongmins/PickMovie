@@ -2,7 +2,6 @@
 # Node / Dependency
 # =====================================
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -29,7 +28,8 @@ temp/
 # =====================================
 .env
 .env.*
-.env.example
+!.env.example
+!**/.env.example
 
 # =====================================
 # Logs

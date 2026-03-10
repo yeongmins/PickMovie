@@ -27,9 +27,10 @@ import {
   isLoggedInFallback,
   openAuthModal,
   AUTH_KEYS,
+  resolveAuthIntentReturnPath,
   reloadAfterAuth,
 } from "../lib/auth";
-import { AuthSuccessModal } from "./auth/SignupSuccessToast";
+import { AuthSuccessModal } from "./auth/AuthSuccessModal";
 import {
   getPopularMovies,
   getPopularTVShows,
@@ -140,6 +141,137 @@ function unwrapList<T = any>(v: any): T[] {
 const NEW_USER_FLAG = "pickmovie_new_signup";
 const ANALYZE_PROMPT_SEEN = "pickmovie_analyze_prompt_seen";
 const LEGACY_ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
+const INTRO_GUIDE_HIDE_UNTIL = "pickmovie_intro_guide_hide_until";
+const INTRO_GUIDE_HIDE_FOREVER_TS = 32503680000000; // 3000-01-01T00:00:00.000Z
+
+function getIntroGuideStorageKey(loggedIn: boolean): string {
+  if (!loggedIn) return `${INTRO_GUIDE_HIDE_UNTIL}:guest`;
+  try {
+    const raw = localStorage.getItem(AUTH_KEYS.USER);
+    if (!raw) return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
+    const user = JSON.parse(raw) as StoredUser;
+    const uid = Number(user?.id);
+    if (Number.isFinite(uid) && uid > 0)
+      return `${INTRO_GUIDE_HIDE_UNTIL}:user:${uid}`;
+    return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
+  } catch {
+    return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
+  }
+}
+
+function getTodayHideUntil(): number {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  return end.getTime();
+}
+
+function IntroGuideModal({
+  open,
+  onClose,
+  onGoInfo,
+}: {
+  open: boolean;
+  onClose: (hidePermanently: boolean) => void;
+  onGoInfo: (hidePermanently: boolean) => void;
+}) {
+  const [hideForToday, setHideForToday] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setHideForToday(false);
+  }, [open]);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[88] flex items-center justify-center px-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            className="absolute inset-0 bg-black/55"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.99 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="relative w-full max-w-[360px] overflow-hidden rounded-lg bg-[#10131b] shadow-[0_20px_48px_rgba(0,0,0,0.5)]"
+            onMouseDown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="PickMovie 소개"
+          >
+            <div className="relative overflow-hidden px-6 py-6">
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(201,181,210,0.18),transparent_58%)]" />
+                <div className="absolute -left-12 bottom-10 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
+              </div>
+              <div className="relative z-[1]">
+                <h2 className="mt-3 text-[24px] font-bold leading-tight text-white">
+                  <span className="font-extrabold tracking-tight">
+                    <span
+                      style={{
+                        backgroundImage: "linear-gradient(90deg,#7c3aed,#ec4899)",
+                        WebkitBackgroundClip: "text",
+                        backgroundClip: "text",
+                        color: "transparent",
+                      }}
+                    >
+                      Pick
+                    </span>
+                    <span className="text-white">Movie</span>
+                  </span>{" "}
+                  이용안내
+                </h2>
+                <p className="mt-3 text-[14px] leading-relaxed text-white/70">
+                  PickMovie에 오신것을 환영합니다 ✨
+                </p>
+                <p className="mt-2 text-[14px] leading-relaxed text-white/70">
+                  취향 분석, 컨텐츠 추천, 찜/플레이리스트를
+                  <br />
+                  빠르게 사용하는 방법을 알려드려요.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onGoInfo(hideForToday)}
+                  className="mt-5 inline-flex h-10 items-center rounded-full border border-white/45 px-4 text-[14px] font-semibold text-white transition hover:bg-white/10"
+                >
+                  자세히 보기
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 border-t border-white/15 bg-[#0c0f17]">
+              <label className="flex h-12 cursor-pointer select-none items-center justify-center gap-2 border-r border-white/15 text-[14px] font-semibold text-white/80">
+                <input
+                  type="checkbox"
+                  checked={hideForToday}
+                  onChange={(e) => setHideForToday(e.target.checked)}
+                  className="h-4 w-4 rounded border-white/40 bg-transparent accent-white"
+                />
+                다시 보지 않기
+              </label>
+              <button
+                type="button"
+                onClick={() => onClose(hideForToday)}
+                className="h-12 text-[16px] font-bold text-white/80 transition hover:bg-white/5 hover:text-white"
+              >
+                닫기
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 function validateNicknameInput(value: string): string | null {
   const v = value.trim();
@@ -231,7 +363,7 @@ function buildTrendBoostedList(
 }
 
 /**
- * ✅ 동시성 제한 (기존 UI 유지, 폭주 방지)
+ * 동시성 제한 (기존 UI 유지, 폭주 방지)
  */
 async function pMapLimit<T, R>(
   items: T[],
@@ -705,11 +837,11 @@ export function MainScreen({
   const [topRatedMovies, setTopRatedMovies] = useState<TMDBMovie[]>([]);
   const [latestMovies, setLatestMovies] = useState<TMDBMovie[]>([]);
 
-  // ✅ 하단 박스오피스 Top10(실제 박스오피스)
+  // 하단 박스오피스 Top10(실제 박스오피스)
   const [boxOfficeMovies, setBoxOfficeMovies] = useState<TMDBMovie[]>([]);
   const [boxOfficeLoading, setBoxOfficeLoading] = useState(false);
 
-  // ✅ (추가) 박스오피스 섹션 desc (백엔드 displayDateLabel 그대로 사용)
+  // (추가) 박스오피스 섹션 desc (백엔드 displayDateLabel 그대로 사용)
   const [boxOfficeDesc, setBoxOfficeDesc] =
     useState<string>("Top10 차트입니다.");
   const [boxOfficeRawItems, setBoxOfficeRawItems] = useState<
@@ -730,6 +862,7 @@ export function MainScreen({
   );
 
   const [showAnalyzePrompt, setShowAnalyzePrompt] = useState(false);
+  const [showIntroGuide, setShowIntroGuide] = useState(false);
   const [showSignupSuccess, setShowSignupSuccess] = useState(false);
   const [nicknameOnboardingOpen, setNicknameOnboardingOpen] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState("");
@@ -753,7 +886,7 @@ export function MainScreen({
     title?: string;
   } | null>(null);
 
-  // ✅ 디테일 캐시(중복 호출 제거)
+  // 디테일 캐시(중복 호출 제거)
   const detailCacheRef = useRef<Map<string, any>>(new Map());
   const homeChartsRef = useRef<HomeChartsResponse | null>(null);
 
@@ -902,7 +1035,7 @@ export function MainScreen({
 
     setBoxOfficeLoading(true);
     try {
-      // ✅ “실제 박스오피스 Top10” (백엔드에서 KOBIS 기반으로 내려주는 Top10 전용)
+      // “실제 박스오피스 Top10” (백엔드에서 KOBIS 기반으로 내려주는 Top10 전용)
       // (서버 라우트명이 프로젝트마다 다를 수 있어 후보를 순차 시도)
       const tryUrls = [
         "/charts/boxoffice/top10",
@@ -919,7 +1052,7 @@ export function MainScreen({
         try {
           const r = await apiGet<any>(url, { limit: 10 });
 
-          // ✅ (추가) 백엔드에서 내려주는 표시용 날짜 라벨
+          // (추가) 백엔드에서 내려주는 표시용 날짜 라벨
           const label = String(r?.displayDateLabel ?? "").trim();
           if (label) displayDateLabel = label;
 
@@ -961,7 +1094,7 @@ export function MainScreen({
         }
       }
 
-      // ✅ (추가) RowHeader desc 업데이트
+      // (추가) RowHeader desc 업데이트
       if (displayDateLabel) {
         setBoxOfficeDesc(`${displayDateLabel} 기준 Top10 차트입니다.`);
       } else {
@@ -983,7 +1116,7 @@ export function MainScreen({
         return;
       }
 
-      // ✅ 박스오피스는 영화만
+      // 박스오피스는 영화만
       const normalized = items
         .filter((x) => typeof x?.tmdbId === "number" && x.tmdbId)
         .slice(0, 10)
@@ -1006,7 +1139,7 @@ export function MainScreen({
             return {
               ...(d as any),
               media_type: "movie",
-              trendRank: it.rank, // ✅ 카드에 #순위 표시용
+              trendRank: it.rank, // 카드에 #순위 표시용
             } as any;
           } catch {
             detailFailedIds.push(it.tmdbId);
@@ -1068,6 +1201,38 @@ export function MainScreen({
       setShowAnalyzePrompt(false);
     }
   }, [loggedIn, currentSection]);
+
+  useEffect(() => {
+    if (currentSection !== "home") {
+      setShowIntroGuide(false);
+      return;
+    }
+    try {
+      const storageKey = getIntroGuideStorageKey(loggedIn);
+      const hideUntil = Number(localStorage.getItem(storageKey) ?? 0);
+      const hidden = Number.isFinite(hideUntil) && hideUntil > Date.now();
+      if (!hidden) localStorage.removeItem(storageKey);
+      setShowIntroGuide(!hidden);
+    } catch {
+      setShowIntroGuide(false);
+    }
+  }, [currentSection, loggedIn]);
+
+  const closeIntroGuide = useCallback((hidePermanently: boolean) => {
+    setShowIntroGuide(false);
+    try {
+      const storageKey = getIntroGuideStorageKey(loggedIn);
+      if (hidePermanently) {
+        localStorage.setItem(storageKey, String(getTodayHideUntil()));
+      }
+      else localStorage.removeItem(storageKey);
+    } catch {}
+  }, [loggedIn]);
+
+  const goInfoFromIntroGuide = useCallback((hidePermanently: boolean) => {
+    closeIntroGuide(hidePermanently);
+    navigate("/info");
+  }, [closeIntroGuide, navigate]);
 
   const dismissAnalyzePrompt = useCallback(() => {
     setShowAnalyzePrompt(false);
@@ -1147,7 +1312,7 @@ export function MainScreen({
             localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "0");
           }
 
-          reloadAfterAuth("/");
+          reloadAfterAuth(resolveAuthIntentReturnPath("/"));
           return;
         }
 
@@ -1230,6 +1395,8 @@ export function MainScreen({
         localStorage.setItem(NEW_USER_FLAG, "1");
         localStorage.setItem(ANALYZE_PROMPT_SEEN, "0");
         localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "0");
+        const storageKey = getIntroGuideStorageKey(true);
+        localStorage.setItem(storageKey, String(INTRO_GUIDE_HIDE_FOREVER_TS));
       }
 
       params.delete("onboard");
@@ -1247,6 +1414,7 @@ export function MainScreen({
       setNicknameFromNewSignup(false);
 
       if (isNewSignup) {
+        setShowIntroGuide(false);
         setShowSignupSuccess(true);
         setShowAnalyzePrompt(true);
       }
@@ -1391,12 +1559,12 @@ export function MainScreen({
     loadFavoriteMoviesDetails();
   }, [loadFavoriteMoviesDetails]);
 
-  // ✅ 박스오피스 Top10 로드 (home에서 항상)
+  // 박스오피스 Top10 로드 (home에서 항상)
   useEffect(() => {
     void loadRealBoxOfficeTop10();
   }, [loadRealBoxOfficeTop10]);
 
-  // ✅ 트렌드 로드: PickMovie 인기차트 + 섹션 보정용 시그널 생성
+  // 트렌드 로드: PickMovie 인기차트 + 섹션 보정용 시그널 생성
   useEffect(() => {
     if (currentSection !== "home") return;
 
@@ -1528,7 +1696,7 @@ export function MainScreen({
     loadHomeChartsSnapshot,
   ]);
 
-  // ✅ for-you는 백엔드에서 전부 계산, 프론트는 결과 렌더링만 담당
+  // for-you는 백엔드에서 전부 계산, 프론트는 결과 렌더링만 담당
   useEffect(() => {
     if (!loggedIn || currentSection !== "home") return;
 
@@ -1655,8 +1823,14 @@ export function MainScreen({
         message="회원가입이 완료되었습니다! 지금 분석하기를 시작해 보세요."
       />
 
+      <IntroGuideModal
+        open={showIntroGuide}
+        onClose={closeIntroGuide}
+        onGoInfo={goInfoFromIntroGuide}
+      />
+
       <AnalyzePromptModal
-        open={showAnalyzePrompt}
+        open={showAnalyzePrompt && !showIntroGuide}
         onStart={startAnalyze}
         onLater={dismissAnalyzePrompt}
       />
@@ -1721,7 +1895,7 @@ export function MainScreen({
         </section>
       )}
 
-      <main className="page-fade-in flex-1 z-20">
+      <main id="main-content" className="page-fade-in flex-1 z-20">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentSection}
@@ -1750,7 +1924,7 @@ export function MainScreen({
                       </div>
                     ) : !canBuildForYou ? (
                       <div className="mx-auto w-full px-6 mt-4">
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                        <div className="rounded-xl bg-white/5 p-4 text-sm text-white/60">
                           찜을{" "}
                           <span className="text-white/85 font-semibold">
                             {MIN_FAV_FOR_YOU}개
@@ -1880,7 +2054,7 @@ export function MainScreen({
                   />
                 </Suspense>
 
-                {/* ✅ 하단: 실제 박스오피스 TOP 10 */}
+                {/* 하단: 실제 박스오피스 TOP 10 */}
                 <RowHeader
                   className="mt-8"
                   title="박스오피스 TOP 10"

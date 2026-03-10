@@ -26,7 +26,9 @@ const DEFAULT_SENSITIVE_KEYWORDS = [
 ];
 
 function normalizeKeyword(v: unknown): string | null {
-  const s = String(v ?? '').trim().toLowerCase();
+  const s = String(v ?? '')
+    .trim()
+    .toLowerCase();
   if (!s) return null;
   return s;
 }
@@ -83,7 +85,8 @@ export class SearchPolicyService {
     updatedBy?: string;
   }): Promise<{ keywords: string[]; updatedAt: string | null }> {
     const normalized = normalizeKeywords(args.keywords);
-    const next = normalized.length > 0 ? normalized : [...DEFAULT_SENSITIVE_KEYWORDS];
+    const next =
+      normalized.length > 0 ? normalized : [...DEFAULT_SENSITIVE_KEYWORDS];
 
     try {
       const row = await (this.prisma as any).searchPolicyConfig.upsert({

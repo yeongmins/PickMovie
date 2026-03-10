@@ -1,5 +1,5 @@
 :root {
-  /* ✅ 데스크탑/태블릿: 고정 카드 폭(메인 캐러셀 느낌) */
+  /* 데스크탑/태블릿: 고정 카드 폭(메인 캐러셀 느낌) */
   --pm-card-w: 200px;
   --pm-row-card-w: 200px;
   --pm-gap: 16px;
@@ -27,7 +27,7 @@
   flex: 0 0 auto;
 }
 
-/* ✅ Grid: 기본은 고정폭 컬럼 */
+/* Grid: 기본은 고정폭 컬럼 */
 .pm-grid {
   display: grid;
   gap: var(--pm-gap);
@@ -35,7 +35,7 @@
   grid-template-columns: repeat(auto-fill, var(--pm-card-w));
 }
 
-/* ✅ 모바일: 무조건 2열(여백 제거) + 카드 폭은 칸에 맞춰 100% */
+/* 모바일: 무조건 2열(여백 제거) + 카드 폭은 칸에 맞춰 100% */
 @media (max-width: 639px) {
   .pm-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -46,7 +46,7 @@
   }
 }
 
-/* ✅ Row(캐러셀): 고정 카드 + 가로 스크롤 */
+/* Row(캐러셀): 고정 카드 + 가로 스크롤 */
 .pm-row {
   display: flex;
   gap: var(--pm-gap);

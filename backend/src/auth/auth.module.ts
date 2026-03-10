@@ -30,9 +30,12 @@ function normalizeExpiresIn(v: string): number | StringValue {
       inject: [ConfigService],
       useFactory: (config: ConfigService): JwtModuleOptions => {
         const expiresRaw = config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m';
+        const secret = config.get<string>('JWT_ACCESS_SECRET')?.trim();
+        if (!secret) {
+          throw new Error('JWT_ACCESS_SECRET is required');
+        }
         return {
-          secret:
-            config.get<string>('JWT_ACCESS_SECRET') ?? 'dev_access_secret',
+          secret,
           signOptions: {
             expiresIn: normalizeExpiresIn(expiresRaw),
           },

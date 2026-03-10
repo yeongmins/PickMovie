@@ -14,7 +14,7 @@ export interface AiAnalysis {
   needsClarification: boolean;
   clarifyingQuestion: string | null;
 
-  // ✅ “AI 체감”
+  // “AI 체감”
   expandedQueries: string[];
   summary: string;
 }

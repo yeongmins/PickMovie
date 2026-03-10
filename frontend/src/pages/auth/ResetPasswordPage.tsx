@@ -36,7 +36,10 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_20%_10%,rgba(139,92,246,0.18),transparent_55%),radial-gradient(900px_circle_at_80%_30%,rgba(236,72,153,0.12),transparent_60%),linear-gradient(to_bottom,rgba(0,0,0,0.92),rgba(0,0,0,0.88))] text-white">
-      <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4 py-10">
+      <main
+        id="main-content"
+        className="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4 py-10"
+      >
         <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur">
           <h1 className="text-xl font-semibold">비밀번호 재설정</h1>
           <p className="mt-2 text-sm text-white/60">
@@ -44,18 +47,28 @@ export default function ResetPasswordPage() {
           </p>
 
           <div className="mt-5 space-y-3">
+            <label htmlFor="new-password" className="sr-only">
+              새 비밀번호
+            </label>
             <input
+              id="new-password"
               type="password"
               value={pw}
               onChange={(e) => setPw(e.target.value)}
               placeholder="새 비밀번호"
+              autoComplete="new-password"
               className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-4 outline-none focus:border-violet-400/40"
             />
+            <label htmlFor="new-password-confirm" className="sr-only">
+              새 비밀번호 확인
+            </label>
             <input
+              id="new-password-confirm"
               type="password"
               value={pw2}
               onChange={(e) => setPw2(e.target.value)}
               placeholder="새 비밀번호 확인"
+              autoComplete="new-password"
               className="h-11 w-full rounded-xl border border-white/10 bg-black/30 px-4 outline-none focus:border-violet-400/40"
             />
 
@@ -75,13 +88,14 @@ export default function ResetPasswordPage() {
           </div>
 
           <button
+            type="button"
             onClick={() => navigate("/login")}
             className="mt-4 w-full text-center text-sm text-white/60 hover:text-white"
           >
             로그인으로 돌아가기
           </button>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

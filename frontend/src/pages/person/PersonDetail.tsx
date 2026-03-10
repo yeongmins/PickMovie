@@ -66,7 +66,7 @@ function locationToPath(loc: any): string | null {
   return `${p}${s}${h}`;
 }
 
-/** ✅ 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
+/** 중첩 모달에서도 안전한 body scroll lock (카운팅 방식) */
 function lockBodyScroll() {
   if (typeof document === "undefined") return () => {};
   const attr = "data-pm-scroll-lock";
@@ -97,20 +97,20 @@ export default function PersonDetail() {
   const personId = Number(params.id);
   const st = location.state as any;
 
-  // ✅ overlay로 열린 케이스(상세 위에 배우 모달)
+  // overlay로 열린 케이스(상세 위에 배우 모달)
   const hasBackgroundLocation = !!st?.backgroundLocation;
 
-  // ✅ 대표작 → 상세 이동 때 사용할 root(메인/리스트)
+  // 대표작 → 상세 이동 때 사용할 root(메인/리스트)
   const rootLocation = st?.rootLocation ?? null;
 
-  // ✅ 닫기(=상세 들어오기 전 화면) 경로
+  // 닫기(=상세 들어오기 전 화면) 경로
   const rootPath = useMemo(() => {
     return (
       locationToPath(st?.rootLocation ?? st?.backgroundLocation ?? null) ?? "/"
     );
   }, [st]);
 
-  // ✅ 이전(상세) 경로: titleStack이 있으면 그걸 우선, 없으면 history back
+  // 이전(상세) 경로: titleStack이 있으면 그걸 우선, 없으면 history back
   const detailPath = useMemo(() => {
     return locationToPath(st?.titleStack ?? null) ?? null;
   }, [st]);
@@ -121,13 +121,13 @@ export default function PersonDetail() {
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
 
-  // ✅ 중첩 모달 스크롤락 안전 처리
+  // 중첩 모달 스크롤락 안전 처리
   useEffect(() => {
     const unlock = lockBodyScroll();
     return () => unlock();
   }, []);
 
-  // ✅ 닫기(X/바깥/ESC): 상세가 아니라 "상세 들어오기 전 화면(root)"로
+  // 닫기(X/바깥/ESC): 상세가 아니라 "상세 들어오기 전 화면(root)"로
   const closeTargetRef = useRef<"root" | "detail">("root");
 
   const requestCloseToRoot = useCallback(() => {
@@ -135,7 +135,7 @@ export default function PersonDetail() {
     setClosing(true);
   }, []);
 
-  // ✅ 이전 버튼: 이전 상세로
+  // 이전 버튼: 이전 상세로
   const requestBackToDetail = useCallback(() => {
     closeTargetRef.current = "detail";
     setClosing(true);
@@ -230,7 +230,7 @@ export default function PersonDetail() {
     const mt = item.media_type;
     if (mt !== "movie" && mt !== "tv") return;
 
-    // ✅ 대표작에서 상세로 갈 때: 메인(root)을 background로 깔고 열기
+    // 대표작에서 상세로 갈 때: 메인(root)을 background로 깔고 열기
     if (rootLocation) {
       navigate(`/title/${mt}/${item.id}`, {
         state: { backgroundLocation: rootLocation, rootLocation },
@@ -273,7 +273,7 @@ export default function PersonDetail() {
         onAnimationComplete={() => {
           if (!closing) return;
 
-          // ✅ 이전 버튼만 상세로 / X·바깥·ESC는 root로
+          // 이전 버튼만 상세로 / X·바깥·ESC는 root로
           if (closeTargetRef.current === "detail") {
             if (hasBackgroundLocation) {
               navigate(-1);
@@ -288,7 +288,7 @@ export default function PersonDetail() {
             return;
           }
 
-          // ✅ root로 닫기: overlay chain 끊기 위해 state 제거
+          // root로 닫기: overlay chain 끊기 위해 state 제거
           navigate(rootPath, { replace: true, state: null as any });
         }}
       >

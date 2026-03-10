@@ -39,7 +39,7 @@ type RefreshResult = {
   refreshExpiresAt: Date;
 };
 
-// ✅ 하루 제한(아이디 찾기/비번 찾기)
+// 하루 제한(아이디 찾기/비번 찾기)
 type DailyCounter = { count: number; resetAt: number };
 const DAILY_LIMIT = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,7 +62,10 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   private readonly recoveryLimitMap = new Map<string, DailyCounter>();
-  private readonly emailAuthResendMap = new Map<string, EmailAuthResendCounter>();
+  private readonly emailAuthResendMap = new Map<
+    string,
+    EmailAuthResendCounter
+  >();
   private readonly emailChangeTokenMap = new Map<string, EmailChangeTicket>();
 
   constructor(
@@ -104,7 +107,11 @@ export class AuthService {
     return randomBytes(bytes).toString('base64url');
   }
 
-  private accessTokenFor(userId: number, username: string, role?: string): string {
+  private accessTokenFor(
+    userId: number,
+    username: string,
+    role?: string,
+  ): string {
     return this.jwt.sign({ sub: userId, username, role: role ?? 'USER' });
   }
 
@@ -126,9 +133,7 @@ export class AuthService {
   }
 
   private emailAuthMinutes(): number {
-    const n = Number(
-      this.config.get<string>('EMAIL_AUTH_TTL_MINUTES') ?? '20',
-    );
+    const n = Number(this.config.get<string>('EMAIL_AUTH_TTL_MINUTES') ?? '20');
     return Number.isFinite(n) && n > 0 ? n : 20;
   }
 
@@ -360,7 +365,9 @@ export class AuthService {
       if (!exists) return cand;
     }
 
-    throw new ConflictException('계정 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    throw new ConflictException(
+      '계정 생성에 실패했습니다. 잠시 후 다시 시도해주세요.',
+    );
   }
 
   private async makeUniqueUnknownNickname(
@@ -381,7 +388,9 @@ export class AuthService {
       if (!exists) return cand;
     }
 
-    throw new ConflictException('닉네임 자동 생성에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    throw new ConflictException(
+      '닉네임 자동 생성에 실패했습니다. 잠시 후 다시 시도해주세요.',
+    );
   }
 
   async signup(input: {
@@ -598,7 +607,11 @@ export class AuthService {
       };
     });
 
-    const accessToken = this.accessTokenFor(next.userId, next.username, next.role);
+    const accessToken = this.accessTokenFor(
+      next.userId,
+      next.username,
+      next.role,
+    );
     return {
       accessToken,
       refreshToken: next.raw,
@@ -695,7 +708,10 @@ export class AuthService {
     try {
       await this.mailer.sendEmailChangeVerify(newEmail, verifyUrl);
     } catch (err: unknown) {
-      this.logger.error('requestEmailChange send failed', this.errToString(err));
+      this.logger.error(
+        'requestEmailChange send failed',
+        this.errToString(err),
+      );
 
       if ((process.env.NODE_ENV ?? 'development') !== 'production') {
         this.logger.warn(
@@ -800,9 +816,7 @@ export class AuthService {
       this.logger.error('requestEmailAuth send failed', this.errToString(err));
 
       if ((process.env.NODE_ENV ?? 'development') !== 'production') {
-        this.logger.warn(
-          `[DEV] Email auth link for ${normalized}: ${authUrl}`,
-        );
+        this.logger.warn(`[DEV] Email auth link for ${normalized}: ${authUrl}`);
       }
 
       if (this.mailRequired()) {
@@ -829,7 +843,8 @@ export class AuthService {
       });
 
       if (!record) throw new ForbiddenException('유효하지 않은 토큰입니다.');
-      if (record.usedAt) throw new ForbiddenException('이미 사용된 토큰입니다.');
+      if (record.usedAt)
+        throw new ForbiddenException('이미 사용된 토큰입니다.');
       if (record.expiresAt.getTime() <= Date.now()) {
         throw new ForbiddenException('만료된 토큰입니다.');
       }
@@ -1088,7 +1103,9 @@ export class AuthService {
 
     if (raw.startsWith('data:image/')) {
       if (raw.length > 2_000_000) {
-        throw new ConflictException('이미지 크기가 너무 큽니다. 1MB 이하로 업로드해주세요.');
+        throw new ConflictException(
+          '이미지 크기가 너무 큽니다. 1MB 이하로 업로드해주세요.',
+        );
       }
       return raw;
     }
@@ -1118,7 +1135,10 @@ export class AuthService {
     const nicknameRaw = (input.nickname ?? '').trim();
     const nickname = nicknameRaw
       ? nicknameRaw
-      : await this.makeUniqueUnknownNickname({ user: this.prisma.user }, userId);
+      : await this.makeUniqueUnknownNickname(
+          { user: this.prisma.user },
+          userId,
+        );
     const profileImageUrl = this.parseProfileImageUrl(input.profileImageUrl);
 
     if (nickname) this.validateNicknameFormat(nickname);

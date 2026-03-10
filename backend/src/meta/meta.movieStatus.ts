@@ -12,7 +12,7 @@ import {
 
 /**
  * computeMovieStatus는 “숨김/개봉 유효성” 같은 베이스 판정용.
- * ✅ 실제 화면 표시 규칙(카드 출시년도/컨텐츠정보 날짜/히어로)은 meta.service에서 최종 강제한다.
+ * 실제 화면 표시 규칙(카드 출시년도/컨텐츠정보 날짜/히어로)은 meta.service에서 최종 강제한다.
  */
 export function computeMovieStatus(args: {
   statusKindFromReleaseStatus: (rs: DbReleaseStatus) => DbStatusKind | null;
@@ -22,10 +22,10 @@ export function computeMovieStatus(args: {
 
   krReleaseDatesYmd: string[]; // asc
 
-  // ✅ OTT 보유 여부(전 화면 동일 표시용)
+  // OTT 보유 여부(전 화면 동일 표시용)
   hasOttProviders: boolean;
 
-  // ✅ TMDB now_playing 포함 여부
+  // TMDB now_playing 포함 여부
   isNowPlaying: boolean;
 }): {
   releaseStatus: DbReleaseStatus;
@@ -100,7 +100,7 @@ export function computeMovieStatus(args: {
 
   const krHasTheatrical = Boolean(earliestKr) || krUpcoming;
 
-  // ✅ KR 개봉일 정보가 없으면 무조건 제외
+  // KR 개봉일 정보가 없으면 무조건 제외
   const krEligible = krHasTheatrical;
   const hidden = !krHasTheatrical;
 

@@ -15,7 +15,7 @@ export function pickMoviePosterPath(
 }
 
 /**
- * ✅ 컨텐츠카드-이미지: "가장 최신 시즌 포스터"
+ * 컨텐츠카드-이미지: "가장 최신 시즌 포스터"
  * - seasons[].air_date 최신순으로 poster_path 우선 선택
  * - 없으면 tv의 poster_path fallback
  */

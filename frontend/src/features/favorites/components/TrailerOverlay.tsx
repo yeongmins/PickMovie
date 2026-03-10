@@ -85,7 +85,7 @@ export function TrailerOverlay({
 
   const lastKeyRef = useRef<string>("");
 
-  // ✅ 오버레이 open/close 이벤트 (캐러셀 자동/수동 넘김 pause용)
+  // 오버레이 open/close 이벤트 (캐러셀 자동/수동 넘김 pause용)
   useEffect(() => {
     if (!open) return;
     window.dispatchEvent(new CustomEvent(TRAILER_OPEN_EVENT));
@@ -94,7 +94,7 @@ export function TrailerOverlay({
     };
   }, [open]);
 
-  // ✅ 스크롤/키 입력 차단 + ESC 닫기
+  // 스크롤/키 입력 차단 + ESC 닫기
   useEffect(() => {
     if (!open) return;
 
@@ -160,7 +160,7 @@ export function TrailerOverlay({
     };
   }, [open, onClose]);
 
-  // ✅ 예고편 키 fetch
+  // 예고편 키 fetch
   useEffect(() => {
     if (!open || !target) return;
 
@@ -194,14 +194,14 @@ export function TrailerOverlay({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
         >
-          {/* ✅ 배경(영상 밖) 클릭 시 닫기 */}
+          {/* 배경(영상 밖) 클릭 시 닫기 */}
           <div
             className="absolute inset-0 bg-black/80"
             onMouseDown={onClose}
             aria-hidden="true"
           />
 
-          {/* ✅ 닫기(X): 배경 우측 상단(닉네임 위치) */}
+          {/* 닫기(X): 배경 우측 상단(닉네임 위치) */}
           <button
             type="button"
             onClick={onClose}
@@ -211,7 +211,7 @@ export function TrailerOverlay({
             <X className="h-5 w-5" />
           </button>
 
-          {/* ✅ 중앙 모달(영상만 깔끔하게) */}
+          {/* 중앙 모달(영상만 깔끔하게) */}
           <motion.div
             role="dialog"
             aria-modal="true"

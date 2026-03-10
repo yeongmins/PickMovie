@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mail, X, Loader2, CircleCheckBig, Clock3, ShieldCheck } from "lucide-react";
 import { ApiError, apiPost } from "../../lib/apiClient";
-import { AUTH_KEYS, reloadAfterAuth, type AuthModalMode } from "../../lib/auth";
+import {
+  AUTH_KEYS,
+  reloadAfterAuth,
+  resolveAuthIntentReturnPath,
+  type AuthModalMode,
+} from "../../lib/auth";
 
 type Props = {
   open: boolean;
@@ -19,6 +24,132 @@ type EmailAuthRequestResponse = {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type MailProvider = {
+  key: "gmail" | "naver" | "daum" | "outlook" | "icloud" | "yahoo" | "default";
+  label: string;
+  webUrl: string;
+  deepLink?: string;
+  domains: string[];
+};
+
+const MAIL_PROVIDERS: MailProvider[] = [
+  {
+    key: "gmail",
+    label: "Gmail",
+    webUrl: "https://mail.google.com/mail/u/0/#inbox",
+    deepLink: "googlegmail://",
+    domains: ["gmail.com", "googlemail.com"],
+  },
+  {
+    key: "naver",
+    label: "네이버 메일",
+    webUrl: "https://mail.naver.com",
+    deepLink: "navermailapp://",
+    domains: ["naver.com"],
+  },
+  {
+    key: "daum",
+    label: "다음 메일",
+    webUrl: "https://mail.daum.net",
+    domains: ["daum.net", "hanmail.net", "kakao.com"],
+  },
+  {
+    key: "outlook",
+    label: "Outlook",
+    webUrl: "https://outlook.live.com/mail/0/inbox",
+    deepLink: "ms-outlook://",
+    domains: ["outlook.com", "hotmail.com", "live.com", "msn.com"],
+  },
+  {
+    key: "icloud",
+    label: "iCloud 메일",
+    webUrl: "https://www.icloud.com/mail",
+    deepLink: "message://",
+    domains: ["icloud.com", "me.com", "mac.com"],
+  },
+  {
+    key: "yahoo",
+    label: "Yahoo 메일",
+    webUrl: "https://mail.yahoo.com",
+    deepLink: "ymail://",
+    domains: ["yahoo.com", "yahoo.co.jp"],
+  },
+];
+
+const DEFAULT_MAIL_PROVIDER: MailProvider = {
+  key: "default",
+  label: "메일함",
+  webUrl: "mailto:",
+  domains: [],
+};
+
+function resolveMailProviderByEmail(email: string): MailProvider {
+  const domain = email.split("@")[1]?.toLowerCase().trim() ?? "";
+  if (!domain) return DEFAULT_MAIL_PROVIDER;
+  return MAIL_PROVIDERS.find((provider) => provider.domains.includes(domain)) ?? DEFAULT_MAIL_PROVIDER;
+}
+
+function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function MailProviderIcon({ provider }: { provider: MailProvider["key"] }) {
+  if (provider === "gmail") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path d="M3 6.75 12 13l9-6.25V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.75Z" fill="#EA4335" />
+        <path d="M3 6.75 7.5 10v10H5a2 2 0 0 1-2-2V6.75Z" fill="#C5221F" />
+        <path d="M21 6.75 16.5 10v10H19a2 2 0 0 0 2-2V6.75Z" fill="#FBBC04" />
+        <path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2L12 12 3 6Z" fill="#34A853" />
+        <path d="M7.5 10 12 13l4.5-3v10h-9V10Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (provider === "naver") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="#03C75A" />
+        <path d="M8 7.5h2.8l2.5 3.8V7.5H16v9h-2.7l-2.6-3.8v3.8H8v-9Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (provider === "daum") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <circle cx="12" cy="12" r="9.5" fill="#FF6A00" />
+        <path d="M8.8 12a3.2 3.2 0 1 1 6.4 0 3.2 3.2 0 0 1-6.4 0Zm6.8 0v4.3h-2V12h2Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (provider === "outlook") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect x="3" y="5" width="11" height="14" rx="2" fill="#0A64D6" />
+        <path d="M13 7h7.5a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5H13V7Z" fill="#1177E8" />
+        <circle cx="8.5" cy="12" r="2.4" fill="#fff" />
+      </svg>
+    );
+  }
+  if (provider === "icloud") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="#52B6FF" />
+        <path d="M8 13.5a2.5 2.5 0 0 1 .7-4.9A3.7 3.7 0 0 1 16 9.4a2.2 2.2 0 0 1 .4 4.3H8.2A2 2 0 0 1 8 13.5Z" fill="#fff" />
+      </svg>
+    );
+  }
+  if (provider === "yahoo") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="#6F2DBD" />
+        <path d="M8.7 8h2.3l1.5 2.7L14 8h2.3l-2.6 4.5V16h-2.3v-3.5L8.7 8Zm8.1 7.8h-2V14h2v1.8Z" fill="#fff" />
+      </svg>
+    );
+  }
+  return <Mail className="h-4 w-4 text-[#0f172a]" aria-hidden="true" />;
+}
 
 export function AuthEmailModal({
   open,
@@ -66,6 +197,10 @@ export function AuthEmailModal({
   }, [email]);
 
   const normalizedEmail = email.trim().toLowerCase();
+  const mailProvider = useMemo(
+    () => resolveMailProviderByEmail(normalizedEmail),
+    [normalizedEmail],
+  );
   const canSubmit = !!normalizedEmail && !emailError && !loading;
 
   const submit = async () => {
@@ -91,7 +226,7 @@ export function AuthEmailModal({
           localStorage.setItem(AUTH_KEYS.USER, JSON.stringify(res.user));
         } catch {}
         onClose();
-        reloadAfterAuth();
+        reloadAfterAuth(resolveAuthIntentReturnPath("/"));
         return;
       }
       setSent(true);
@@ -126,6 +261,33 @@ export function AuthEmailModal({
     }
   };
 
+  const openMailbox = () => {
+    if (!mailProvider.webUrl) return;
+    if (!isMobileDevice() || !mailProvider.deepLink) {
+      window.open(mailProvider.webUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const fallback = window.setTimeout(() => {
+      window.location.href = mailProvider.webUrl;
+    }, 800);
+
+    const cancelFallback = () => window.clearTimeout(fallback);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        cancelFallback();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange, { once: true });
+
+    try {
+      window.location.href = mailProvider.deepLink;
+    } catch {
+      cancelFallback();
+      window.location.href = mailProvider.webUrl;
+    }
+  };
+
   return (
     <AnimatePresence>
       {open ? (
@@ -152,7 +314,7 @@ export function AuthEmailModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.985 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
-            className="relative w-full max-w-[640px] overflow-hidden rounded-3xl bg-[#10131b] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
+            className="relative w-full max-w-[560px] overflow-hidden rounded-3xl bg-[#10131b] shadow-[0_30px_80px_rgba(0,0,0,0.55)]"
             style={{ maxHeight: "calc(100dvh - 24px)" }}
           >
             <div className="pointer-events-none absolute inset-0">
@@ -172,7 +334,7 @@ export function AuthEmailModal({
             </button>
 
             <div
-              className="relative z-[1] overflow-y-auto p-5 pb-[calc(20px+env(safe-area-inset-bottom))] sm:p-6 md:p-8"
+              className="relative z-[1] overflow-y-auto p-4 pb-[calc(16px+env(safe-area-inset-bottom))] sm:p-5 md:p-6"
               style={{ maxHeight: "calc(100dvh - 24px)" }}
             >
               <div className="relative flex h-12 rounded-full p-1">
@@ -208,8 +370,8 @@ export function AuthEmailModal({
                 </button>
               </div>
 
-              <div className="mt-5 sm:mt-6">
-                <h2 className="text-[36px] font-extrabold tracking-tight text-white sm:text-[40px]">{title}</h2>
+              <div className="mt-4 sm:mt-5">
+                <h2 className="text-[30px] font-extrabold tracking-tight text-white sm:text-[34px]">{title}</h2>
                 <p className="mt-1 text-[15px] text-white/65 sm:text-base">{helper}</p>
               </div>
 
@@ -282,7 +444,7 @@ export function AuthEmailModal({
                   </div>
                 </div>
               ) : (
-                <div className="mt-7 rounded-2xl border border-white/10 bg-[#0c1423]/80 p-4">
+                <div className="mt-7 rounded-2xl bg-[#0c1423]/80 p-4">
                   <div className="flex items-start gap-2.5">
                     <CircleCheckBig className="mt-0.5 h-5 w-5 text-emerald-300" />
                     <div>
@@ -296,11 +458,19 @@ export function AuthEmailModal({
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                     <button
                       type="button"
+                      onClick={openMailbox}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#bba4c8] px-4 text-sm font-semibold text-[#0f172a] hover:brightness-95"
+                    >
+                      <MailProviderIcon provider={mailProvider.key} />
+                      메일함 열기
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setSent(false);
                         setError(null);
                       }}
-                      className="h-11 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm text-white/85 hover:bg-white/[0.09]"
+                      className="h-11 rounded-lg bg-white/[0.08] px-4 text-sm text-white/85 hover:bg-white/[0.13]"
                     >
                       다른 이메일 입력
                     </button>
@@ -308,7 +478,7 @@ export function AuthEmailModal({
                       type="button"
                       onClick={resend}
                       disabled={resending}
-                      className="h-11 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm text-white/85 hover:bg-white/[0.09] disabled:opacity-50"
+                      className="h-11 rounded-lg bg-white/[0.08] px-4 text-sm text-white/85 hover:bg-white/[0.13] disabled:opacity-50"
                     >
                       {resending ? (
                         <span className="inline-flex items-center gap-1.5">
@@ -327,6 +497,9 @@ export function AuthEmailModal({
                       닫기
                     </button>
                   </div>
+                  <p className="mt-2 text-xs text-white/45">
+                    모바일에서는 설치된 메일 앱이 우선 열리고, 없으면 웹 메일함으로 이동합니다.
+                  </p>
                 </div>
               )}
 

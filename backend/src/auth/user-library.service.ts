@@ -45,7 +45,7 @@ export class UserLibraryService {
   constructor(private readonly prisma: PrismaService) {}
 
   // =========================
-  // ✅ Favorites
+  // Favorites
   // =========================
   async getFavorites(userId: number): Promise<FavoriteItem[]> {
     const rows = await this.prisma.favorite.findMany({
@@ -121,7 +121,7 @@ export class UserLibraryService {
   }
 
   // =========================
-  // ✅ Playlists
+  // Playlists
   // =========================
   async getPlaylists(userId: number): Promise<PlaylistDto[]> {
     const rows = await this.prisma.playlist.findMany({

@@ -1,5 +1,5 @@
-// src/pages/auth/SignupSuccessToast.tsx
-import React, { useEffect } from "react";
+// src/pages/auth/AuthSuccessModal.tsx
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PartyPopper } from "lucide-react";
 

@@ -52,7 +52,7 @@ const E = (aliases: string[], companyHints?: string[]): SearchLexiconEntry => ({
 
 /**
  * ------------------------------------------------------------------------------------
- * ✅ STOPWORDS / JUNK / NEGATION (search.query.ts에서 그대로 import)
+ * STOPWORDS / JUNK / NEGATION (search.query.ts에서 그대로 import)
  * ------------------------------------------------------------------------------------
  */
 export const STOPWORDS_KO: ReadonlySet<string> = new Set(
@@ -190,7 +190,7 @@ export const NEGATION_PATTERNS: readonly string[] = [
 
 /**
  * ------------------------------------------------------------------------------------
- * ✅ 대용량 브랜드/프랜차이즈/장르 렉시콘
+ * 대용량 브랜드/프랜차이즈/장르 렉시콘
  * ------------------------------------------------------------------------------------
  * ⚠️ 아래 SEARCH_LEXICON은 네가 준 데이터(대용량)를 그대로 유지/확장한 구조.
  * 필요하면 이 블록에 계속 추가만 하면 됨.
@@ -919,7 +919,7 @@ export function inferSearchSignals(
 
 /**
  * ------------------------------------------------------------------------------------
- * ✅ search.query.ts 호환 LEXICON 생성(자동)
+ * search.query.ts 호환 LEXICON 생성(자동)
  * ------------------------------------------------------------------------------------
  */
 const mergeLexiconEntry = (

@@ -13,7 +13,7 @@ import { MainScreen } from "./pages/MainScreen";
 import FavoritesPlaylistPage from "./pages/favorites/FavoritesPlaylistPage";
 import Search from "./pages/Search";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
-import { MyPage } from "./pages/MyPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import AdminSettingsPage from "./pages/AdminSettingsPage";
 import { Info } from "./pages/support/Info";
 import { AuthEmailModal } from "./components/auth/AuthEmailModal";
@@ -21,6 +21,7 @@ import {
   AUTH_MODAL_OPEN_EVENT,
   type AuthModalMode,
 } from "./lib/auth";
+import { applySeo } from "./lib/seo";
 
 import ContentDetailModal from "./pages/detail/ContentDetailModal";
 import PersonDetail from "./pages/person/PersonDetail";
@@ -416,11 +417,11 @@ export default function App() {
   );
 
   // =========================
-  // ✅ Playlists handlers (DB)
+  // Playlists handlers (DB)
   // =========================
 
   /**
-   * ✅ 중복 생성 방지:
+   * 중복 생성 방지:
    * - "생성" 더블클릭 / Enter+클릭 등으로 create가 2번 호출되면 서버에 동일 플레이리스트가 2개 생김
    * - 여기서 payload 시그니처 기반으로 in-flight 중복 호출을 차단
    */
@@ -681,8 +682,118 @@ export default function App() {
 
   const isPersonOverlayOnDetail = !!backgroundLocation && !!titleStackLocation;
 
+  useEffect(() => {
+    const pathname = location.pathname;
+    const keywordsBase =
+      "PickMovie, 픽무비, 영화 추천, OTT 추천, TV 추천, 취향 분석";
+
+    if (pathname === "/") {
+      applySeo({
+        title: "PickMovie(픽무비) | 내 취향 기반 영화·TV 추천",
+        description:
+          "PickMovie(픽무비)는 취향 분석을 통해 영화와 TV 콘텐츠를 빠르게 추천하고 찜/플레이리스트로 관리할 수 있는 추천 서비스입니다.",
+        path: "/",
+        keywords: `${keywordsBase}, pickmovie, pick movie`,
+      });
+      return;
+    }
+
+    if (pathname === "/analyze") {
+      applySeo({
+        title: "취향 분석 추천 | PickMovie",
+        description:
+          "장르, 분위기, 러닝타임 기반 취향 분석으로 나에게 맞는 영화와 TV 콘텐츠를 추천받아보세요.",
+        path: "/analyze",
+        keywords: `${keywordsBase}, 취향 분석, 맞춤 추천`,
+      });
+      return;
+    }
+
+    if (pathname === "/popular-movies") {
+      applySeo({
+        title: "인기 영화 추천 | PickMovie",
+        description: "지금 인기 있는 영화 추천 목록을 PickMovie에서 확인해보세요.",
+        path: "/popular-movies",
+        keywords: `${keywordsBase}, 인기 영화, movie recommendation`,
+      });
+      return;
+    }
+
+    if (pathname === "/popular-tv") {
+      applySeo({
+        title: "인기 TV 추천 | PickMovie",
+        description: "지금 인기 있는 TV/시리즈 추천 목록을 PickMovie에서 확인해보세요.",
+        path: "/popular-tv",
+        keywords: `${keywordsBase}, 인기 드라마, TV 추천`,
+      });
+      return;
+    }
+
+    if (pathname === "/info") {
+      applySeo({
+        title: "PickMovie 프로젝트 소개",
+        description: "PickMovie 서비스 기능과 프로젝트 방향성을 소개합니다.",
+        path: "/info",
+        keywords: `${keywordsBase}, 프로젝트 소개`,
+      });
+      return;
+    }
+
+    if (pathname === "/search") {
+      applySeo({
+        title: "콘텐츠 검색 | PickMovie",
+        description: "PickMovie에서 영화와 TV 콘텐츠를 검색하고 찜/플레이리스트로 저장하세요.",
+        path: "/search",
+        keywords: `${keywordsBase}, 콘텐츠 검색`,
+        robots: "noindex,follow,max-image-preview:large",
+      });
+      return;
+    }
+
+    if (pathname.startsWith("/title/")) {
+      const parts = pathname.split("/").filter(Boolean);
+      const media = parts[1] === "tv" ? "TV" : "Movie";
+      const id = Number(parts[2]);
+      applySeo({
+        title: `PickMovie ${media} 상세 정보`,
+        description: "PickMovie에서 영화/TV 상세 정보, 평점, 출연진, 시청 가능 OTT 정보를 확인하세요.",
+        path: pathname,
+        keywords: `${keywordsBase}, 콘텐츠 상세, OTT 정보`,
+        robots: Number.isFinite(id) && id > 0 ? "index,follow,max-image-preview:large" : "noindex,follow",
+      });
+      return;
+    }
+
+    if (
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/admin/settings") ||
+      pathname.startsWith("/verify-email") ||
+      pathname.startsWith("/email-auth") ||
+      pathname.startsWith("/reset-password")
+    ) {
+      applySeo({
+        title: "PickMovie",
+        path: pathname,
+        robots: "noindex,follow",
+      });
+      return;
+    }
+
+    applySeo({
+      title: "PickMovie",
+      path: pathname,
+      robots: "noindex,follow",
+    });
+  }, [location.pathname]);
+
   return (
     <>
+      <a
+        href="#main-content"
+        className="skip-link fixed left-3 top-3 z-[1000] -translate-y-16 rounded-md bg-white px-3 py-2 text-sm font-semibold text-black transition focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-white"
+      >
+        본문 바로가기
+      </a>
       <Routes location={effectiveBaseLocation}>
         <Route path="/login" element={<Navigate to="/?auth=login" replace />} />
         <Route path="/signup" element={<Navigate to="/?auth=signup" replace />} />
@@ -748,7 +859,7 @@ export default function App() {
         <Route path="/onboarding" element={<Navigate to="/analyze" replace />} />
         <Route path="/legal" element={<Navigate to="/legal/terms" replace />} />
 
-        <Route path="/settings" element={<MyPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/mypage" element={<Navigate to="/settings" replace />} />
         <Route path="/admin/settings" element={<AdminSettingsPage />} />
 

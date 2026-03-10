@@ -57,7 +57,13 @@ export class TmdbController {
     if (type !== 'movie' && type !== 'tv') {
       throw new BadRequestException('type must be "movie" or "tv"');
     }
-    return this.tmdb.getMeta(type, id, region, language, this.viewerIsAdmin(req));
+    return this.tmdb.getMeta(
+      type,
+      id,
+      region,
+      language,
+      this.viewerIsAdmin(req),
+    );
   }
 
   @Get('images/:type/:id')
