@@ -116,6 +116,12 @@ export function SettingsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [skipLoginModalOnRedirect, setSkipLoginModalOnRedirect] = useState(false);
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const deleteTitleId = useId();
+  const deleteDescId = useId();
+  const deleteConfirmInputId = useId();
+  const deleteEmailInputId = useId();
 
   useEffect(() => {
     const sync = () => setMe(readStoredUser());
@@ -814,9 +820,3 @@ export function SettingsPage() {
     </div>
   );
 }
-  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const deleteTitleId = useId();
-  const deleteDescId = useId();
-  const deleteConfirmInputId = useId();
-  const deleteEmailInputId = useId();
