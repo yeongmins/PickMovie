@@ -134,7 +134,7 @@ export function GenreStep({
             </h2>
             <div className="mt-2 flex items-center justify-between">
               <p className="text-gray-300 text-sm">
-                오늘 보고 싶은 장르를{" "}
+                보고 싶은 장르를{" "}
                 <span className="text-purple-200">최대 3개</span>까지 고를 수 있어요.
               </p>
               <p className="text-xs text-gray-400">

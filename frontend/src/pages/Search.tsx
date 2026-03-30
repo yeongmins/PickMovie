@@ -2,6 +2,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
   setAuthIntent,
 } from "../lib/auth";
 import { requestResolvedMetaBatch } from "../lib/metaClient";
+import { trapTabKey } from "../lib/a11y";
 
 // 서버가 추론/확장/랭킹 전담 -> 프론트는 검색 호출 + 결과 렌더
 import { useSearch } from "../features/search/hooks/useSearch";
@@ -242,6 +244,9 @@ export default function Search({
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const dialogTitleId = useId();
 
   const isDetailOverlayOpen = useCallback(() => {
     if (typeof document === "undefined") return false;
@@ -257,11 +262,24 @@ export default function Search({
   }, []);
 
   useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
     const unlock = lockBodyScroll();
     requestAnimationFrame(() => searchInputRef.current?.focus());
     return () => {
       unlock();
+      const prev = previousFocusRef.current;
+      if (prev && document.contains(prev)) prev.focus();
     };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = dialogRef.current;
+      if (!el) return;
+      trapTabKey(e, el);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const loadLiveChart = useCallback(async () => {
@@ -714,6 +732,7 @@ export default function Search({
 
   return (
     <motion.div
+      ref={dialogRef}
       initial={{ opacity: 0 }}
       animate={overlayAnimate}
       transition={{
@@ -723,6 +742,7 @@ export default function Search({
       className="fixed inset-0 z-[60] overscroll-none"
       aria-modal="true"
       role="dialog"
+      aria-labelledby={dialogTitleId}
     >
       <motion.div
         className="absolute inset-0 bg-black/55 backdrop-blur-sm"
@@ -750,7 +770,9 @@ export default function Search({
           className={containerClass}
         >
           <div ref={panelRef}>
-            <h1 className="sr-only">PickMovie 콘텐츠 검색</h1>
+            <h1 id={dialogTitleId} className="sr-only">
+              PickMovie 콘텐츠 검색
+            </h1>
             <div className="h-12 rounded-2xl bg-white/10 backdrop-blur-xl flex items-center gap-2 px-3">
               <button
                 type="button"

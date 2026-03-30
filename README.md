@@ -51,3 +51,23 @@ PickMovie/
   backend/    # NestJS API 서버 + Prisma
   README.md
 ```
+
+## Backend Railway 배포
+- 서비스 생성 시 루트 디렉터리를 `backend`로 지정
+- `backend/Dockerfile`로 컨테이너 빌드/실행
+- 시작 시 `scripts/start.sh`에서 `prisma migrate deploy` 실행 후 API 기동
+
+필수 환경변수(최소):
+- `NODE_ENV=production`
+- `PORT=3000`
+- `DATABASE_URL`
+- `JWT_ACCESS_SECRET`
+- `ADMIN_TOKEN`
+- `CORS_ORIGINS` (예: `https://your-frontend.vercel.app`)
+- `TMDB_API_KEY`, `KOBIS_API_KEY` (사용 중인 기능 기준)
+
+권장:
+- `TRUST_PROXY=1`
+- `RATE_LIMIT_WINDOW_MS=60000`
+- `RATE_LIMIT_MAX=120`
+- Railway Health Check Path: `/healthz`

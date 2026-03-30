@@ -1,5 +1,5 @@
 // frontend/src/components/layout/Footer.tsx
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Github, PencilLine, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -12,6 +12,7 @@ import {
   type FooterNoticeItem,
 } from "../../data/footerNotices.generated";
 import { AUTH_EVENT, AUTH_KEYS } from "../../lib/auth";
+import { trapTabKey } from "../../lib/a11y";
 
 export const OPEN_TERMS_MODAL_EVENT = "pickmovie-open-terms-modal";
 export const OPEN_PRIVACY_MODAL_EVENT = "pickmovie-open-privacy-modal";
@@ -130,7 +131,14 @@ export function Footer({ compact = false }: { compact?: boolean }) {
   const [noticeTitle, setNoticeTitle] = useState("");
   const [noticeBody, setNoticeBody] = useState("");
   const [noticeError, setNoticeError] = useState<string | null>(null);
+  const modalPanelRef = useRef<HTMLDivElement | null>(null);
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const noticeWriteTooltipId = useId();
+  const modalTitleId = useId();
+  const noticeTitleInputId = useId();
+  const noticeBodyInputId = useId();
+  const deleteDialogTitleId = useId();
   const isModalOpen = modalType !== null;
   const isNoticeModal = modalType === "notice";
   const isNoticeWriteEnabled = isAdmin && isNoticeModal && noticeView === "notice";
@@ -159,11 +167,14 @@ export function Footer({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     if (!isModalOpen && !deleteTarget) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     const onKeyDown = (event: KeyboardEvent) => {
+      const dialog = deleteTarget ? deleteDialogRef.current : modalPanelRef.current;
+      if (dialog) trapTabKey(event, dialog);
       if (event.key !== "Escape") return;
       if (deleteTarget) {
         setDeleteTarget(null);
@@ -176,7 +187,31 @@ export function Footer({ compact = false }: { compact?: boolean }) {
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown);
+      const prev = previousFocusRef.current;
+      if (prev && document.contains(prev)) prev.focus();
     };
+  }, [deleteTarget, isModalOpen]);
+
+  useEffect(() => {
+    if (deleteTarget) {
+      requestAnimationFrame(() => {
+        const dialog = deleteDialogRef.current;
+        if (!dialog) return;
+        const first = dialog.querySelector<HTMLButtonElement>("button");
+        first?.focus();
+      });
+      return;
+    }
+    if (isModalOpen) {
+      requestAnimationFrame(() => {
+        const dialog = modalPanelRef.current;
+        if (!dialog) return;
+        const first = dialog.querySelector<HTMLElement>(
+          "button, input, textarea, a[href]",
+        );
+        first?.focus();
+      });
+    }
   }, [deleteTarget, isModalOpen]);
 
   useEffect(() => {
@@ -436,16 +471,19 @@ export function Footer({ compact = false }: { compact?: boolean }) {
           onClick={() => setModalType(null)}
         >
           <motion.div
+            ref={modalPanelRef}
             {...modalPanelMotion}
             className="w-full max-w-2xl rounded-2xl bg-[#0e1118] text-white shadow-2xl"
             role="dialog"
             aria-modal="true"
-            aria-label={modalTitle}
+            aria-labelledby={modalTitleId}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4">
               <div className="flex items-center gap-3">
-                <h3 className="text-base font-semibold">{modalTitle}</h3>
+                <h3 id={modalTitleId} className="text-base font-semibold">
+                  {modalTitle}
+                </h3>
                 {modalType === "notice" ? (
                   <button
                     type="button"
@@ -525,14 +563,22 @@ export function Footer({ compact = false }: { compact?: boolean }) {
                 >
                   <h4 className="text-sm font-semibold text-white">공지사항 작성</h4>
                   <div className="mt-3 space-y-3">
+                    <label htmlFor={noticeTitleInputId} className="sr-only">
+                      공지사항 제목
+                    </label>
                     <input
+                      id={noticeTitleInputId}
                       type="text"
                       value={noticeTitle}
                       onChange={(event) => setNoticeTitle(event.target.value)}
                       placeholder="제목을 입력해 주세요"
                       className="w-full rounded-xl border border-white/15 bg-[#0b111d] px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-[#ff7b0d]/70"
                     />
+                    <label htmlFor={noticeBodyInputId} className="sr-only">
+                      공지사항 내용
+                    </label>
                     <textarea
+                      id={noticeBodyInputId}
                       value={noticeBody}
                       onChange={(event) => setNoticeBody(event.target.value)}
                       placeholder="내용을 입력해 주세요"
@@ -968,14 +1014,17 @@ export function Footer({ compact = false }: { compact?: boolean }) {
           onClick={() => setDeleteTarget(null)}
         >
           <motion.div
+            ref={deleteDialogRef}
             {...modalPanelMotion}
             className="w-full max-w-sm rounded-2xl bg-[#0e1118] p-5 text-white shadow-2xl"
             role="dialog"
             aria-modal="true"
-            aria-label="공지사항 삭제 확인"
+            aria-labelledby={deleteDialogTitleId}
             onClick={(event) => event.stopPropagation()}
           >
-            <h4 className="text-base font-semibold">삭제하시겠습니까?</h4>
+            <h4 id={deleteDialogTitleId} className="text-base font-semibold">
+              삭제하시겠습니까?
+            </h4>
             <p className="mt-2 line-clamp-2 text-sm text-white/70">
               {deleteTarget.title}
             </p>

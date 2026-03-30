@@ -22,6 +22,7 @@ export const NOTICE_ITEMS: FooterNoticeItem[] = [
 ];
 
 export const DEVELOPER_NOTE_ITEMS: FooterDeveloperNoteItem[] = [
+  { hash: "3bf3292", date: "2026-03-11", title: "구조 개선: 검색·분석·인증/관리자 흐름 통합 개편 및 프론트 UX·SEO 전반 개선", body: "검색·분석·인증/관리자 흐름 통합 개편 및 프론트 UX·SEO 전반 개선 관련 업데이트를 반영했습니다." },
   { hash: "8c7054e", date: "2026-03-11", title: "서비스 업데이트: desktop 작업본 반영", body: "desktop 작업본 반영 관련 업데이트를 반영했습니다." },
   { hash: "b6dad78", date: "2026-03-06", title: "기능 업데이트: 분석하기 기능 활성 / header/footer ux ui 수정 / 설정 페이지 활성", body: "분석하기 기능 활성 / header/footer ux ui 수정 / 설정 페이지 활성 관련 업데이트를 반영했습니다." },
   { hash: "88eb30c", date: "2026-02-09", title: "문서 업데이트: README 업데이트", body: "README 업데이트 내용을 최신 기준에 맞게 정리했습니다." },

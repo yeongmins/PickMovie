@@ -1,5 +1,5 @@
 // frontend/src/pages/detail/ContentDetailModal.tsx
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ChevronDown, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -29,6 +29,7 @@ import {
 } from "../../lib/metaClient";
 import { apiDelete, apiPatch, apiPost } from "../../lib/apiClient";
 import { applySeo } from "../../lib/seo";
+import { trapTabKey } from "../../lib/a11y";
 
 function locationToPath(loc: any): string | null {
   if (!loc) return null;
@@ -310,6 +311,9 @@ export default function ContentDetailModal({
 
   const mediaType = normalizeMediaType(params.mediaType) as MediaType;
   const id = Number(params.id);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const dialogTitleId = useId();
 
   const seasonNo = useMemo(
     () => (mediaType === "tv" ? getSeasonNoFromSearch(location.search) : 0),
@@ -450,8 +454,13 @@ export default function ContentDetailModal({
 
   // 중첩 모달 스크롤락 안전 처리
   useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
     const unlock = lockBodyScroll();
-    return () => unlock();
+    return () => {
+      unlock();
+      const prev = previousFocusRef.current;
+      if (prev && document.contains(prev)) prev.focus();
+    };
   }, []);
 
   const requestClose = useCallback(() => {
@@ -464,6 +473,8 @@ export default function ContentDetailModal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (dialog) trapTabKey(e, dialog);
       if (e.key !== "Escape") return;
 
       if (yearMenuOpen) {
@@ -941,6 +952,7 @@ export default function ContentDetailModal({
   return (
     <div className="fixed inset-0 z-[999]" data-pm-detail-modal="true">
       <motion.div
+        ref={dialogRef}
         className={[
           "absolute inset-0",
           isUnderPersonOverlay
@@ -968,7 +980,7 @@ export default function ContentDetailModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="콘텐츠 상세 정보"
+        aria-labelledby={dialogTitleId}
         initial={{ y: 90, opacity: 0 }}
         animate={{ y: closing ? 60 : 0, opacity: closing ? 0 : 1 }}
         transition={
@@ -986,6 +998,9 @@ export default function ContentDetailModal({
           });
         }}
       >
+        <h2 id={dialogTitleId} className="sr-only">
+          콘텐츠 상세 정보
+        </h2>
         <div className="absolute right-4 top-4 z-40 flex items-center gap-2">
           {isAdmin ? (
             <button

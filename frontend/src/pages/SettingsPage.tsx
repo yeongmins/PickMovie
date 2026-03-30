@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -15,6 +15,7 @@ import { Header } from "../components/layout/Header";
 import { Button } from "../components/ui/button";
 import { AUTH_KEYS, dispatchAuthChanged, openAuthModal, reloadAfterAuth } from "../lib/auth";
 import { PageFooter } from "../components/layout/Footer";
+import { trapTabKey } from "../lib/a11y";
 
 type SafeUser = {
   id: number;
@@ -212,6 +213,37 @@ export function SettingsPage() {
     if (!me) return;
     void loadSessions();
   }, [me?.id]);
+
+  useEffect(() => {
+    if (!deleteOpen) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleteLoading) {
+        setDeleteOpen(false);
+        return;
+      }
+      const dialog = deleteDialogRef.current;
+      if (!dialog) return;
+      trapTabKey(event, dialog);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    requestAnimationFrame(() => {
+      const dialog = deleteDialogRef.current;
+      if (!dialog) return;
+      const target = dialog.querySelector<HTMLInputElement>(
+        `#${CSS.escape(deleteConfirmInputId)}`,
+      );
+      target?.focus();
+    });
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      const prev = previousFocusRef.current;
+      if (prev && document.contains(prev)) prev.focus();
+    };
+  }, [deleteOpen, deleteLoading, deleteConfirmInputId]);
 
   const saveProfile = async (params: {
     nickname: string;
@@ -457,6 +489,7 @@ export function SettingsPage() {
                                 }}
                                 maxLength={15}
                                 placeholder="닉네임을 입력하세요"
+                                aria-label="닉네임"
                                 className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                               />
                               <Button
@@ -533,6 +566,7 @@ export function SettingsPage() {
                               value={emailDraft}
                               onChange={(e) => setEmailDraft(e.target.value)}
                               placeholder="변경할 이메일을 입력하세요"
+                              aria-label="변경할 이메일"
                               className="h-9 md:h-10 flex-1 min-w-[180px] md:min-w-[220px] bg-black/30 px-3 py-2 text-xs md:text-sm text-white placeholder:text-white/30 outline-none"
                             />
                             <Button
@@ -696,17 +730,29 @@ export function SettingsPage() {
 
       {deleteOpen ? (
         <div className="fixed inset-0 z-[80] px-4 py-6 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-[460px] bg-[#12121b] rounded-lg p-4 md:p-5">
-            <div className="text-base md:text-lg font-bold text-white">계정 탈퇴 확인</div>
-            <p className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/65">
+          <div
+            ref={deleteDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={deleteTitleId}
+            aria-describedby={deleteDescId}
+            className="w-full max-w-[460px] bg-[#12121b] rounded-lg p-4 md:p-5"
+          >
+            <div id={deleteTitleId} className="text-base md:text-lg font-bold text-white">
+              계정 탈퇴 확인
+            </div>
+            <p id={deleteDescId} className="mt-1.5 md:mt-2 text-xs md:text-sm text-white/65">
               계속하려면 확인 문구 <span className="font-semibold text-rose-300">계정 탈퇴</span> 를 입력하고,
               가입한 이메일을 다시 입력하세요.
             </p>
 
             <div className="mt-3 md:mt-4 space-y-2.5 md:space-y-3">
               <div>
-                <label className="text-[11px] md:text-xs text-white/55">확인 문구</label>
+                <label htmlFor={deleteConfirmInputId} className="text-[11px] md:text-xs text-white/55">
+                  확인 문구
+                </label>
                 <input
+                  id={deleteConfirmInputId}
                   value={deleteConfirmText}
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
                   placeholder="계정 탈퇴"
@@ -715,11 +761,15 @@ export function SettingsPage() {
               </div>
 
               <div>
-                <label className="text-[11px] md:text-xs text-white/55 flex items-center gap-1">
+                <label
+                  htmlFor={deleteEmailInputId}
+                  className="text-[11px] md:text-xs text-white/55 flex items-center gap-1"
+                >
                   <Mail className="h-3 w-3 md:h-3.5 md:w-3.5" />
                   가입한 이메일
                 </label>
                 <input
+                  id={deleteEmailInputId}
                   type="email"
                   value={deleteEmail}
                   onChange={(e) => setDeleteEmail(e.target.value)}
@@ -764,3 +814,9 @@ export function SettingsPage() {
     </div>
   );
 }
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const deleteTitleId = useId();
+  const deleteDescId = useId();
+  const deleteConfirmInputId = useId();
+  const deleteEmailInputId = useId();

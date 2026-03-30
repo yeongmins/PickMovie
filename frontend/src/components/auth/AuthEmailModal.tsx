@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mail, X, Loader2, CircleCheckBig, Clock3, ShieldCheck } from "lucide-react";
 import { ApiError, apiPost } from "../../lib/apiClient";
@@ -8,6 +8,7 @@ import {
   resolveAuthIntentReturnPath,
   type AuthModalMode,
 } from "../../lib/auth";
+import { trapTabKey } from "../../lib/a11y";
 
 type Props = {
   open: boolean;
@@ -157,6 +158,10 @@ export function AuthEmailModal({
   onModeChange,
   onClose,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const emailInputId = useId();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -165,11 +170,18 @@ export function AuthEmailModal({
 
   useEffect(() => {
     if (!open) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (dialog) trapTabKey(e, dialog);
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const prev = previousFocusRef.current;
+      if (prev && document.contains(prev)) prev.focus();
+    };
   }, [open, onClose]);
 
   useEffect(() => {
@@ -308,8 +320,10 @@ export function AuthEmailModal({
           />
 
           <motion.div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
+            aria-labelledby={titleId}
             initial={{ opacity: 0, y: 12, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.985 }}
@@ -371,17 +385,22 @@ export function AuthEmailModal({
               </div>
 
               <div className="mt-4 sm:mt-5">
-                <h2 className="text-[30px] font-extrabold tracking-tight text-white sm:text-[34px]">{title}</h2>
+                <h2 id={titleId} className="text-[30px] font-extrabold tracking-tight text-white sm:text-[34px]">
+                  {title}
+                </h2>
                 <p className="mt-1 text-[15px] text-white/65 sm:text-base">{helper}</p>
               </div>
 
               {!sent ? (
                 <div className="mt-7 sm:mt-8">
-                  <label className="mb-2 block text-sm font-semibold text-white/85">이메일</label>
+                  <label htmlFor={emailInputId} className="mb-2 block text-sm font-semibold text-white/85">
+                    이메일
+                  </label>
                   <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
                     <div className="flex h-11 flex-[1_1_auto] items-center rounded-xl border border-white/10 bg-[#08111e]/72 px-3 focus-within:border-[#9b8cad]/55 sm:h-12">
                       <Mail className="h-4 w-4 text-white/45" />
                       <input
+                        id={emailInputId}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         onKeyDown={(e) => {

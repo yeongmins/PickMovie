@@ -689,7 +689,7 @@ export default function App() {
 
     if (pathname === "/") {
       applySeo({
-        title: "PickMovie(픽무비) | 내 취향 기반 영화·TV 추천",
+        title: "PickMovie",
         description:
           "PickMovie(픽무비)는 취향 분석을 통해 영화와 TV 콘텐츠를 빠르게 추천하고 찜/플레이리스트로 관리할 수 있는 추천 서비스입니다.",
         path: "/",
