@@ -22,6 +22,8 @@ export const NOTICE_ITEMS: FooterNoticeItem[] = [
 ];
 
 export const DEVELOPER_NOTE_ITEMS: FooterDeveloperNoteItem[] = [
+  { hash: "cea7939", date: "2026-03-31", title: "오류 수정: 관리자 계정 이메일 인증 우회 로그인 분기 제거", body: "관리자 계정 이메일 인증 우회 로그인 분기 제거 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "11bd51f", date: "2026-03-31", title: "서비스 안정화: 프로덕션에서 개발용 콘솔 로그 비활성화", body: "프로덕션에서 개발용 콘솔 로그 비활성화 관련 업데이트를 반영했습니다." },
   { hash: "f421b70", date: "2026-03-31", title: "오류 수정: 최신 데이터베이스 role 기반으로 관리자 가드 인증해 401 문제 해결", body: "최신 데이터베이스 role 기반으로 관리자 가드 인증해 401 문제 해결 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "4e32533", date: "2026-03-31", title: "오류 수정: SMTP 타임아웃 대비 Resend 데이터 연동 발송 경로 추가", body: "SMTP 타임아웃 대비 Resend 데이터 연동 발송 경로 추가 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "c71d98e", date: "2026-03-31", title: "오류 수정: TRUST_PROXY를 hop/boolean 모두 지원하도록 파싱 로직 개선", body: "TRUST_PROXY를 hop/boolean 모두 지원하도록 파싱 로직 개선 관련 문제를 수정해 안정성을 높였습니다." },
