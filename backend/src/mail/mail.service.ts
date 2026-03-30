@@ -8,6 +8,9 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: Transporter | null = null;
   private readonly from: string;
+  private readonly connectionTimeoutMs: number;
+  private readonly greetingTimeoutMs: number;
+  private readonly socketTimeoutMs: number;
 
   constructor(private readonly config: ConfigService) {
     const host = this.config.get<string>('MAIL_HOST')?.trim();
@@ -29,6 +32,15 @@ export class MailService {
         : secureEnv === 'false'
           ? false
           : port === 465;
+    this.connectionTimeoutMs = this.readTimeoutMs(
+      'MAIL_CONNECTION_TIMEOUT_MS',
+      10000,
+    );
+    this.greetingTimeoutMs = this.readTimeoutMs(
+      'MAIL_GREETING_TIMEOUT_MS',
+      10000,
+    );
+    this.socketTimeoutMs = this.readTimeoutMs('MAIL_SOCKET_TIMEOUT_MS', 15000);
 
     if (host && user && pass) {
       this.transporter = nodemailer.createTransport({
@@ -36,10 +48,16 @@ export class MailService {
         port,
         secure,
         auth: { user, pass },
+        connectionTimeout: this.connectionTimeoutMs,
+        greetingTimeout: this.greetingTimeoutMs,
+        socketTimeout: this.socketTimeoutMs,
       });
 
       void this.transporter.verify().then(
-        () => this.logger.log(`SMTP ready: ${host}:${port} secure=${secure}`),
+        () =>
+          this.logger.log(
+            `SMTP ready: ${host}:${port} secure=${secure} timeouts(connection=${this.connectionTimeoutMs}ms,greeting=${this.greetingTimeoutMs}ms,socket=${this.socketTimeoutMs}ms)`,
+          ),
         (err) => {
           this.logger.error('SMTP verify failed (check MAIL_ env)', err);
           this.transporter = null;
@@ -50,6 +68,11 @@ export class MailService {
         'MAIL_HOST/MAIL_USER/MAIL_PASS not set. Emails will be logged only.',
       );
     }
+  }
+
+  private readTimeoutMs(key: string, fallback: number): number {
+    const raw = Number(this.config.get<string>(key) ?? String(fallback));
+    return Number.isFinite(raw) && raw > 0 ? raw : fallback;
   }
 
   private escapeHtml(v: string) {
@@ -200,13 +223,22 @@ export class MailService {
       return;
     }
 
-    await this.transporter.sendMail({
-      from: this.from,
-      to,
-      subject,
-      html,
-      text,
-    });
+    const startedAt = Date.now();
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject,
+        html,
+        text,
+      });
+    } catch (err) {
+      this.logger.error(
+        `sendMail failed after ${Date.now() - startedAt}ms (to=${to})`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw err;
+    }
   }
 
   async sendEmailVerification(to: string, verifyUrl: string): Promise<void> {
