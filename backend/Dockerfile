@@ -5,6 +5,8 @@ COPY package*.json ./
 RUN npm ci
 
 COPY prisma ./prisma
+ARG DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+ENV DATABASE_URL=${DATABASE_URL}
 RUN npx prisma generate
 
 FROM node:20-alpine AS builder
