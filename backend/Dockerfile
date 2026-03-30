@@ -25,6 +25,7 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY prisma ./prisma
+COPY prisma.config.ts ./prisma.config.ts
 COPY package*.json ./
 COPY scripts/start.sh ./scripts/start.sh
 
