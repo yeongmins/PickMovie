@@ -85,9 +85,11 @@ export class AuthService {
   }
 
   private mailRequired(): boolean {
-    const v = (
-      this.config.get<string>('MAIL_REQUIRED') ?? 'false'
-    ).toLowerCase();
+    const fallback =
+      (this.config.get<string>('NODE_ENV') ?? 'development') === 'production'
+        ? 'true'
+        : 'false';
+    const v = (this.config.get<string>('MAIL_REQUIRED') ?? fallback).toLowerCase();
     return v === 'true';
   }
 
