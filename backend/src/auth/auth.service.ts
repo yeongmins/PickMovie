@@ -785,26 +785,6 @@ export class AuthService {
       },
     });
 
-    // 관리자 계정은 링크 발송 없이 즉시 로그인 허용
-    if (existing && String(existing.role ?? '').toUpperCase() === 'ADMIN') {
-      const accessToken = this.accessTokenFor(
-        existing.id,
-        existing.username,
-        existing.role,
-      );
-      const { refreshToken, expiresAt } = await this.issueRefreshToken(
-        existing.id,
-        {},
-      );
-
-      return {
-        user: this.safeUser(existing),
-        accessToken,
-        refreshToken,
-        refreshExpiresAt: expiresAt,
-      };
-    }
-
     const raw = await this.issueEmailAuthToken(normalized, existing?.id);
     const authUrl = `${this.frontendUrl()}/email-auth?token=${encodeURIComponent(raw)}`;
 
