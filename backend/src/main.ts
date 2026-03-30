@@ -15,19 +15,25 @@ function parseOrigins(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function parseTrustProxy(
+  raw: string | undefined,
+): boolean | number | string {
+  const v = String(raw ?? '0').trim().toLowerCase();
+  if (!v || v === '0' || v === 'false' || v === 'no' || v === 'off')
+    return false;
+  if (v === 'true' || v === 'yes' || v === 'on') return true;
+  const n = Number(v);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  return v;
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // 프록시(https) 환경에서 쿠키/클라이언트 IP 정상 처리 (Render/Railway/Fly 등)
   const expressApp = app.getHttpAdapter().getInstance() as Express;
   expressApp.disable('x-powered-by');
-  const trustProxy = String(process.env.TRUST_PROXY ?? '0')
-    .trim()
-    .toLowerCase();
-  expressApp.set(
-    'trust proxy',
-    trustProxy === '1' || trustProxy === 'true' || trustProxy === 'yes',
-  );
+  expressApp.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
   expressApp.use(json({ limit: '5mb' }));
   expressApp.use(urlencoded({ extended: true, limit: '5mb' }));
   expressApp.use(
