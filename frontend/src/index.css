@@ -6,6 +6,38 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  /* 모든 페이지 공통 좌우 패딩 + 최대 폭 */
+  .page-shell {
+    width: 100%;
+    max-width: 1600px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  @media (min-width: 640px) {
+    .page-shell {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .page-shell {
+      padding-left: 40px;
+      padding-right: 40px;
+    }
+  }
+
+  /* 카드 그리드: 화면 폭에 맞게 “가능한 만큼” 채움 + 카드 폭 상한선으로 비율 보호 */
+  .cards-grid {
+    display: grid;
+    gap: 16px;
+    justify-content: center; /* 남는 공간이 있으면 좌우 균형 */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 240px));
+  }
+}
+
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or
     ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
@@ -107,10 +139,12 @@
 @layer theme {
   :root,
   :host {
-    --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    --font-sans:
+      ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
       "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      "Liberation Mono", "Courier New", monospace;
+    --font-mono:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
     --color-red-400: oklch(0.704 0.191 22.216);
     --color-red-500: oklch(0.637 0.237 25.331);
     --color-orange-200: oklch(0.901 0.076 70.697);
@@ -785,6 +819,10 @@
     margin-top: calc(var(--spacing) * 16);
   }
 
+  .mt-24 {
+    margin-top: calc(var(--spacing) * 24);
+  }
+
   .mr-2 {
     margin-right: calc(var(--spacing) * 2);
   }
@@ -833,9 +871,13 @@
     margin-bottom: calc(var(--spacing) * 16);
   }
 
+  .mb-30 {
+    margin-bottom: calc(var(--spacing) * 30);
+  }
+
   .line-clamp-3 {
     -webkit-line-clamp: 3;
-    line-clamp: 3;  
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     display: -webkit-box;
     overflow: hidden;
@@ -929,6 +971,10 @@
 
   .h-12 {
     height: calc(var(--spacing) * 12);
+  }
+
+  .h-15 {
+    height: calc(var(--spacing) * 15);
   }
 
   .h-16 {
@@ -1174,6 +1220,10 @@
 
   .items-start {
     align-items: flex-start;
+  }
+
+  .items-end {
+    align-items: flex-end;
   }
 
   .justify-between {
@@ -1470,14 +1520,14 @@
   }
 
   .bg-search {
-    background-color: #1a1a24ab;
+    background-color: #10131bab;
   }
 
-  .bg-\[\#1a1a24\] {
-    background-color: #1a1a24;
+  .bg-\[\#10131b\] {
+    background-color: #10131b;
   }
 
-  .bg-\[\#1a1a24\]\/95 {
+  .bg-\[\#10131b\]\/95 {
     background-color: oklab(20.838% 0.00407 -0.01525 / 0.95);
   }
 
@@ -1855,8 +1905,8 @@
     background-image: linear-gradient(var(--tw-gradient-stops));
   }
 
-  .from-\[\#1a1a24\] {
-    --tw-gradient-from: #1a1a24;
+  .from-\[\#10131b\] {
+    --tw-gradient-from: #10131b;
     --tw-gradient-stops: var(
       --tw-gradient-via-stops,
       var(--tw-gradient-position),
@@ -2007,9 +2057,10 @@
     }
   }
 
-  .via-\[\#1a1a24\]\/80 {
+  .via-\[\#10131b\]\/80 {
     --tw-gradient-via: oklab(22.2494% 0.00492509 -0.0187526 / 0.8);
-    --tw-gradient-via-stops: var(--tw-gradient-position),
+    --tw-gradient-via-stops:
+      var(--tw-gradient-position),
       var(--tw-gradient-from) var(--tw-gradient-from-position),
       var(--tw-gradient-via) var(--tw-gradient-via-position),
       var(--tw-gradient-to) var(--tw-gradient-to-position);
@@ -2018,7 +2069,8 @@
 
   .via-black\/70 {
     --tw-gradient-via: #000000b3;
-    --tw-gradient-via-stops: var(--tw-gradient-position),
+    --tw-gradient-via-stops:
+      var(--tw-gradient-position),
       var(--tw-gradient-from) var(--tw-gradient-from-position),
       var(--tw-gradient-via) var(--tw-gradient-via-position),
       var(--tw-gradient-to) var(--tw-gradient-to-position);
@@ -2037,7 +2089,8 @@
 
   .via-pink-400 {
     --tw-gradient-via: var(--color-pink-400);
-    --tw-gradient-via-stops: var(--tw-gradient-position),
+    --tw-gradient-via-stops:
+      var(--tw-gradient-position),
       var(--tw-gradient-from) var(--tw-gradient-from-position),
       var(--tw-gradient-via) var(--tw-gradient-via-position),
       var(--tw-gradient-to) var(--tw-gradient-to-position);
@@ -2046,15 +2099,16 @@
 
   .via-transparent {
     --tw-gradient-via: transparent;
-    --tw-gradient-via-stops: var(--tw-gradient-position),
+    --tw-gradient-via-stops:
+      var(--tw-gradient-position),
       var(--tw-gradient-from) var(--tw-gradient-from-position),
       var(--tw-gradient-via) var(--tw-gradient-via-position),
       var(--tw-gradient-to) var(--tw-gradient-to-position);
     --tw-gradient-stops: var(--tw-gradient-via-stops);
   }
 
-  .to-\[\#1a1a24\] {
-    --tw-gradient-to: #1a1a24;
+  .to-\[\#10131b\] {
+    --tw-gradient-to: #10131b;
     --tw-gradient-stops: var(
       --tw-gradient-via-stops,
       var(--tw-gradient-position),
@@ -2508,9 +2562,11 @@
   }
 
   .shadow-lg {
-    --tw-shadow: 0 10px 15px -3px var(--tw-shadow-color, #0000001a),
+    --tw-shadow:
+      0 10px 15px -3px var(--tw-shadow-color, #0000001a),
       0 4px 6px -4px var(--tw-shadow-color, #0000001a);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
+    box-shadow:
+      var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
       var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
 
@@ -2654,10 +2710,26 @@
   }
 
   .transition {
-    transition-property: color, background-color, border-color, outline-color,
-      text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via,
-      --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate,
-      filter, -webkit-backdrop-filter, backdrop-filter;
+    transition-property:
+      color,
+      background-color,
+      border-color,
+      outline-color,
+      text-decoration-color,
+      fill,
+      stroke,
+      --tw-gradient-from,
+      --tw-gradient-via,
+      --tw-gradient-to,
+      opacity,
+      box-shadow,
+      transform,
+      translate,
+      scale,
+      rotate,
+      filter,
+      -webkit-backdrop-filter,
+      backdrop-filter;
     transition-timing-function: var(
       --tw-ease,
       var(--default-transition-timing-function)
@@ -2675,9 +2747,10 @@
   }
 
   .transition-colors {
-    transition-property: color, background-color, border-color, outline-color,
-      text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via,
-      --tw-gradient-to;
+    transition-property:
+      color, background-color, border-color, outline-color,
+      text-decoration-color, fill, stroke, --tw-gradient-from,
+      --tw-gradient-via, --tw-gradient-to;
     transition-timing-function: var(
       --tw-ease,
       var(--default-transition-timing-function)
@@ -3069,7 +3142,8 @@
   .focus-visible\:ring-\[3px\]:focus-visible {
     --tw-ring-shadow: var(--tw-ring-inset) 0 0 0
       calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
+    box-shadow:
+      var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
       var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
 
@@ -3342,7 +3416,7 @@ html {
 }
 
 body {
-  background: #1a1a24;
+  background: #10131b;
   position: relative;
 }
 
@@ -3712,7 +3786,9 @@ body:after {
   .mobile-xs {
     margin-bottom: calc(var(--spacing) * 4);
     /* font-size: 0.75rem; */
-    transition: margin-bottom font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      margin-bottom font-size 0.25s ease,
+      line-height 0.25s ease;
   }
 }
 
@@ -3723,13 +3799,17 @@ body:after {
 }
 
 .detail-title {
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 431px) {
   .detail-title {
     font-size: var(--text-2xl);
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
   }
 }
 
@@ -3761,7 +3841,9 @@ body:after {
   line-height: var(--text-3xl--line-height);
 
   /* 크기 변경 시 부드럽게 */
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 431px) {
@@ -3772,25 +3854,12 @@ body:after {
 
 @media (max-width: 431px) {
   .carousel-title {
-    font-size: var(--text-2xl);
+    font-size: var(--text-xl);
     line-height: var(--text-2xl--line-height);
     margin-bottom: calc(var(--spacing) * 3);
-    transition: font-size 0.25s ease, line-height 0.25s ease;
-  }
-}
-
-@media (min-width: 1025px) {
-  .carousel-title {
-    font-size: var(--text-4xl);
-    line-height: var(--text-4xl--line-height);
-    transition: font-size 0.25s ease, line-height 0.25s ease;
-  }
-}
-
-@media (min-width: 1920px) {
-  .carousel-title {
-    font-size: 45px;
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
   }
 }
 
@@ -3807,52 +3876,68 @@ body:after {
 }
 
 .welcome-title {
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 769px) {
   .welcome-title {
     font-size: var(--text-5xl);
     line-height: var(--tw-leading, var(--text-5xl--line-height));
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
     margin-bottom: calc(var(--spacing) * 8);
   }
 }
 
 .welcome-middle {
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 769px) {
   .welcome-middle {
     font-size: var(--text-2xl);
     line-height: var(--tw-leading, var(--text-4xl--line-height));
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
     margin-bottom: calc(var(--spacing) * 6);
   }
 }
 
 .welcome-small-text {
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 769px) {
   .welcome-small-text {
     font-size: var(--text-lg);
     line-height: var(--tw-leading, var(--text-lg--line-height));
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
     margin-bottom: calc(var(--spacing) * 6);
   }
 }
 
 .welcome-why {
-  transition: font-size 0.25s ease, line-height 0.25s ease;
+  transition:
+    font-size 0.25s ease,
+    line-height 0.25s ease;
 }
 
 @media (max-width: 768px) {
   .welcome-why {
     font-size: var(--text-5xl);
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
     margin-bottom: calc(var(--spacing) * 4);
   }
 }
@@ -3860,7 +3945,9 @@ body:after {
 @media (max-width: 550px) {
   .welcome-why {
     font-size: 2rem;
-    transition: font-size 0.25s ease, line-height 0.25s ease;
+    transition:
+      font-size 0.25s ease,
+      line-height 0.25s ease;
   }
 }
 
@@ -3880,8 +3967,13 @@ body:after {
 @layer base {
   body {
     @apply text-gray-50 antialiased;
-    font-family: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont,
-      "Segoe UI", sans-serif;
+    font-family:
+      "Pretendard",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
 
     background: radial-gradient(
       circle at top,
@@ -3954,24 +4046,28 @@ body:after {
    공통 유틸리티/컴포넌트
    ========================= */
 @layer utilities {
-  /* 🔍 온보딩 전체 축소: 작은 화면에서 한 화면에 넣기 위한 스케일 조정 */
+  /* 🔍 분석/온보딩 전체 축소: 작은 화면에서 한 화면에 넣기 위한 스케일 조정 */
+  .analyze-root,
   .onboarding-root {
     @apply transform-gpu origin-top transition-transform duration-200 ease-out;
   }
 
   @media (max-height: 900px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.95);
     }
   }
 
   @media (max-height: 800px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.9);
     }
   }
 
   @media (max-height: 700px) {
+    .analyze-root,
     .onboarding-root {
       transform: scale(0.85);
     }
@@ -3989,8 +4085,15 @@ body:after {
 
   /* 🇰🇷🇺🇸🇯🇵 같은 국기 이모지를 OS 이모지 폰트로 강제 */
   .flag-emoji {
-    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
-      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family:
+      "Apple Color Emoji",
+      "Segoe UI Emoji",
+      "Noto Color Emoji",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
     line-height: 1;
   }
 }
@@ -4003,7 +4106,7 @@ body:after {
     @apply inline-flex items-center justify-center box-border font-medium leading-none
       rounded-[10px] transition duration-200 ease-out;
     /* Tailwind에 없는 height / padding-inline은 그대로 CSS로 지정 */
-    height: 2.5rem;
+    height: 2.75rem !important;
     padding-inline: 2.5rem;
   }
 
@@ -4014,7 +4117,9 @@ body:after {
     background-size: 220% 100%;
     background-position: 50% 50%;
     background-repeat: no-repeat;
-    transition: background-position 0.3s ease, filter 0.2s ease;
+    transition:
+      background-position 0.3s ease,
+      filter 0.2s ease;
   }
 
   .pick-button-primary:hover {
@@ -4034,5 +4139,38 @@ body:after {
 
   .pick-cta-more-wide {
     padding-inline: 3.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-settings-page {
+    font-size: 13px;
+  }
+
+  .admin-settings-page h1 {
+    font-size: 1.5rem !important;
+    line-height: 1.2;
+  }
+
+  .admin-settings-page h2 {
+    font-size: 1.25rem !important;
+    line-height: 1.2;
+  }
+
+  .admin-settings-page button {
+    font-size: 12px !important;
+  }
+
+  .admin-settings-page button.h-10,
+  .admin-settings-page button.h-9 {
+    height: 2rem !important;
+    padding-left: 0.625rem !important;
+    padding-right: 0.625rem !important;
+  }
+
+  .admin-settings-page input,
+  .admin-settings-page select,
+  .admin-settings-page textarea {
+    font-size: 12px !important;
   }
 }

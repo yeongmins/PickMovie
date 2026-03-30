@@ -1,31 +1,50 @@
 // backend/src/movies/movies.service.ts
-
 import { Injectable } from '@nestjs/common';
-import { TmdbService } from '../tmdb/tmdb.service';
+import { TmdbService, type TmdbQuery } from '../tmdb/tmdb.service';
+
+type MediaType = 'movie' | 'tv';
 
 @Injectable()
 export class MoviesService {
-  constructor(private readonly tmdbService: TmdbService) {}
+  constructor(private readonly tmdb: TmdbService) {}
 
-  getPopular() {
-    return this.tmdbService.getPopularMovies();
+  getPopular(page = 1, viewerIsAdmin = false): Promise<unknown> {
+    return this.tmdb.getPopularMovies(page, 'KR', 'ko-KR', viewerIsAdmin);
   }
 
-  discoverMovies(params: {
-    genre?: string;
-    sort_by?: string;
-    page?: number;
-    languageCode?: string;
-  }) {
-    return this.tmdbService.discoverMovies({
-      with_genres: params.genre,
-      sort_by: params.sort_by,
-      page: params.page,
-      with_original_language: params.languageCode,
-    });
+  getTopRated(page = 1, viewerIsAdmin = false): Promise<unknown> {
+    return this.tmdb.getTopRatedMovies(page, 'KR', 'ko-KR', viewerIsAdmin);
   }
 
-  getDetails(id: number) {
-    return this.tmdbService.getMovieDetails(id);
+  getNowPlaying(page = 1, viewerIsAdmin = false): Promise<unknown> {
+    return this.tmdb.getNowPlayingMovies(page, 'KR', 'ko-KR', viewerIsAdmin);
+  }
+
+  // upcoming 추가 (정상 호출)
+  getUpcoming(
+    page = 1,
+    region = 'KR',
+    language = 'ko-KR',
+    viewerIsAdmin = false,
+  ): Promise<unknown> {
+    return this.tmdb.getUpcomingMovies(page, region, language, viewerIsAdmin);
+  }
+
+  getPopularTV(page = 1, viewerIsAdmin = false): Promise<unknown> {
+    return this.tmdb.getPopularTVShows(page, 'ko-KR', viewerIsAdmin);
+  }
+
+  discover(query: TmdbQuery, viewerIsAdmin = false): Promise<unknown> {
+    return this.tmdb.discoverMovies(query, viewerIsAdmin);
+  }
+
+  getDetails(
+    id: number,
+    type: MediaType = 'movie',
+    viewerIsAdmin = false,
+  ): Promise<unknown> {
+    return type === 'tv'
+      ? this.tmdb.getTVDetails(id, 'ko-KR', viewerIsAdmin)
+      : this.tmdb.getMovieDetails(id, 'ko-KR', viewerIsAdmin);
   }
 }

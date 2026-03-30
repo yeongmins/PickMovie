@@ -1,0 +1,9 @@
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'UserRole') THEN
+    CREATE TYPE "UserRole" AS ENUM ('USER', 'ADMIN');
+  END IF;
+END $$;
+
+ALTER TABLE "User"
+  ADD COLUMN IF NOT EXISTS "role" "UserRole" NOT NULL DEFAULT 'USER';

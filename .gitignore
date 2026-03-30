@@ -2,7 +2,6 @@
 # Node / Dependency
 # =====================================
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -11,6 +10,12 @@ pnpm-lock.yaml
 # =====================================
 dist/
 build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+.turbo/
 .cache/
 .temp/
 tmp/
@@ -24,6 +29,7 @@ temp/
 .env
 .env.*
 !.env.example
+!**/.env.example
 
 # =====================================
 # Logs
@@ -91,15 +97,14 @@ pids
 *.seed
 
 # =====================================
-# Images / Cache Files
+# Prisma / Generated Code
 # =====================================
-# (캐시 제거용 — 실제 이미지 자산은 public/ 에 있기 때문에 안전함)
-.cache/
-*.jpg
-*.jpeg
-*.gif
-*.svg
-*.webp
+src/generated/
+**/generated/
+
+# Prisma 엔진/wasm 관련 캐시(환경에 따라 생성)
+.prisma/
+**/.prisma/
 
 # =====================================
 # Local Development Files
@@ -113,3 +118,4 @@ local.settings.json
 *.swp
 *.swo
 robots.txt
+!frontend/public/robots.txt

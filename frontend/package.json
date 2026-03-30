@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:notices": "node scripts/generate-footer-notices.cjs",
+    "predev": "npm run generate:notices",
+    "prebuild": "npm run generate:notices"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -57,6 +60,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react-swc": "^4.2.2",
     "autoprefixer": "^10.4.22",
+    "baseline-browser-mapping": "^2.9.19",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.18",
     "typescript": "^5.9.3",

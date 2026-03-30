@@ -1,0 +1,555 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MediaType {
+  movie
+  tv
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  username     String  @unique
+  email        String? @unique
+  nickname     String?
+  profileImageUrl String?
+  passwordHash String
+  role         UserRole @default(USER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+
+  emailVerifiedAt         DateTime?
+  emailVerificationTokens EmailVerificationToken[]
+  emailAuthTokens         EmailAuthToken[]
+
+  favorites Favorite[]
+  playlists Playlist[]
+  analyzeEvents AnalyzeEvent[]
+  contentIssueReports ContentIssueReport[]
+}
+
+model AnalyzeEvent {
+  id        Int    @id @default(autoincrement())
+  visitorId String
+  userId    Int?
+  user      User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  isAuthed  Boolean @default(false)
+
+  genres    Json
+  moods     Json
+  runtime   String?
+  releaseYear String?
+  country   String?
+  excludes  Json
+
+  favoriteMovieIds Json
+  favoriteCount    Int @default(0)
+
+  source    String  @default("analyze")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([isAuthed])
+  @@index([visitorId, createdAt])
+}
+
+model ContentIssueReport {
+  id Int @id @default(autoincrement())
+
+  mediaType MediaType
+  tmdbId Int
+  contentTitle String?
+
+  issueMessage String
+  issueDetail String?
+
+  reporterUserId Int?
+  reporterUser User? @relation(fields: [reporterUserId], references: [id], onDelete: SetNull)
+  reporterName String?
+  reporterEmail String?
+  visitorId String?
+
+  source String @default("detail")
+  status String @default("received")
+  adminReply String?
+  adminRepliedAt DateTime?
+  adminRepliedBy String?
+  userReadAt DateTime?
+  userDeletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([reporterUserId, userReadAt, adminRepliedAt])
+  @@index([reporterUserId, userDeletedAt, adminRepliedAt])
+  @@index([mediaType, tmdbId, createdAt])
+  @@index([reporterUserId])
+}
+
+model Favorite {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tmdbId    Int
+  mediaType MediaType
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, tmdbId, mediaType], name: "userId_tmdbId_mediaType")
+  @@index([userId])
+}
+
+model Playlist {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PlaylistItem[]
+
+  @@index([userId])
+}
+
+model PlaylistItem {
+  id         Int      @id @default(autoincrement())
+  playlistId Int
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  tmdbId    Int
+  mediaType MediaType
+  addedAt   DateTime  @default(now())
+
+  @@unique([playlistId, tmdbId, mediaType], name: "playlistId_tmdbId_mediaType")
+  @@index([playlistId])
+}
+
+model RefreshToken {
+  id        Int    @id @default(autoincrement())
+  tokenHash String @unique
+  userId    Int
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  ip        String?
+  userAgent String?
+
+  replacedByTokenId Int?          @unique
+  replacedBy        RefreshToken? @relation("RefreshTokenReplacement", fields: [replacedByTokenId], references: [id])
+  replacedFrom      RefreshToken? @relation("RefreshTokenReplacement")
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        Int    @id @default(autoincrement())
+  tokenHash String @unique
+  userId    Int
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  ip        String?
+  userAgent String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model EmailAuthToken {
+  id     Int  @id @default(autoincrement())
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  email     String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+}
+
+enum TrendSource {
+  kobis
+  youtube
+  naver
+  netflix
+}
+
+enum TrendMediaType {
+  movie
+  tv
+  anime
+  unknown
+}
+
+model TrendSeed {
+  id        Int            @id @default(autoincrement())
+  keyword   String
+  source    TrendSource
+  mediaType TrendMediaType @default(unknown)
+
+  tmdbId Int?
+  year   Int?
+  raw    Json?
+
+  topicId Int?
+  topic   TrendTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ranks TrendRank[]
+
+  @@unique([keyword, source, mediaType])
+  @@index([source, mediaType])
+  @@index([updatedAt])
+  @@index([topicId])
+}
+
+model TrendRank {
+  id     Int       @id @default(autoincrement())
+  seedId Int
+  seed   TrendSeed @relation(fields: [seedId], references: [id], onDelete: Cascade)
+
+  date String
+
+  rank      Int
+  score     Float
+  breakdown Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([seedId, date])
+  @@index([date, score])
+}
+
+enum TrendRunStatus {
+  running
+  success
+  failed
+}
+
+model TrendIngestRun {
+  id     Int            @id @default(autoincrement())
+  date   String
+  region String         @default("KR")
+  status TrendRunStatus @default(running)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  meta       Json?
+
+  snapshots TrendSnapshot[]
+
+  @@unique([date, region])
+  @@index([status, startedAt])
+}
+
+model TrendSnapshot {
+  id    Int            @id @default(autoincrement())
+  runId Int
+  run   TrendIngestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  source   TrendSource
+  endpoint String?
+  request  Json?
+  response Json?
+
+  fetchedAt DateTime @default(now())
+
+  @@index([runId, source])
+  @@index([source, fetchedAt])
+}
+
+model TrendTopic {
+  id        Int            @id @default(autoincrement())
+  mediaType TrendMediaType @default(unknown)
+
+  tmdbId Int?
+  year   Int?
+
+  canonicalTitle String
+  normTitle      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  aliases TrendTopicAlias[]
+  seeds   TrendSeed[]
+  metrics TrendMetric[]
+  scores  TrendScore[]
+
+  @@unique([mediaType, normTitle])
+  @@index([tmdbId])
+  @@index([updatedAt])
+}
+
+model TrendTopicAlias {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  alias      String
+  normAlias  String
+  source     TrendSource?
+  confidence Float        @default(0.5)
+
+  @@unique([topicId, normAlias])
+  @@index([normAlias])
+}
+
+model TrendMetric {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  date     String
+  source   TrendSource
+  metric   String
+  value    Float
+  valueLog Float?
+  z        Float?
+  raw      Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([topicId, date, source, metric])
+  @@index([date, metric])
+  @@index([source, metric, date])
+}
+
+model TrendScore {
+  id      Int        @id @default(autoincrement())
+  topicId Int
+  topic   TrendTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  date        String
+  algoVersion String @default("kr.daily.v1")
+
+  rank      Int
+  score     Float
+  breakdown Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([topicId, date, algoVersion])
+  @@index([date, algoVersion, score])
+}
+
+// ===== Enums =====
+enum MetaMediaType {
+  movie
+  tv
+}
+
+enum ContentKind {
+  MOVIE
+  TV
+  ANI
+}
+
+enum ReleaseStatus {
+  NOW_SHOWING
+  UPCOMING
+  RE_RELEASE
+  NONE
+}
+
+// ✅ FIX: Prisma enum 값은 '_'로 시작 불가 → R12/R15/R19로 변경
+enum AgeRating {
+  ALL
+  R12
+  R15
+  R19
+  UNKNOWN
+}
+
+// ✅ (신규) 프론트가 쓰는 statusKind를 DB에도 캐시
+enum StatusKind {
+  now
+  upcoming
+  rerun
+}
+
+enum HomeCollectionKey {
+  POPULAR_MOVIE
+  POPULAR_TV
+  TRENDING_MOVIE
+  TRENDING_TV
+}
+
+// ===== Models =====
+model ContentMetaResolved {
+  id            String        @id @default(cuid())
+  mediaType     MetaMediaType
+  tmdbId        Int
+
+  contentKind   ContentKind
+  releaseStatus ReleaseStatus
+  ageRating     AgeRating
+  releaseYear   Int?
+
+  // ✅ (신규) 프론트에서 추가 계산 제거용 캐시 필드
+  statusKind         StatusKind?
+  unifiedYearLabel   String?
+  originalTheatricalDate String?
+  rerunTheatricalDate    String?
+  kobisMovieCd        String?
+  rerunKobisMovieCd   String?
+  hasMultipleTheatrical Boolean @default(false)
+
+  watchProviders Json?
+
+  sourcesUsed  Json?
+  metaVersion  Int           @default(1)
+  resolvedAt   DateTime      @default(now())
+  expiresAt    DateTime?
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([mediaType, tmdbId])
+  @@index([resolvedAt])
+}
+
+model ContentMetaOverride {
+  id            String        @id @default(cuid())
+  mediaType     MetaMediaType
+  tmdbId        Int
+
+  contentKind   ContentKind?
+  releaseStatus ReleaseStatus?
+  ageRating     AgeRating?
+  releaseYear   Int?
+  contentInfoReleaseYear Int?
+
+  // ✅ (신규) 운영/수정 override 지원
+  statusKind            StatusKind?
+  unifiedYearLabel      String?
+  originalTheatricalDate String?
+  rerunTheatricalDate    String?
+  kobisMovieCd          String?
+  rerunKobisMovieCd     String?
+  hasMultipleTheatrical Boolean?
+  forceHidden           Boolean?
+
+  watchProviders Json?
+
+  // 관리자 상세 수정 오버라이드
+  overrideTitle         String?
+  overrideOriginalTitle String?
+  overrideOverview      String?
+  overrideRuntime       Int?
+  overrideReleaseDate   String?
+
+  updatedBy    String?
+  updatedAt    DateTime      @default(now())
+
+  createdAt    DateTime      @default(now())
+
+  @@unique([mediaType, tmdbId])
+}
+
+model ContentMetaOverrideHistory {
+  id           String       @id @default(cuid())
+  mediaType    MetaMediaType
+  tmdbId       Int
+  action       String
+  changedFields Json?
+  beforeSnapshot Json?
+  afterSnapshot  Json?
+  beforeTitle  String?
+  afterTitle   String?
+  createdBy    String?
+  createdAt    DateTime     @default(now())
+
+  @@index([mediaType, tmdbId, createdAt])
+  @@index([createdAt])
+}
+
+model SearchPolicyConfig {
+  key             String   @id
+  blockedKeywords Json
+  updatedBy       String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+}
+
+model SearchPopularContent {
+  id             Int       @id @default(autoincrement())
+  tmdbId         Int
+  mediaType      MediaType
+  title          String
+  searchCount    Int       @default(0)
+  lastSearchedAt DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tmdbId, mediaType], name: "tmdbId_mediaType")
+  @@index([searchCount, lastSearchedAt])
+  @@index([updatedAt])
+}
+
+model HomeCollectionSnapshot {
+  id          String            @id @default(cuid())
+  key         HomeCollectionKey @unique
+
+  items       Json
+  generatedAt DateTime          @default(now())
+  expiresAt   DateTime?
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model KobisBoxOfficeSnapshot {
+  id         String   @id @default(cuid())
+  targetDt   String   @unique
+  items      Json
+  fetchedAt  DateTime @default(now())
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
