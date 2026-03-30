@@ -22,6 +22,16 @@ export const NOTICE_ITEMS: FooterNoticeItem[] = [
 ];
 
 export const DEVELOPER_NOTE_ITEMS: FooterDeveloperNoteItem[] = [
+  { hash: "a09f46c", date: "2026-03-31", title: "오류 수정: 운영 환경에서 메일 발송 실패를 기본 에러로 처리하고 MAIL 환경변수 예시 추가", body: "운영 환경에서 메일 발송 실패를 기본 에러로 처리하고 MAIL 환경변수 예시 추가 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "1677eb2", date: "2026-03-31", title: "오류 수정: 런타임 엔트리 경로를 dist/src/main.js로 정정", body: "런타임 엔트리 경로를 dist/src/main.js로 정정 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "0e781ec", date: "2026-03-31", title: "오류 수정: Prisma 마이그레이션 순서 충돌 대응 및 재실행 가능하도록 SQL 보강", body: "Prisma 마이그레이션 순서 충돌 대응 및 재실행 가능하도록 SQL 보강 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "985a968", date: "2026-03-31", title: "오류 수정: 런타임 이미지에 prisma.config.ts 포함해 migrate deploy 오류 해결", body: "런타임 이미지에 prisma.config.ts 포함해 migrate deploy 오류 해결 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "7cb2424", date: "2026-03-31", title: "오류 수정: Docker 빌드에서 Prisma generated client 누락 문제 해결", body: "Docker 빌드에서 Prisma generated client 누락 문제 해결 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "3c54115", date: "2026-03-31", title: "오류 수정: Prisma 7 스키마 규칙 반영 및 prisma 패키지 버전 정렬", body: "Prisma 7 스키마 규칙 반영 및 prisma 패키지 버전 정렬 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "a16ba23", date: "2026-03-31", title: "오류 수정: Dockerfile ENV 치환 오류로 인한 prisma generate 실패 해결", body: "Dockerfile ENV 치환 오류로 인한 prisma generate 실패 해결 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "d2d7e69", date: "2026-03-31", title: "오류 수정: Docker build에서 prisma generate 실패 해결", body: "Docker build에서 prisma generate 실패 해결 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "7acb4e0", date: "2026-03-31", title: "오류 수정: Railway 빌드 오류 해결을 위해 prisma 버전 정합성 맞춤", body: "Railway 빌드 오류 해결을 위해 prisma 버전 정합성 맞춤 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "39d66cf", date: "2026-03-31", title: "오류 수정: 설정 페이지 탈퇴 모달 훅 선언 위치 수정", body: "설정 페이지 탈퇴 모달 훅 선언 위치 수정 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "4e88f80", date: "2026-03-31", title: "기능 업데이트: Railway 백엔드 배포 설정 추가 및 프론트 접근성(모달/라벨/키보드 포커스) 개선", body: "Railway 백엔드 배포 설정 추가 및 프론트 접근성(모달/라벨/키보드 포커스) 개선 관련 업데이트를 반영했습니다." },
   { hash: "3bf3292", date: "2026-03-11", title: "구조 개선: 검색·분석·인증/관리자 흐름 통합 개편 및 프론트 UX·SEO 전반 개선", body: "검색·분석·인증/관리자 흐름 통합 개편 및 프론트 UX·SEO 전반 개선 관련 업데이트를 반영했습니다." },
   { hash: "8c7054e", date: "2026-03-11", title: "서비스 업데이트: desktop 작업본 반영", body: "desktop 작업본 반영 관련 업데이트를 반영했습니다." },

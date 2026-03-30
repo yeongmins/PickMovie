@@ -338,49 +338,50 @@ export function AuthEmailModal({
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,rgba(236,72,153,0.06),transparent_52%)]" />
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="absolute right-4 top-4 z-10 rounded-full p-1.5 text-white/65 hover:bg-white/10 hover:text-white"
-              aria-label="닫기"
-            >
-              <X size={20} />
-            </button>
-
             <div
               className="relative z-[1] overflow-y-auto p-4 pb-[calc(16px+env(safe-area-inset-bottom))] sm:p-5 md:p-6"
               style={{ maxHeight: "calc(100dvh - 24px)" }}
             >
-              <div className="relative flex h-12 rounded-full p-1">
-                <motion.span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-1 top-1 h-10 w-[calc(50%-4px)] rounded-full border border-white/20 bg-white/[0.06]"
-                  animate={{ x: mode === "login" ? "0%" : "100%" }}
-                  transition={{ type: "tween", duration: 0.16, ease: "easeInOut" }}
-                />
+              <div className="flex items-center gap-2">
+                <div className="relative flex h-12 flex-1 rounded-full p-1">
+                  <motion.span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-1 top-1 h-10 w-[calc(50%-4px)] rounded-full border border-white/20 bg-white/[0.06]"
+                    animate={{ x: mode === "login" ? "0%" : "100%" }}
+                    transition={{ type: "tween", duration: 0.16, ease: "easeInOut" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onModeChange("login")}
+                    className={[
+                      "relative z-[1] flex h-10 flex-1 items-center justify-center rounded-full text-center text-sm font-semibold transition",
+                      mode === "login"
+                        ? "text-white"
+                        : "text-white/70 hover:text-white/90",
+                    ].join(" ")}
+                  >
+                    로그인
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onModeChange("signup")}
+                    className={[
+                      "relative z-[1] flex h-10 flex-1 items-center justify-center rounded-full text-center text-sm font-semibold transition",
+                      mode === "signup"
+                        ? "text-white"
+                        : "text-white/70 hover:text-white/90",
+                    ].join(" ")}
+                  >
+                    회원가입
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={() => onModeChange("login")}
-                  className={[
-                    "relative z-[1] flex h-10 flex-1 items-center justify-center rounded-full text-center text-sm font-semibold transition",
-                    mode === "login"
-                      ? "text-white"
-                      : "text-white/70 hover:text-white/90",
-                  ].join(" ")}
+                  onClick={onClose}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/65 transition hover:bg-white/10 hover:text-white"
+                  aria-label="닫기"
                 >
-                  로그인
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onModeChange("signup")}
-                  className={[
-                    "relative z-[1] flex h-10 flex-1 items-center justify-center rounded-full text-center text-sm font-semibold transition",
-                    mode === "signup"
-                      ? "text-white"
-                      : "text-white/70 hover:text-white/90",
-                  ].join(" ")}
-                >
-                  회원가입
+                  <X size={20} />
                 </button>
               </div>
 
