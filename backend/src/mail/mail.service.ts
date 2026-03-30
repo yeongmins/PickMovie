@@ -8,6 +8,7 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: Transporter | null = null;
   private readonly from: string;
+  private readonly resendApiKey: string;
   private readonly connectionTimeoutMs: number;
   private readonly greetingTimeoutMs: number;
   private readonly socketTimeoutMs: number;
@@ -22,6 +23,7 @@ export class MailService {
       this.config.get<string>('MAIL_FROM')?.trim() ||
       user ||
       'no-reply@pickmovie.local';
+    this.resendApiKey = this.config.get<string>('RESEND_API_KEY')?.trim() ?? '';
 
     const secureEnv = (
       this.config.get<string>('MAIL_SECURE') ?? ''
@@ -73,6 +75,40 @@ export class MailService {
   private readTimeoutMs(key: string, fallback: number): number {
     const raw = Number(this.config.get<string>(key) ?? String(fallback));
     return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  }
+
+  private async sendViaResendApi(
+    to: string,
+    subject: string,
+    html: string,
+    text: string,
+  ): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.socketTimeoutMs);
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.from,
+          to: [to],
+          subject,
+          html,
+          text,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`Resend API failed: ${res.status} ${body}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private escapeHtml(v: string) {
@@ -216,6 +252,20 @@ export class MailService {
   }
 
   private async send(to: string, subject: string, html: string, text: string) {
+    if (this.resendApiKey) {
+      const startedAt = Date.now();
+      try {
+        await this.sendViaResendApi(to, subject, html, text);
+        return;
+      } catch (err) {
+        this.logger.error(
+          `sendViaResendApi failed after ${Date.now() - startedAt}ms (to=${to})`,
+          err instanceof Error ? err.stack : String(err),
+        );
+        if (!this.transporter) throw err;
+      }
+    }
+
     if (!this.transporter) {
       const firstUrl = text.match(/https?:\/\/\S+/)?.[0];
       this.logger.warn(`[DEV] Email skipped. to=${to} subject=${subject}`);
