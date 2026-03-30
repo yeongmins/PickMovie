@@ -12,8 +12,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/src/generated/prisma ./src/generated/prisma
 COPY . .
 RUN npm run build
+RUN mkdir -p dist/src/generated && cp -R src/generated/prisma dist/src/generated/prisma
 
 FROM node:20-alpine AS runner
 WORKDIR /app
