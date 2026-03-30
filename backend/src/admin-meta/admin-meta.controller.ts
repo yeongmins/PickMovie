@@ -5,7 +5,6 @@ import {
   ConflictException,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Header,
   Param,
@@ -83,7 +82,6 @@ function csvEscape(v: unknown): string {
 
 type IssueReportStatus = 'received' | 'in_progress' | 'answered';
 type UserAdminRole = 'USER' | 'ADMIN';
-const ADMIN_GRANT_EMAIL = 'yeongmins123@gmail.com';
 
 function parseIssueReportStatus(v: unknown): IssueReportStatus {
   const s = String(v ?? '')
@@ -1105,17 +1103,6 @@ export class AdminMetaController {
     const currentRole =
       String(target.role ?? '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER';
     if (currentRole === nextRole) return { ok: true };
-
-    if (currentRole !== 'ADMIN' && nextRole === 'ADMIN') {
-      const targetEmail = String(target.email ?? '')
-        .trim()
-        .toLowerCase();
-      if (targetEmail !== ADMIN_GRANT_EMAIL) {
-        throw new ForbiddenException(
-          `${ADMIN_GRANT_EMAIL} 계정에만 관리자 권한을 부여할 수 있습니다.`,
-        );
-      }
-    }
 
     if (currentRole === 'ADMIN' && nextRole !== 'ADMIN') {
       const adminCount = await this.prisma.user.count({
