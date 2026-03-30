@@ -276,13 +276,9 @@ function TitleLogoOrText({ movie }: { movie: any }) {
     setForceText(false);
   }, [(movie as any).id, filePath, logo.choice.invert]);
 
-  const visibleFilter = `${
+  const logoFilter = `${
     logo.choice.invert ? "invert(1) " : ""
   }drop-shadow(0 10px 18px rgba(0,0,0,0.35))`;
-
-  const hiddenFilter = `${
-    logo.choice.invert ? "invert(1) " : ""
-  }blur(10px) drop-shadow(0 10px 18px rgba(0,0,0,0.22))`;
 
   return (
     <h1
@@ -311,7 +307,6 @@ function TitleLogoOrText({ movie }: { movie: any }) {
             initial={false}
             animate={{
               opacity: logoReady ? 1 : 0,
-              filter: logoReady ? visibleFilter : hiddenFilter,
             }}
             transition={{ duration: 0.22, ease: "easeOut" }}
             style={{
@@ -322,7 +317,8 @@ function TitleLogoOrText({ movie }: { movie: any }) {
               maxHeight: 96,
               objectFit: "contain",
               transform: "translateZ(0)",
-              willChange: "opacity, filter",
+              filter: logoFilter,
+              willChange: "opacity",
             }}
           />
         </>
