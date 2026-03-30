@@ -1104,15 +1104,17 @@ export function MainScreen({
 
       if (!items.length) {
         setBoxOfficeMovies([]);
-        console.error("[BoxOffice] no mapped items from API", {
-          attempts,
-          displayDateLabel,
-          rawItemsCount: rawItems.length,
-          hint:
-            rawItems.length > 0
-              ? "KOBIS raw exists but TMDB mapping returned 0"
-              : "KOBIS API/route returned empty",
-        });
+        if (import.meta.env.DEV) {
+          console.error("[BoxOffice] no mapped items from API", {
+            attempts,
+            displayDateLabel,
+            rawItemsCount: rawItems.length,
+            hint:
+              rawItems.length > 0
+                ? "KOBIS raw exists but TMDB mapping returned 0"
+                : "KOBIS API/route returned empty",
+          });
+        }
         return;
       }
 
@@ -1152,20 +1154,24 @@ export function MainScreen({
       setBoxOfficeMovies(resolved);
 
       if (normalized.length > 0 && resolved.length === 0) {
-        console.error("[BoxOffice] TMDB detail hydrate failed", {
-          mappedCount: normalized.length,
-          detailFailedIds,
-          displayDateLabel,
-        });
+        if (import.meta.env.DEV) {
+          console.error("[BoxOffice] TMDB detail hydrate failed", {
+            mappedCount: normalized.length,
+            detailFailedIds,
+            displayDateLabel,
+          });
+        }
       }
     } catch (e: any) {
       setBoxOfficeMovies([]);
       setBoxOfficeRawItems([]);
       setBoxOfficeDesc("Top10 차트입니다.");
-      console.error("[BoxOffice] unexpected loader failure", {
-        message: String(e?.message ?? "unknown error"),
-        status: Number(e?.status) || undefined,
-      });
+      if (import.meta.env.DEV) {
+        console.error("[BoxOffice] unexpected loader failure", {
+          message: String(e?.message ?? "unknown error"),
+          status: Number(e?.status) || undefined,
+        });
+      }
     } finally {
       setBoxOfficeLoading(false);
     }

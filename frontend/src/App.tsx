@@ -329,7 +329,7 @@ export default function App() {
       const savedPreferences = localStorage.getItem(STORAGE_KEYS.PREFERENCES);
       if (savedPreferences) setUserPreferences(JSON.parse(savedPreferences));
     } catch (e) {
-      console.error(e);
+      if (import.meta.env.DEV) console.error(e);
     } finally {
       setIsLoading(false);
     }

@@ -22,6 +22,10 @@ export const NOTICE_ITEMS: FooterNoticeItem[] = [
 ];
 
 export const DEVELOPER_NOTE_ITEMS: FooterDeveloperNoteItem[] = [
+  { hash: "f421b70", date: "2026-03-31", title: "오류 수정: 최신 데이터베이스 role 기반으로 관리자 가드 인증해 401 문제 해결", body: "최신 데이터베이스 role 기반으로 관리자 가드 인증해 401 문제 해결 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "4e32533", date: "2026-03-31", title: "오류 수정: SMTP 타임아웃 대비 Resend 데이터 연동 발송 경로 추가", body: "SMTP 타임아웃 대비 Resend 데이터 연동 발송 경로 추가 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "c71d98e", date: "2026-03-31", title: "오류 수정: TRUST_PROXY를 hop/boolean 모두 지원하도록 파싱 로직 개선", body: "TRUST_PROXY를 hop/boolean 모두 지원하도록 파싱 로직 개선 관련 문제를 수정해 안정성을 높였습니다." },
+  { hash: "78f000c", date: "2026-03-31", title: "오류 수정: SMTP 타임아웃 추가로 인증 메일 요청 지연/타임아웃 방지", body: "SMTP 타임아웃 추가로 인증 메일 요청 지연/타임아웃 방지 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "a09f46c", date: "2026-03-31", title: "오류 수정: 운영 환경에서 메일 발송 실패를 기본 에러로 처리하고 MAIL 환경변수 예시 추가", body: "운영 환경에서 메일 발송 실패를 기본 에러로 처리하고 MAIL 환경변수 예시 추가 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "1677eb2", date: "2026-03-31", title: "오류 수정: 런타임 엔트리 경로를 dist/src/main.js로 정정", body: "런타임 엔트리 경로를 dist/src/main.js로 정정 관련 문제를 수정해 안정성을 높였습니다." },
   { hash: "0e781ec", date: "2026-03-31", title: "오류 수정: Prisma 마이그레이션 순서 충돌 대응 및 재실행 가능하도록 SQL 보강", body: "Prisma 마이그레이션 순서 충돌 대응 및 재실행 가능하도록 SQL 보강 관련 문제를 수정해 안정성을 높였습니다." },

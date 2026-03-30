@@ -145,6 +145,7 @@ export type ApiRequestOptions = {
 
   retry?: number; // 네트워크/timeout성 실패 재시도 횟수(기본 0)
   retryDelayMs?: number; // 재시도 간격(기본 200ms)
+  _skipAuthRefresh?: boolean; // 내부용: 401 시 refresh 재시도 스킵
 };
 
 type CacheEntry = {
@@ -154,6 +155,7 @@ type CacheEntry = {
 
 const GET_INFLIGHT = new Map<string, Promise<any>>();
 const GET_CACHE = new Map<string, CacheEntry>();
+let AUTH_REFRESH_INFLIGHT: Promise<string | null> | null = null;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -335,6 +337,26 @@ async function requestJson<T>(args: {
 
         // 명시적 ApiError(HTTP 에러)는 보통 재시도 불필요(원하면 retry 옵션 사용)
         if (e instanceof ApiError) {
+          const canTryRefresh =
+            e.status === 401 &&
+            !options?._skipAuthRefresh &&
+            path !== "/auth/refresh";
+
+          if (canTryRefresh) {
+            const refreshed = await refreshAccessToken();
+            if (refreshed) {
+              return await requestJson<T>({
+                method,
+                path,
+                params,
+                body,
+                headers,
+                options: { ...(options ?? {}), _skipAuthRefresh: true },
+              });
+            }
+            clearAuthStorage();
+          }
+
           if (attempt >= retry) throw e;
         } else {
           if (attempt >= retry) throw e;
@@ -429,3 +451,40 @@ export async function apiPatch<T>(
     options,
   });
 }
+  const refreshAccessToken = async (): Promise<string | null> => {
+    if (AUTH_REFRESH_INFLIGHT) return AUTH_REFRESH_INFLIGHT;
+
+    AUTH_REFRESH_INFLIGHT = (async () => {
+      try {
+        const refreshUrl = buildUrl("/auth/refresh");
+        const res = await fetch(refreshUrl, {
+          method: "POST",
+          headers: buildHeaders({ "Content-Type": "application/json" }),
+          credentials: "include",
+          body: JSON.stringify({}),
+        });
+
+        if (!res.ok) return null;
+        const payload = (await parseBodySafe(res)) as { accessToken?: string | null } | null;
+        const nextToken = String(payload?.accessToken ?? "").trim();
+        if (!nextToken) return null;
+        try {
+          localStorage.setItem(AUTH_KEYS.ACCESS, nextToken);
+        } catch {}
+        return nextToken;
+      } catch {
+        return null;
+      } finally {
+        AUTH_REFRESH_INFLIGHT = null;
+      }
+    })();
+
+    return AUTH_REFRESH_INFLIGHT;
+  };
+
+  const clearAuthStorage = () => {
+    try {
+      localStorage.removeItem(AUTH_KEYS.ACCESS);
+      localStorage.removeItem("pickmovie_user");
+    } catch {}
+  };
