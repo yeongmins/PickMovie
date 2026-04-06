@@ -77,17 +77,6 @@ export class MailService {
     return Number.isFinite(raw) && raw > 0 ? raw : fallback;
   }
 
-  private frontendUrl(): string {
-    return this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
-  }
-
-  private brandLogoUrl(): string {
-    const custom = this.config.get<string>('MAIL_BRAND_LOGO_URL')?.trim();
-    if (custom) return custom;
-    const base = this.frontendUrl().replace(/\/+$/, '');
-    return `${base}/pickmovie-icon.png`;
-  }
-
   private async sendViaResendApi(
     to: string,
     subject: string,
@@ -180,7 +169,6 @@ export class MailService {
     const safeBtn = this.escapeHtml(buttonText);
     const safeUrl = this.escapeHtml(url);
     const safeFooter = footer ? this.escapeHtml(footer) : '';
-    const safeBrandLogoUrl = this.escapeHtml(this.brandLogoUrl());
 
     const safeHighlightLabel = highlightLabel
       ? this.escapeHtml(highlightLabel)
@@ -213,18 +201,18 @@ export class MailService {
                 <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
                   ${
                     brandTitle
-                      ? `<img src="${safeBrandLogoUrl}" alt="PickMovie" width="180" style="display:block;width:180px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`
+                      ? '<span style="color:#111827;">PickMovie</span>'
                       : safeTitle
                   }
                 </div>
-                <div style="margin-top:12px;font-size:18px;line-height:1.55;color:#6b7280;">
+                <div style="margin-top:12px;font-size:18px;line-height:1.55;color:#111827;">
                   ${safeSubtitle}
                 </div>
 
                 ${
                   extraText
                     ? `
-                <div style="margin-top:10px;font-size:16px;line-height:1.5;color:#6b7280;">${safeHighlightLabel}: <span style="font-weight:700;color:#374151;">${safeHighlightValue}</span></div>
+                <div style="margin-top:10px;font-size:16px;line-height:1.5;color:#111827;">${safeHighlightLabel}: <span style="font-weight:700;color:#111827;">${safeHighlightValue}</span></div>
                 `
                     : ''
                 }
@@ -238,16 +226,16 @@ export class MailService {
                   </a>
                 </div>
 
-                <div style="margin-top:20px;font-size:16px;line-height:1.5;color:#6b7280;">
+                <div style="margin-top:20px;font-size:16px;line-height:1.5;color:#111827;">
                   버튼이 안 눌리면 아래 링크를 복사해 브라우저에 붙여넣어주세요.<br/>
                 </div>
 
                 <div style="margin-top:8px;font-size:15px;line-height:1.55;">
-                  <a href="${safeUrl}" style="color:#4f46e5;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
+                  <a href="${safeUrl}" style="color:#111827;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
                 </div>
                 ${
                   footer
-                    ? `<div style="margin-top:16px;font-size:14px;color:#9ca3af;line-height:1.5;">${safeFooter}</div>`
+                    ? `<div style="margin-top:16px;font-size:14px;color:#111827;line-height:1.5;">${safeFooter}</div>`
                     : ''
                 }
               </td>
