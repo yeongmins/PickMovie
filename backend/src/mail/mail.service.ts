@@ -189,30 +189,52 @@ export class MailService {
     <meta charset="utf-8" />
     <meta name="x-apple-disable-message-reformatting" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
     <title>${safeTitle}</title>
+    <style>
+      @media (prefers-color-scheme: dark) {
+        .pm-bg {
+          background: #111827 !important;
+        }
+        .pm-text,
+        .pm-text a,
+        .pm-text span {
+          color: #ffffff !important;
+        }
+      }
+      [data-ogsc] .pm-bg {
+        background: #111827 !important;
+      }
+      [data-ogsc] .pm-text,
+      [data-ogsc] .pm-text a,
+      [data-ogsc] .pm-text span {
+        color: #ffffff !important;
+      }
+    </style>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','Segoe UI',Roboto,sans-serif;color:#111827;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff;margin:0;padding:0;">
+  <body class="pm-bg" style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','Segoe UI',Roboto,sans-serif;color:#111827;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="pm-bg" style="background:#ffffff;margin:0;padding:0;">
       <tr>
         <td align="center" style="padding:34px 16px;">
-          <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:620px;background:#ffffff;">
+          <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" class="pm-bg" style="width:100%;max-width:620px;background:#ffffff;">
             <tr>
               <td style="padding:12px 14px 0 14px;text-align:left;">
-                <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
+                <div class="pm-text" style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
                   ${
                     brandTitle
                       ? '<span style="color:#111827;">PickMovie</span>'
                       : safeTitle
                   }
                 </div>
-                <div style="margin-top:12px;font-size:18px;line-height:1.55;color:#111827;">
+                <div class="pm-text" style="margin-top:12px;font-size:18px;line-height:1.55;color:#111827;">
                   ${safeSubtitle}
                 </div>
 
                 ${
                   extraText
                     ? `
-                <div style="margin-top:10px;font-size:16px;line-height:1.5;color:#111827;">${safeHighlightLabel}: <span style="font-weight:700;color:#111827;">${safeHighlightValue}</span></div>
+                <div class="pm-text" style="margin-top:10px;font-size:16px;line-height:1.5;color:#111827;">${safeHighlightLabel}: <span style="font-weight:700;color:#111827;">${safeHighlightValue}</span></div>
                 `
                     : ''
                 }
@@ -226,16 +248,16 @@ export class MailService {
                   </a>
                 </div>
 
-                <div style="margin-top:20px;font-size:16px;line-height:1.5;color:#111827;">
+                <div class="pm-text" style="margin-top:20px;font-size:16px;line-height:1.5;color:#111827;">
                   버튼이 안 눌리면 아래 링크를 복사해 브라우저에 붙여넣어주세요.<br/>
                 </div>
 
-                <div style="margin-top:8px;font-size:15px;line-height:1.55;">
+                <div class="pm-text" style="margin-top:8px;font-size:15px;line-height:1.55;">
                   <a href="${safeUrl}" style="color:#111827;word-break:break-all;text-decoration:underline;">${safeUrl}</a>
                 </div>
                 ${
                   footer
-                    ? `<div style="margin-top:16px;font-size:14px;color:#111827;line-height:1.5;">${safeFooter}</div>`
+                    ? `<div class="pm-text" style="margin-top:16px;font-size:14px;color:#111827;line-height:1.5;">${safeFooter}</div>`
                     : ''
                 }
               </td>
