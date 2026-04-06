@@ -191,7 +191,7 @@ export class MailService {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;font-family:Apple SD Gothic Neo,Segoe UI,Roboto,sans-serif;color:#111827;">
+  <body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Malgun Gothic','Segoe UI',Roboto,sans-serif;color:#111827;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#ffffff;margin:0;padding:0;">
       <tr>
         <td align="center" style="padding:34px 16px;">
@@ -201,7 +201,7 @@ export class MailService {
                 <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
                   ${
                     brandTitle
-                      ? '<span style="background-image:linear-gradient(90deg,#7c3aed,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent;">Pick</span><span style="color:#111827;">Movie</span>'
+                      ? '<span style="color:#7c3aed;">Pick</span><span style="color:#111827;">Movie</span>'
                       : safeTitle
                   }
                 </div>
