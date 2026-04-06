@@ -201,7 +201,7 @@ export class MailService {
                 <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
                   ${
                     brandTitle
-                      ? '<span style="color:#7c3aed;">Pick</span><span style="color:#111827;">Movie</span>'
+                      ? '<span style="display:inline-block;width:34px;height:34px;border-radius:8px;vertical-align:-6px;margin-right:8px;background:#7c3aed;background-image:linear-gradient(90deg,#7c3aed,#ec4899);"></span><span style="color:#6d28d9;">Pick</span><span style="color:#111827;">Movie</span>'
                       : safeTitle
                   }
                 </div>
