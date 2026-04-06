@@ -77,6 +77,17 @@ export class MailService {
     return Number.isFinite(raw) && raw > 0 ? raw : fallback;
   }
 
+  private frontendUrl(): string {
+    return this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+  }
+
+  private brandLogoUrl(): string {
+    const custom = this.config.get<string>('MAIL_BRAND_LOGO_URL')?.trim();
+    if (custom) return custom;
+    const base = this.frontendUrl().replace(/\/+$/, '');
+    return `${base}/pickmovie-icon.png`;
+  }
+
   private async sendViaResendApi(
     to: string,
     subject: string,
@@ -169,6 +180,7 @@ export class MailService {
     const safeBtn = this.escapeHtml(buttonText);
     const safeUrl = this.escapeHtml(url);
     const safeFooter = footer ? this.escapeHtml(footer) : '';
+    const safeBrandLogoUrl = this.escapeHtml(this.brandLogoUrl());
 
     const safeHighlightLabel = highlightLabel
       ? this.escapeHtml(highlightLabel)
@@ -201,7 +213,7 @@ export class MailService {
                 <div style="font-size:34px;font-weight:800;line-height:1.12;color:#111827;letter-spacing:-0.02em;">
                   ${
                     brandTitle
-                      ? '<span style="color:#7c3aed;">Pick</span><span style="color:#111827;">Movie</span>'
+                      ? `<img src="${safeBrandLogoUrl}" alt="PickMovie" width="180" style="display:block;width:180px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />`
                       : safeTitle
                   }
                 </div>
@@ -220,7 +232,7 @@ export class MailService {
                 <div style="margin-top:22px;">
                   <a href="${safeUrl}"
                     style="display:inline-block;padding:13px 20px;border-radius:10px;
-                           background:#7c3aed;
+                           background:#7c3aed;background-image:linear-gradient(90deg,#7c3aed,#db2777);
                            color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;line-height:1.4;">
                     ${safeBtn}
                   </a>
