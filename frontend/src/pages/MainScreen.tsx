@@ -144,19 +144,40 @@ const LEGACY_ONBOARDING_PROMPT_SEEN = "pickmovie_onboarding_prompt_seen";
 const INTRO_GUIDE_HIDE_UNTIL = "pickmovie_intro_guide_hide_until";
 const INTRO_GUIDE_HIDE_FOREVER_TS = 32503680000000; // 3000-01-01T00:00:00.000Z
 
-function getIntroGuideStorageKey(loggedIn: boolean): string {
-  if (!loggedIn) return `${INTRO_GUIDE_HIDE_UNTIL}:guest`;
+function getIntroGuideLegacyStorageKeys(): string[] {
+  const keys = new Set<string>([
+    `${INTRO_GUIDE_HIDE_UNTIL}:guest`,
+    `${INTRO_GUIDE_HIDE_UNTIL}:user`,
+  ]);
   try {
     const raw = localStorage.getItem(AUTH_KEYS.USER);
-    if (!raw) return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
-    const user = JSON.parse(raw) as StoredUser;
-    const uid = Number(user?.id);
-    if (Number.isFinite(uid) && uid > 0)
-      return `${INTRO_GUIDE_HIDE_UNTIL}:user:${uid}`;
-    return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
-  } catch {
-    return `${INTRO_GUIDE_HIDE_UNTIL}:user`;
+    if (raw) {
+      const user = JSON.parse(raw) as StoredUser;
+      const uid = Number(user?.id);
+      if (Number.isFinite(uid) && uid > 0) {
+        keys.add(`${INTRO_GUIDE_HIDE_UNTIL}:user:${uid}`);
+      }
+    }
+  } catch {}
+  return Array.from(keys);
+}
+
+function readIntroGuideHideUntil(): number {
+  const keys = [INTRO_GUIDE_HIDE_UNTIL, ...getIntroGuideLegacyStorageKeys()];
+  for (const key of keys) {
+    const hideUntil = Number(localStorage.getItem(key) ?? 0);
+    if (Number.isFinite(hideUntil) && hideUntil > 0) return hideUntil;
   }
+  return 0;
+}
+
+function writeIntroGuideHideUntil(hideUntil: number | null) {
+  const keys = [INTRO_GUIDE_HIDE_UNTIL, ...getIntroGuideLegacyStorageKeys()];
+  if (hideUntil && Number.isFinite(hideUntil) && hideUntil > 0) {
+    for (const key of keys) localStorage.setItem(key, String(hideUntil));
+    return;
+  }
+  for (const key of keys) localStorage.removeItem(key);
 }
 
 function getTodayHideUntil(): number {
@@ -172,8 +193,8 @@ function IntroGuideModal({
   onGoInfo,
 }: {
   open: boolean;
-  onClose: (hidePermanently: boolean) => void;
-  onGoInfo: (hidePermanently: boolean) => void;
+  onClose: (hideForToday: boolean) => void;
+  onGoInfo: (hideForToday: boolean) => void;
 }) {
   const [hideForToday, setHideForToday] = useState(false);
 
@@ -1214,29 +1235,24 @@ export function MainScreen({
       return;
     }
     try {
-      const storageKey = getIntroGuideStorageKey(loggedIn);
-      const hideUntil = Number(localStorage.getItem(storageKey) ?? 0);
+      const hideUntil = readIntroGuideHideUntil();
       const hidden = Number.isFinite(hideUntil) && hideUntil > Date.now();
-      if (!hidden) localStorage.removeItem(storageKey);
+      if (!hidden) writeIntroGuideHideUntil(null);
       setShowIntroGuide(!hidden);
     } catch {
       setShowIntroGuide(false);
     }
   }, [currentSection, loggedIn]);
 
-  const closeIntroGuide = useCallback((hidePermanently: boolean) => {
+  const closeIntroGuide = useCallback((hideForToday: boolean) => {
     setShowIntroGuide(false);
     try {
-      const storageKey = getIntroGuideStorageKey(loggedIn);
-      if (hidePermanently) {
-        localStorage.setItem(storageKey, String(getTodayHideUntil()));
-      }
-      else localStorage.removeItem(storageKey);
+      writeIntroGuideHideUntil(hideForToday ? getTodayHideUntil() : null);
     } catch {}
-  }, [loggedIn]);
+  }, []);
 
-  const goInfoFromIntroGuide = useCallback((hidePermanently: boolean) => {
-    closeIntroGuide(hidePermanently);
+  const goInfoFromIntroGuide = useCallback((hideForToday: boolean) => {
+    closeIntroGuide(hideForToday);
     navigate("/info");
   }, [closeIntroGuide, navigate]);
 
@@ -1401,8 +1417,7 @@ export function MainScreen({
         localStorage.setItem(NEW_USER_FLAG, "1");
         localStorage.setItem(ANALYZE_PROMPT_SEEN, "0");
         localStorage.setItem(LEGACY_ONBOARDING_PROMPT_SEEN, "0");
-        const storageKey = getIntroGuideStorageKey(true);
-        localStorage.setItem(storageKey, String(INTRO_GUIDE_HIDE_FOREVER_TS));
+        writeIntroGuideHideUntil(INTRO_GUIDE_HIDE_FOREVER_TS);
       }
 
       params.delete("onboard");
